@@ -1,0 +1,6 @@
+*.out
+vis/*
+past_runs/*
+*.txt
+bin/*
+*.data
