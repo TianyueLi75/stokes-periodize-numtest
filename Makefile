@@ -1,7 +1,7 @@
 # Example Makefile for building CSBQ projects
 
 PVFMM_DIR ?= ./extern/pvfmm
-include $(PVFMM_DIR)/MakeVariables
+-include $(PVFMM_DIR)/MakeVariables
 
 # Directories for SCTL includes and quadrature tables
 SCTL_INCLUDE_DIR ?= $(PVFMM_DIR)/SCTL/include
@@ -9,7 +9,8 @@ CSBQ_INCLUDE_DIR ?= ./extern/CSBQ/include
 SCTL_DATA_PATH ?= ./extern/CSBQ/data
 
 # Compiler settings
-CXX = $(CXX_PVFMM) # Requires g++-9 or newer, icpc (with gcc compatibility 7.5 or newer), or clang++ with llvm-10 or newer
+# CXX = $(CXX_PVFMM) # Requires g++-9 or newer, icpc (with gcc compatibility 7.5 or newer), or clang++ with llvm-10 or newer
+CXX = mpicxx
 CXXFLAGS = -std=c++17 -fopenmp # Need C++11 and OpenMP
 
 # Define the path for quadrature tables and enable quadruple precision (for reading quadrature tables)
@@ -47,7 +48,7 @@ CXXFLAGS += -DSCTL_HAVE_MPI
 # CXXFLAGS += -mkl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK       # Use MKL BLAS and LAPACK (Intel compiler)
 # CXXFLAGS += -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK # Use MKL BLAS and LAPACK (non-Intel compiler)
 # CXXFLAGS += -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -lpthread -lm -ldl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK
-# CXXFLAGS += -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK
+CXXFLAGS += -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK
 
 # Enable FFTW
 # CXXFLAGS += -lfftw3 -DSCTL_HAVE_FFTW
@@ -81,8 +82,10 @@ INCDIR = ./include
 TESTDIR = ./test
 
 TEST_BIN = \
-    $(BINDIR)/test \
-    $(BINDIR)/test1
+    $(BINDIR)/test_selfconv
+    # $(BINDIR)/test \
+    # $(BINDIR)/test1 \
+    # $(BINDIR)/test_selfconv
 
 # Test target: build all test binaries
 test: $(TEST_BIN)
