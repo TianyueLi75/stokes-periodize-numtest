@@ -19,83 +19,29 @@ template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
 }
 
 template <class Real> void test(sctl::Comm comm) {
+  // std::cout << "size of overall comm is " << comm.Size() <<"; rank in overall comm is "<< comm.Rank() << std::endl;
+
   // Combine single-layer and double-layer kernels in these proportions
   const Real SL_scal = 1.0;
   const Real DL_scal = 1.0;
 
   const Real tol = 1e-14;
-  const Real gmres_tol = 1e-11;
-  const sctl::Long gmres_max_iter = 50;
-  const sctl::Long Nelem_channel = 8;
+  const Real gmres_tol = 1e-8;
+  // const sctl::Long gmres_max_iter = 50;
+  const sctl::Long Nelem_channel = 4;
   const sctl::Long ElemOrder = 10;
-  const sctl::Long FourierOrder = 28;
+  const sctl::Long FourierOrder = 16;
 
-  const auto build_elem_lst_nbr = [](const sctl::Long Nelem_channel, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const bool add_nbrs){
-    sctl::Vector<Real> Xc, eps, orient;
-    sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
-    for (sctl::Long i = 0; i < Nelem_channel; i++) {
-      ElemOrderVec.PushBack(ElemOrder);
-      FourierOrderVec.PushBack(FourierOrder);
-      const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrderVec[i]);
-      for (sctl::Long j = 0; j < ElemOrderVec[i]; j++) {
-        const Real x = (i+nodes[j])/Nelem_channel;
-        Xc.PushBack(x);
-        Xc.PushBack(0.5);
-        Xc.PushBack(0.5);
-        eps.PushBack(0.2);
-
-        orient.PushBack(0);
-        orient.PushBack(0);
-        orient.PushBack(1);
-      }
-    }
-
-    const sctl::Long Nelem_sphere = 4;
-    for (sctl::Long i = 0; i < Nelem_sphere; i++) { // add a sphere
-      ElemOrderVec.PushBack(ElemOrder);
-      FourierOrderVec.PushBack(FourierOrder);
-      const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrderVec[i]);
-      for (sctl::Long j = 0; j < ElemOrderVec[i]; j++) {
-        const Real r = 0.1;
-        const Real theta = sctl::const_pi<Real>() * (i+nodes[j])/Nelem_sphere;
-        Xc.PushBack(0.5+r*sctl::cos<Real>(theta));
-        Xc.PushBack(0.5);
-        Xc.PushBack(0.5);
-        eps.PushBack(r*sctl::sin<Real>(theta));
-
-        orient.PushBack(0);
-        orient.PushBack(0);
-        orient.PushBack(1);
-      }
-    }
-
-    if (add_nbrs) { // duplicate geomtry to add images
-      sctl::Vector<Real> Xc_, eps_, orient_;
-      sctl::Vector<sctl::Long> ElemOrderVec_, FourierOrderVec_;
-      for (sctl::Long k0 = -1; k0 <= 1; k0++) {
-        for (const auto& x : eps) eps_.PushBack(x);
-        for (const auto& x : orient) orient_.PushBack(x);
-        for (const auto& x : ElemOrderVec) ElemOrderVec_.PushBack(x);
-        for (const auto& x : FourierOrderVec) FourierOrderVec_.PushBack(x);
-        for (sctl::Long i = 0; i < Xc.Dim()/3; i++) { // shift in x
-          Xc_.PushBack(Xc[i*3+0] + k0);
-          Xc_.PushBack(Xc[i*3+1]);
-          Xc_.PushBack(Xc[i*3+2]);
-        }
-      }
-      Xc.Swap(Xc_);
-      eps.Swap(eps_);
-      orient.Swap(orient_);
-      ElemOrderVec.Swap(ElemOrderVec_);
-      FourierOrderVec.Swap(FourierOrderVec_);
-    }
-    sctl::SlenderElemList<Real> elem_lst(ElemOrderVec, FourierOrderVec, Xc, eps, orient);
-    return elem_lst;
-  };
-  const auto elem_lst0 = build_elem_lst_nbr(Nelem_channel, ElemOrder, FourierOrder, false); // geometry in the unit box [0,1]^3
-  const auto elem_lst_nbr = build_elem_lst_nbr(Nelem_channel, ElemOrder, FourierOrder, true); // geometry with one set of images in each direction
+  PeriodicGeom<Real> obj;
+  sctl::Vector<sctl::Long> ptcls(1);
+  ptcls = 4;
+  int geom_mode = 3;
+  sctl::Vector<Real> ptcls_Xcs;
+  sctl::Vector<Real> ptcls_rs;
+  const auto elem_lst0 = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 0, 0.2, 0.1, ptcls, ptcls_rs, ptcls_Xcs,geom_mode);
+  const auto elem_lst_nbr = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 1, 0.2, 0.1, ptcls, ptcls_rs, ptcls_Xcs,geom_mode);
   const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); // should be 3
-  //elem_lst_nbr.WriteVTK("vis/S-nbr", comm);
+  // std::cout << "just after build sinusoidal; ptcl Xc dim = " << ptcls_Xcs.Dim() << "; ptcl rs dim = " << ptcls_rs.Dim() << std::endl;
 
   sctl::Vector<Real> X0; // target coordinates
   elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
@@ -112,6 +58,8 @@ template <class Real> void test(sctl::Comm comm) {
       }
     }
   }
+
+  elem_lst0.WriteVTK("vis/X_utils", X0, comm);
 
   StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
   LayerPotenOp0.AddElemList(elem_lst_nbr);
@@ -149,17 +97,35 @@ template <class Real> void test(sctl::Comm comm) {
   // Solve for sigma to satisfy no-slip boundary conditions: BIO(sigma) + bg_flow = 0
   sctl::Vector<Real> sigma;
   sctl::GMRES<Real> solver(comm);
-  solver(&sigma, BIO, -bg_flow(X0), gmres_tol, gmres_max_iter);
-  elem_lst0.WriteVTK("vis/sigma", sigma, comm);
+  // solver(&sigma, BIO, -bg_flow(X0), gmres_tol, gmres_max_iter);
+  solver(&sigma, BIO, -bg_flow(X0), gmres_tol);
+  // elem_lst0.WriteVTK("vis/sigma", sigma, comm);
 
   { // Evaluate in interior, and write visualization
-    VolumeVis<Real> vol_vis(elem_lst0, comm);
-    X0 = vol_vis.GetCoord(); // set new target coordinates
+    // Note: BIO defined to take in X0 as target.
+    VolumeVis<Real> vol_vis(elem_lst0, comm, false);
+    sctl::Vector<Real> X0_all = vol_vis.GetCoord(); // set new target coordinates
+    std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = obj.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs,geom_mode);
+    X0 = std::get<0>(trg_tuple);
+    sctl::Vector<sctl::Long> filtered_inds = std::get<1>(trg_tuple);
     LayerPotenOp0.SetTargetCoord(X0);
     sctl::Vector<Real> U;
     BIO(&U, sigma);
     U += bg_flow(X0);
-    vol_vis.WriteVTK("vis/U", U);
+    sctl::Vector<Real> U_vis(X0_all.Dim());
+    U_vis = 0.;
+    sctl::Long X1_ptr = 0;
+    for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+      // std::cout << "target id " << i << std::endl; 
+      if (filtered_inds[i] == 0) {
+        // std::cout << "not inside, inputting " << X1_ptr << "th target" << std::endl;
+        U_vis[i*3] = U[X1_ptr*3];
+        U_vis[i*3+1] = U[X1_ptr*3+1];
+        U_vis[i*3+2] = U[X1_ptr*3+2];
+        X1_ptr += 1;
+      }
+    }
+    vol_vis.WriteVTK("vis/U_utils", U_vis);
   }
 }
 
@@ -170,6 +136,7 @@ int main(int argc, char** argv) {
   {
     //sctl::Profile::Enable(true);
     sctl::Comm comm = sctl::Comm::World();
+    // std::cout << "size of comm is "<< comm.Size() << std::endl;
     test<Real>(comm);
   }
 

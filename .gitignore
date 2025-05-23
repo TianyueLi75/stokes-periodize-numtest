@@ -4,3 +4,5 @@ past_runs/*
 *.txt
 bin/*
 *.data
+*.sh
+data/*
