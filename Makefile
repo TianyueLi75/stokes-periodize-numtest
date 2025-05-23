@@ -82,13 +82,17 @@ INCDIR = ./include
 TESTDIR = ./test
 
 TEST_BIN = \
-    $(BINDIR)/test_selfconv
-    # $(BINDIR)/test \
-    # $(BINDIR)/test1 \
-    # $(BINDIR)/test_selfconv
+    $(BINDIR)/test \
+    $(BINDIR)/test1
 
 # Test target: build all test binaries
 test: $(TEST_BIN)
+
+# Test ptcl: build only test1
+test_ptcl: $(BINDIR)/test1
+
+# Test self_conv without particle:
+test_wavy: $(BINDIR)/test_selfconv
 
 # Rules for building binaries
 $(BINDIR)/%: $(OBJDIR)/%.o

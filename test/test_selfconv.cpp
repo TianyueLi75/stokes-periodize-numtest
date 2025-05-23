@@ -36,11 +36,14 @@ template <class Real> sctl::Vector<Real> u_ref(const sctl::Vector<Real>& X) {
 // Self convergence solution read from file.
 template <class Real> sctl::Vector<Real> Read_u_ref() {
   sctl::Vector<Real> U;
-  U.Read("out/U_8_16.txt");
+  // U.Read("out/U_8_16.txt");
+  U.Read("out/U_8_16_1.txt");
   return U;
 }
 
-template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref) {
+template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Comm comm) {
+
+  // std::cout << "size of overall comm is " << comm.Size() <<"; rank in overall comm is "<< comm.Rank() << std::endl;
 
   const Real SL_scal = 1.0;
   const Real DL_scal = 1.0;
@@ -48,8 +51,6 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
   const Real tol = 1e-15;
   const Real gmres_tol = 1e-14;
   const sctl::Long ElemOrder = 10;
-
-  const sctl::Comm comm = sctl::Comm::Self();
 
   const auto build_elem_lst_nbr = [](const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range){
     sctl::Vector<Real> Xc, eps, orient;
@@ -69,8 +70,13 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
               // Xc.PushBack(k2+0.3);
               // eps.PushBack(0.2);
 
-              // wavy channel
-              Xc.PushBack(k1 + 0.1*cos(2*sctl::const_pi<Real>()*x)+0.5);
+              // // wavy channel 1
+              // Xc.PushBack(k1 + 0.1*cos(2*sctl::const_pi<Real>()*x)+0.5);
+              // Xc.PushBack(k2+0.5);
+              // eps.PushBack(0.1);
+
+              // wavy channel 2
+              Xc.PushBack(k1 + 0.3*cos(2*sctl::const_pi<Real>()*x)+0.5);
               Xc.PushBack(k2+0.5);
               eps.PushBack(0.1);
 
@@ -104,7 +110,8 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
   LayerPotenOp_proxy.SetAccuracy(tol);
 
   // periodized layer potential operator
-  const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+  const auto BIO = [&comm,&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+    // std::cout <<"ID " << comm.Rank() << " in BIO." << std::endl;
     const sctl::Long N = sigma.Dim();
 
     sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
@@ -119,6 +126,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     if (DL_scal && U->Dim() == N) (*U) -= sigma*0.5 * DL_scal; // for double-layer
 
     { // Add far-field
+      // std::cout << "ID " << comm.Rank() << " in far eval." << std::endl;
       sctl::Vector<Real> U_proxy, U_far;
       LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
       Periodize<Real>::EvalFarField(U_far, X0, U_proxy);
@@ -134,15 +142,16 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
   // elem_lst0.WriteVTK("vis/sigma", sigma);
 
   { // Evaluate in interior, compute error and write visualization
-    // NEW: use densest grid on surface to get same target points for comparison.
+    std::cout << "in eval block, sigma dim = " << sigma.Dim() << std::endl;
     const sctl::Long Nelem_trg = 8;
     const sctl::Long FourierOrder_trg = 16;
-    const auto elem_lst_trg = build_elem_lst_nbr(Nelem_trg, ElemOrder, FourierOrder_trg, 0); 
+    const auto elem_lst_trg = build_elem_lst_nbr(Nelem_trg, ElemOrder, FourierOrder_trg, 0);
 
-    VolumeVis<Real> cube(elem_lst_trg, comm);
+    VolumeVis<Real> cube(elem_lst0, comm);
     X0 = cube.GetCoord(); // set new target coordinates
     LayerPotenOp0.SetTargetCoord(X0);
     sctl::Vector<Real> U;
+    std::cout <<"size of BIO is " << LayerPotenOp0.Dim(0) << ", " << LayerPotenOp0.Dim(1) << std::endl;
     BIO(&U, sigma);
     U += bg_flow(X0);
 
@@ -151,9 +160,13 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 
     // if this is the reference parameters, write to file.
     if (write_ref) {
-      U.Write("out/U_8_16.txt");
-      cube.WriteVTK("vis/U_ref", U);
-      elem_lst_nbr.WriteVTK("vis/S-nbr");
+      std::cout << "in writing block" << std::endl;
+      U.Write("out/U_8_16_1.txt");
+      cube.WriteVTK("vis/U_ref_1", U);
+      elem_lst_nbr.WriteVTK("vis/S-nbr_1");
+      // U.Write("out/U_8_16.txt");
+      // cube.WriteVTK("vis/U_ref", U);
+      // elem_lst_nbr.WriteVTK("vis/S-nbr");
     } else {
       std::cout << "not write-ref, reading U_ref" << std::endl;
       sctl::Vector<double> U_ref = Read_u_ref<double>();
@@ -170,16 +183,17 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 int main(int argc, char** argv) {
   sctl::Comm::MPI_Init(&argc, &argv);
   using Real = double;
-  long Nelem  = std::stol(argv[1]); // number of elements
-  long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
-  if (Nelem==32 && FourierOrder==64) {
-    std::cout << "reference solution" << std::endl;
-    test<Real>(Nelem, FourierOrder, 1);
-  } else {
-    test<Real>(Nelem, FourierOrder, 0);
+
+  {
+    const sctl::Comm comm = sctl::Comm::World();
+    long Nelem  = std::stol(argv[1]); // number of elements
+    long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
+    int write_ref = std::stoi(argv[3]); // whether the parameters are considered ''artifical true solution''.
+    test<Real>(Nelem, FourierOrder, (write_ref==1), comm);
   }
 
   sctl::Comm::MPI_Finalize();
+  // std::cout << "after finalizing MPI" << std::endl;
   return 0;
 }
 

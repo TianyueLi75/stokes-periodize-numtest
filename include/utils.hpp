@@ -2,6 +2,7 @@
 #define _PERIODIZE_UTILS_HPP_
 
 #include <csbq.hpp>
+#include <tuple>
 
 /**
  * Visualize volume inside SlenderElemList.
@@ -20,8 +21,9 @@ template <class Real> class VolumeVis {
      *
      * @param elem_lst the geometry.
      * @param comm MPI communicator.
+     * @param shortened whether to restrict to inner target points.
      */
-    VolumeVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm = sctl::Comm::Self());
+    VolumeVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm = sctl::Comm::Self(), const bool shortened = false);
 
     /**
      * @brief Get the coordinates of the discretization points.
@@ -172,6 +174,74 @@ template <class Real> class StokesBIO {
     sctl::BoundaryIntegralOp<Real, sctl::Stokes3D_FxU> LayerPotenSL;
     sctl::BoundaryIntegralOp<Real, sctl::Stokes3D_DxU> LayerPotenDL;
 };
+
+/**
+ * Geometry set up for different test channels with or without particles inside.
+ */
+template <class Real> class PeriodicGeom {
+  public: 
+    /**
+     * Create SlenderElem object for a straight channel.
+     *
+     * @param[in] Nelem number of panel quadrature on channel.
+     * @param[in] ElemOrder number of Cheb nodes on each panel.
+     * @param[in] FourierOder number of trapezoid nodes in azimuthal direction.
+     * @param[in] nbr_range number of copies in x direction that are not covered by proxy periodization.
+     * @param[in] r radius of straight channel.
+     * @param[in] ptcls list of Nelem for each particle object to be initiated inside channel.
+     * @param[in] ptcls_rs vector location to store radii of particles created by many_sphs().
+     * @param[in] ptcls_Xcs vector location to store centerline locations for particles created by many_sphs().
+     * @param[in] geom_mode =1 for spheres, =2 for spheroids, =3 for bacteria, =4 for loops
+     */
+    sctl::SlenderElemList<Real> build_straight(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const Real r, const sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode);
+
+    /**
+     * Create SlenderElem object for a sinusoidal channel.
+     *
+     * @param[in] Nelem number of panel quadrature on channel.
+     * @param[in] ElemOrder number of Cheb nodes on each panel.
+     * @param[in] FourierOder number of trapezoid nodes in azimuthal direction.
+     * @param[in] nbr_range number of copies in x direction that are not covered by proxy periodization.
+     * @param[in] r radius of sinusoidal channel.
+     * @param[in] mag amplitude magnification to adjust oscillation; set to 0.1 or 0.3 in examples.
+     * @param[in] ptcls list of Nelem for each particle object to be initiated inside channel.
+     * @param[in] ptcls_rs vector location to store radii of particles created by many_sphs().
+     * @param[in] ptcls_Xcs vector location to store centerline locations for particles created by many_sphs().
+     * @param[in] geom_mode =1 for spheres, =2 for spheroids, =3 for bacteria, =4 for loops
+     */
+    sctl::SlenderElemList<Real> build_sinusoidal(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const Real r, const Real mag, const sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode);
+
+    /**
+     * Given a list of target X, and particle location information, filter out targets inside particles. 
+     * Returns a vector of exterior targets, and a list of booleans indicating whether original target was inside a particle.
+     *
+     * @param[in] X vector containing original target points.
+     * @param[in] ptcls list of Nelem for each particle object to be initiated inside channel.
+     * @param[in] ptcls_rs vector of radii of particles.
+     * @param[in] ptcls_Xcs vector of centerline locations for particles.
+     * @param[in] geom_mode =1 for spheres, =2 for spheroids, =3 for bacteria, =4 for loops
+     */
+    std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> filter_target(const sctl::Vector<Real> X, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real> ptcls_rs, const sctl::Vector<Real> ptcls_Xcs, const int geom_mode);
+
+    /**
+     * Given channel centerline location and radius, create a given number of spheres on the interior with some randomness.
+     *
+     * @param[in] ptcls_Xcs vector location to store centerline locations for particles created by many_sphs().
+     * @param[in] ptcls_rs vector location to store radii of particles created by many_sphs().
+     * @param[in] Channel_Xc vector of centerline locations for the channel.
+     * @param[in] Channel_r radius of channel.
+     * @param[in] Nobj number of particles to create.
+     */
+    void many_sphs(sctl::Vector<Real>& ptcls_Xcs, sctl::Vector<Real>& ptcls_rs, const sctl::Vector<Real>& Channel_Xc, const Real Channel_r, const sctl::Long Nobj);
+
+    void sphere_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real loop_rad);
+    void spheroid_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real loop_rad);
+    void bacteria_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real loop_rad);
+    void loop_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real loop_rad);
+
+    bool outside_ptcl(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real pr, const int geom_mode);
+};
+
 
 #include <utils.cpp>
 
