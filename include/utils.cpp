@@ -312,6 +312,45 @@ template <class Real> sctl::SlenderElemList<Real> PeriodicGeom<Real>::build_sinu
   return elem_lst;
 };
 
+template <class Real> sctl::SlenderElemList<Real> PeriodicGeom<Real>::build_sinusoidal_mpi(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const Real r, const Real mag, const sctl::Comm& comm){
+  sctl::Vector<Real> Xc, eps, orient;
+  sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
+  for (sctl::Long k0 = -nbr_range; k0 <= nbr_range; k0++) { // 1D periodic in x direction.
+    for (sctl::Long i = 0; i < Nelem; i++) {
+      ElemOrderVec.PushBack(ElemOrder);
+      FourierOrderVec.PushBack(FourierOrder);
+      const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrderVec[i]);
+      for (sctl::Long j = 0; j < ElemOrderVec[i]; j++) {
+        const Real x = (i+nodes[j])/Nelem;
+        Xc.PushBack(k0 + x);
+        Xc.PushBack(mag * sctl::cos<Real>(2*sctl::const_pi<Real>()*x) + 0.5);
+        Xc.PushBack(0.5);
+        eps.PushBack(r);
+
+        orient.PushBack(0);
+        orient.PushBack(0);
+        orient.PushBack(1);
+      }
+    }
+  }
+  // distributed memory
+  const sctl::Long Ncpu = comm.Size();
+  sctl::Vector<sctl::Long> obj_elem_cnt(Ncpu);
+  sctl::Vector<sctl::Long> obj_elem_dsp(Ncpu);
+  Real panel_len = 1/(Real)Nelem; // TODO: objects here have total length 1?
+  obj_elem_cnt = ceil(Xc.Dim() / 3 / Ncpu); // TODO: ceiling function?
+  obj_elem_cnt[Ncpu-1] = Xc.Dim() / 3 - (Ncpu-1) * obj_elem_cnt[0]; //  last cpu catches all remaining points.
+  // Q: do nodes on single element have to stay on the same process? -- divide by panels not by nodes?
+  obj_elem_dsp = 0.;
+  sctl::omp_par::scan(obj_elem_cnt.begin(),obj_elem_dsp.begin(),Ncpu);
+  // TODO: simpler to just copy it over?
+  sctl::RigidBodyList<Real> rblist(comm, Ncpu, eps[0], "bacteria");
+  sctl::SlenderElemList<Real> elem_lst;
+  rblist.InitElemList(obj_elem_cnt, obj_elem_dsp, elem_lst, ElemOrder, FourierOrder, Xc, eps, orient, comm);
+  // sctl::SlenderElemList<Real> elem_lst(ElemOrderVec, FourierOrderVec, Xc, eps, orient);
+  return elem_lst;
+};
+
 template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> PeriodicGeom<Real>::filter_target(const sctl::Vector<Real> X, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real> ptcls_rs, const sctl::Vector<Real> ptcls_Xcs, const int geom_mode) {
   const sctl::Long N = X.Dim()/3; // number of targets
   const sctl::Long Nptcl = ptcls.Dim(); // number of particles

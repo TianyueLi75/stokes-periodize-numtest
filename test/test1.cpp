@@ -33,8 +33,9 @@ template <class Real> void test(sctl::Comm comm) {
   const sctl::Long FourierOrder = 16;
 
   PeriodicGeom<Real> obj;
-  sctl::Vector<sctl::Long> ptcls(1);
-  ptcls = 4;
+  sctl::Vector<sctl::Long> ptcls; // no length initialization -- no particles.
+  // sctl::Vector<sctl::Long> ptcls(1);
+  // ptcls = 4;
   int geom_mode = 3;
   sctl::Vector<Real> ptcls_Xcs;
   sctl::Vector<Real> ptcls_rs;
@@ -59,7 +60,7 @@ template <class Real> void test(sctl::Comm comm) {
     }
   }
 
-  elem_lst0.WriteVTK("vis/X_utils", X0, comm);
+  // elem_lst0.WriteVTK("vis/X_utils", X0, comm);
 
   StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
   LayerPotenOp0.AddElemList(elem_lst_nbr);
@@ -105,24 +106,36 @@ template <class Real> void test(sctl::Comm comm) {
     // Note: BIO defined to take in X0 as target.
     VolumeVis<Real> vol_vis(elem_lst0, comm, false);
     sctl::Vector<Real> X0_all = vol_vis.GetCoord(); // set new target coordinates
-    std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = obj.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs,geom_mode);
-    X0 = std::get<0>(trg_tuple);
-    sctl::Vector<sctl::Long> filtered_inds = std::get<1>(trg_tuple);
+    sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
+    if (!ptcls.Dim()) {
+      std::cout << "no particles." << std::endl;
+      X0 = X0_all;
+      filtered_inds = 1;
+    } else {
+      std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = obj.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs,geom_mode);
+      X0 = std::get<0>(trg_tuple);
+      filtered_inds = std::get<1>(trg_tuple);
+    }
     LayerPotenOp0.SetTargetCoord(X0);
     sctl::Vector<Real> U;
     BIO(&U, sigma);
     U += bg_flow(X0);
     sctl::Vector<Real> U_vis(X0_all.Dim());
-    U_vis = 0.;
-    sctl::Long X1_ptr = 0;
-    for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
-      // std::cout << "target id " << i << std::endl; 
-      if (filtered_inds[i] == 0) {
-        // std::cout << "not inside, inputting " << X1_ptr << "th target" << std::endl;
-        U_vis[i*3] = U[X1_ptr*3];
-        U_vis[i*3+1] = U[X1_ptr*3+1];
-        U_vis[i*3+2] = U[X1_ptr*3+2];
-        X1_ptr += 1;
+    if (!ptcls.Dim()) {
+      std::cout << "no particles." << std::endl;
+      U_vis = U;
+    } else {
+      U_vis = 0.;
+      sctl::Long X1_ptr = 0;
+      for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+        // std::cout << "target id " << i << std::endl; 
+        if (filtered_inds[i] == 0) {
+          // std::cout << "not inside, inputting " << X1_ptr << "th target" << std::endl;
+          U_vis[i*3] = U[X1_ptr*3];
+          U_vis[i*3+1] = U[X1_ptr*3+1];
+          U_vis[i*3+2] = U[X1_ptr*3+2];
+          X1_ptr += 1;
+        }
       }
     }
     vol_vis.WriteVTK("vis/U_utils", U_vis);
