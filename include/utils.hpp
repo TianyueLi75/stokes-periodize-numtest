@@ -212,6 +212,10 @@ template <class Real> class PeriodicGeom {
     sctl::SlenderElemList<Real> build_sinusoidal(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const Real r, const Real mag, const sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode);
 
     /**
+      * Create SlenderElem object with distributed memory based on size of comm.
+      */
+    sctl::SlenderElemList<Real> build_sinusoidal_mpi(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const Real r, const Real mag, const sctl::Comm& comm);
+    /**
      * Given a list of target X, and particle location information, filter out targets inside particles. 
      * Returns a vector of exterior targets, and a list of booleans indicating whether original target was inside a particle.
      *
