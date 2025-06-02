@@ -36,8 +36,8 @@ template <class Real> sctl::Vector<Real> u_ref(const sctl::Vector<Real>& X) {
 // Self convergence solution read from file.
 template <class Real> sctl::Vector<Real> Read_u_ref() {
   sctl::Vector<Real> U;
-  // U.Read("out/U_8_16.txt");
-  U.Read("out/U_8_16_1.txt");
+  U.Read("out/U_8_16.txt");
+  // U.Read("out/U_8_16_1.txt");
   return U;
 }
 
@@ -49,7 +49,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
   const Real DL_scal = 1.0;
 
   const Real tol = 1e-15;
-  const Real gmres_tol = 1e-14;
+  const Real gmres_tol = 1e-12;
   const sctl::Long ElemOrder = 10;
 
   const auto build_elem_lst_nbr = [](const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range){
@@ -70,15 +70,15 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
               // Xc.PushBack(k2+0.3);
               // eps.PushBack(0.2);
 
-              // // wavy channel 1
-              // Xc.PushBack(k1 + 0.1*cos(2*sctl::const_pi<Real>()*x)+0.5);
-              // Xc.PushBack(k2+0.5);
-              // eps.PushBack(0.1);
-
-              // wavy channel 2
-              Xc.PushBack(k1 + 0.3*cos(2*sctl::const_pi<Real>()*x)+0.5);
+              // wavy channel 1
+              Xc.PushBack(k1 + 0.1*cos(2*sctl::const_pi<Real>()*x)+0.5);
               Xc.PushBack(k2+0.5);
               eps.PushBack(0.1);
+
+              // // wavy channel 2
+              // Xc.PushBack(k1 + 0.3*cos(2*sctl::const_pi<Real>()*x)+0.5);
+              // Xc.PushBack(k2+0.5);
+              // eps.PushBack(0.1);
 
               orient.PushBack(0);
               orient.PushBack(0);
@@ -154,6 +154,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     std::cout <<"size of BIO is " << LayerPotenOp0.Dim(0) << ", " << LayerPotenOp0.Dim(1) << std::endl;
     BIO(&U, sigma);
     U += bg_flow(X0);
+    std::cout <<"dim of X0, " << X0.Dim() << std::endl;
 
     // cube.WriteVTK("vis/U_ref", U);
     // cube.WriteVTK("vis/err", err);
@@ -170,6 +171,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     } else {
       std::cout << "not write-ref, reading U_ref" << std::endl;
       sctl::Vector<double> U_ref = Read_u_ref<double>();
+      std::cout << U_ref.Dim() << ", " << U.Dim() << std::endl;
       // error code for self-convergence.
       double max_err = 0;
       const auto err = U - U_ref;
