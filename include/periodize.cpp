@@ -156,6 +156,7 @@ template <class Real> const sctl::Vector<Real>& Periodize<Real>::GetProxySurf() 
 }
 
 template <class Real> void Periodize<Real>::EvalFarField(sctl::Vector<Real>& U_far, const sctl::Vector<Real>& Xt, const sctl::Vector<Real>& U_proxy) {
+  // std::cout << "in eval far field, getting matrices. " << std::endl;
   const auto& Mbc0 = GetMat_UC2DE0();
   const auto& Mbc1 = GetMat_UC2DE1();
   const sctl::Long N = Mbc0.Dim(0);
@@ -164,6 +165,7 @@ template <class Real> void Periodize<Real>::EvalFarField(sctl::Vector<Real>& U_f
   // Compute the equivalent density at proxy points
   auto proxy_density = (sctl::Matrix<Real>(1,N,(sctl::Iterator<Real>)U_proxy.begin(),false) * Mbc0) * Mbc1;
 
+  // std::cout << "evaluate potential from proxy to Xt" << std::endl;
   // Evaluate the potential from proxy points at the targets Xt
   U_far = 0;
   static const sctl::Stokes3D_FxU stokeslet;
