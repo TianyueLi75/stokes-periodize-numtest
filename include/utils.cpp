@@ -308,12 +308,16 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
 
   auto get_r = [&r1, &r2](const Real& x) {
-    if (x < 0.3) {
-      return r1*sctl::cos<Real>(sctl::const_pi<Real>() * x / 0.3)+r1+r2;
+    if (x < 0.1) {
+      return 2*r1 + r2;
+    } else if (x < 0.3) {
+      return r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-0.1) / 0.2)+r1+r2;
     } else if (x < 0.7) {
       return r2;
+    } else if (x < 0.9) {
+      return r1+r2 - r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-0.7) / 0.2);
     } else {
-      return r1+r2 - r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-0.7) / 0.3);
+      return 2*r1 + r2;
     }
   };
 
@@ -458,9 +462,9 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   }
   sctl::Vector<Real> NormalOrient;
   { // set NormalOrient 
-    for (sctl::Long i = 0; i < Nelem + Nelem_ptcl_tot; i++) {
+    for (sctl::Long i = 0; i < Nelem_ptcl_tot; i++) {
       for (sctl::Long j = 0; j < ElemOrder*FourierOrder*COORD_DIM; j++) {
-        NormalOrient.PushBack(i < Nelem ? 1 : -1);
+        NormalOrient.PushBack(-1);
       }
     }
   }
@@ -518,6 +522,7 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::InitElemList(sctl::
   // peri_mode = j for j-periodic
 
   const sctl::Long Nelem = ElemOrder.Dim();
+  // std::cout << "Nelem is " << Nelem << std::endl;
   sctl::Long loc_elem_cnt, loc_elem_dsp;
   if (Nelem) { // Set loc_elem_cnt, loc_elem_dsp 
     // node_dsp.ReInit(Nelem);
@@ -583,15 +588,18 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::InitElemList(sctl::
   sctl::Vector<Real> X_nbr = X_nbr_copy(X_,nbr_range, peri_mode);
   sctl::Vector<Real> R_nbr = vec_nbr_copy(R_,nbr_range, peri_mode);
   sctl::Vector<Real> OrientVec_nbr = vec_nbr_copy(OrientVec_,nbr_range, peri_mode);
-  // sctl::Vector<Real> NormalOrient_nbr = vec_nbr_copy(NormalOrient_,nbr_range); // NormalOrient only for self-to-self, so no neighbor effects.
-  // std::cout << "size NormalOrient_ after nbr: " << NormalOrient_nbr.Dim() <<std::endl;
+  // std::cout << "locElemord dim, fourierorder dim, X dim, R dim, Orient dim:  " << LocElemOrder_nbr.Dim() << ", " << LocFourierOrder_nbr.Dim() << ", " << X_nbr.Dim() <<", " << R_nbr.Dim() << ", " << OrientVec_nbr.Dim() << std::endl;
   elem_lst.template Init<Real>(LocElemOrder_nbr, LocFourierOrder_nbr, X_nbr, R_nbr, OrientVec_nbr);  
   // }
   return NormalOrient_;
 }
 
 template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::vec_nbr_copy(const sctl::Vector<Real> X, const sctl::Integer nbr_range, const sctl::Integer peri_mode) {
-  sctl::Long Nrepeat = 2*nbr_range*peri_mode + 1;
+  // sctl::Long Nrepeat = 2*nbr_range*peri_mode + 1;
+  sctl::Long Nrepeat = 2*nbr_range + 1;
+  if (peri_mode==3) {
+    Nrepeat = Nrepeat * Nrepeat * Nrepeat;
+  }
   sctl::Long N = X.Dim();
   sctl::Vector<Real> X_nbr(Nrepeat*N); // repeat X Nrepeat times
   for (sctl::Long k = 0; k < Nrepeat; k++) {
@@ -603,7 +611,10 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::vec_nbr_copy(const 
 }
 
 template <class Real> sctl::Vector<sctl::Long> PeriodicGeom<Real>::vec_nbr_copy(const sctl::Vector<sctl::Long> X, const sctl::Integer nbr_range, const sctl::Integer peri_mode) {
-  sctl::Long Nrepeat = 2*nbr_range*peri_mode + 1;
+  sctl::Long Nrepeat = 2*nbr_range + 1;
+  if (peri_mode==3) {
+    Nrepeat = Nrepeat * Nrepeat * Nrepeat;
+  }
   sctl::Long N = X.Dim();
   sctl::Vector<sctl::Long> X_nbr(Nrepeat*N); // repeat X Nrepeat times
   for (sctl::Long k = 0; k < Nrepeat; k++) {
@@ -636,7 +647,7 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::X_nbr_copy(const sc
         }
       }
     } else if (peri_mode == 3) {
-      for (sctl::Long k2 = -nbr_range; k2 <= nbr_range; k2++)
+      for (sctl::Long k2 = -nbr_range; k2 <= nbr_range; k2++) {
         for (sctl::Long k1 = -nbr_range; k1 <= nbr_range; k1++) {
           for (sctl::Long k0 = -nbr_range; k0 <= nbr_range; k0++) {
             for (sctl::Long i = 0; i < X.Dim()/3; i++) { // shift in x
@@ -646,6 +657,7 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::X_nbr_copy(const sc
             }
           }
         }
+      }
     } else {
       SCTL_ASSERT(false);
     }
@@ -789,43 +801,43 @@ template <class Real> void PeriodicGeom<Real>::packed_sphs_conv_div(sctl::Vector
   ptcls_rs.ReInit(0);
 
   auto get_r = [&r1, &r2](const Real& x) {
-    if (x < 0.3) {
-      return r1*sctl::cos<Real>(sctl::const_pi<Real>() * x / 0.3)+r1+r2;
+    if (x < 0.1) {
+      return 2*r1 + r2;
+    } else if (x < 0.3) {
+      return r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-0.1) / 0.2)+r1+r2;
     } else if (x < 0.7) {
       return r2;
+    } else if (x < 0.9) {
+      return r1+r2 - r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-0.7) / 0.2);
     } else {
-      return r1+r2 - r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-0.7) / 0.3);
+      return 2*r1 + r2;
     }
   };
 
-  Real ptcl_r = 0.15 * r2; // radius/size of each particle.
-  Real ptcl_r_buffer = 2. * ptcl_r;
+  const Real ptcl_r = 0.15 * r2; // radius/size of each particle.
   // hexagonal close packing
-  const Real dx = 2. * ptcl_r_buffer; // buffer room between spheres 
-  const Real dy = sctl::sqrt<Real>(3.) * ptcl_r_buffer;
-  const Real dz = sctl::sqrt<Real>(6.) / 3. * 2. * ptcl_r_buffer;
+  const Real dx = 2. * (2. * ptcl_r); // buffer room between spheres = 2*diameter
+  const Real dy = sctl::sqrt<Real>(3.) * (2. * ptcl_r);
+  const Real dz = sctl::sqrt<Real>(6.) / 3. * 2. * (2. * ptcl_r);
 
   for (Real x=dx; x < 1.-dx; x+=dx) {
     Real X = x;
     Real r_channel = get_r(x);
     sctl::Long k = 0;
-    for (Real z=-r_channel+ptcl_r_buffer; z<r_channel - ptcl_r_buffer; z += dz) {
+    for (Real z=-r_channel+(2. * ptcl_r); z<r_channel - (2. * ptcl_r); z += dz) {
       sctl::Long row = 0;
       Real y_bounds = sctl::sqrt<Real>(r_channel*r_channel - z*z);
-      for (Real y=-y_bounds+ptcl_r_buffer; y<y_bounds - ptcl_r_buffer; y += dy) {
-        Real y_shift = (row % 2)==0? 0 : ptcl_r_buffer;
-        Real z_shift = (k % 2)==0? 0 : ptcl_r_buffer;
+      for (Real y=-y_bounds+(2. * ptcl_r); y<y_bounds - (2. * ptcl_r); y += dy) {
+        Real y_shift = (row % 2)==0? 0 : (2. * ptcl_r);
+        Real z_shift = (k % 2)==0? 0 : (2. * ptcl_r);
         Real Y = y + y_shift;
         Real Z = z + z_shift;
 
         sctl::Long iter_cnt = 0;
-        Real ptcl_r_loc = 0.15 * r2;
-        Real ptcl_r_buffer_loc = 2. * ptcl_r_loc;
-        while (iter_cnt < 30 && ptcl_r_loc >= 1e-5 && (Y*Y + Z*Z >= (r_channel-ptcl_r_buffer_loc)*(r_channel-ptcl_r_buffer_loc))) {
-          // std::cout <<"r = " << ptcl_r << ", Y2+Z2 = " << Y*Y + Z*Z << ", (R-r)^2 = " << (r_channel-ptcl_r_buffer)*(r_channel-ptcl_r_buffer) << ", Y2+Z2 > (R-r)^2? " << (Y*Y + Z*Z > (r_channel-ptcl_r_buffer)*(r_channel-ptcl_r_buffer)) << std::endl;
+        Real ptcl_r_loc = drand48() * ptcl_r;
+        while (iter_cnt < 30 && ptcl_r_loc >= 1e-5 && (Y*Y + Z*Z >= (r_channel-(2. * ptcl_r_loc))*(r_channel-(2. * ptcl_r_loc)))) {
           // reduce radius until particle fits inside channel.
           ptcl_r_loc *= 0.9;
-          ptcl_r_buffer_loc = 2. * ptcl_r_loc;
           iter_cnt += 1;
         } 
         if (iter_cnt < 30 && ptcl_r_loc >= 1e-5) {
