@@ -150,12 +150,12 @@ template <class Real> class PeriodizeOp {
 
 };
 
-template <class Real> const sctl::Vector<Real>& Periodize<Real>::GetProxySurf() {
+template <class Real> const sctl::Vector<Real>& Periodize1D<Real>::GetProxySurf() {
   static const auto X = PeriodizeOp<Real>::uc_surf(1, sctl::Vector<Real>{0.5,0.5,0.5});
   return X;
 }
 
-template <class Real> void Periodize<Real>::EvalFarField(sctl::Vector<Real>& U_far, const sctl::Vector<Real>& Xt, const sctl::Vector<Real>& U_proxy) {
+template <class Real> void Periodize1D<Real>::EvalFarField(sctl::Vector<Real>& U_far, const sctl::Vector<Real>& Xt, const sctl::Vector<Real>& U_proxy) {
   // std::cout << "in eval far field, getting matrices. " << std::endl;
   const auto& Mbc0 = GetMat_UC2DE0();
   const auto& Mbc1 = GetMat_UC2DE1();
@@ -172,7 +172,7 @@ template <class Real> void Periodize<Real>::EvalFarField(sctl::Vector<Real>& U_f
   stokeslet.template Eval<Real,true>(U_far, Xt, GetProxySurf(), sctl::Vector<Real>(), sctl::Vector<Real>(N,proxy_density.begin(),false));
 }
 
-template <class Real> const sctl::Matrix<Real>& Periodize<Real>::GetMat_UC2DE0() {
+template <class Real> const sctl::Matrix<Real>& Periodize1D<Real>::GetMat_UC2DE0() {
   static sctl::Matrix<Real> Mbc = [](){
     const auto [M_uc2ue0, M_uc2ue1] = PeriodizeOp<Real>::UC2UE();
     const auto [M_dc2de0, M_dc2de1] = PeriodizeOp<Real>::DC2DE();
@@ -182,7 +182,7 @@ template <class Real> const sctl::Matrix<Real>& Periodize<Real>::GetMat_UC2DE0()
   return Mbc;
 }
 
-template <class Real> const sctl::Matrix<Real>& Periodize<Real>::GetMat_UC2DE1() {
+template <class Real> const sctl::Matrix<Real>& Periodize1D<Real>::GetMat_UC2DE1() {
   static sctl::Matrix<Real> Mbc = [](){
     const auto [M_dc2de0, M_dc2de1] = PeriodizeOp<Real>::DC2DE();
     return M_dc2de1;
