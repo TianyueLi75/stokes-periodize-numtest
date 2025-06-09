@@ -16,7 +16,7 @@ template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
   return U;
 }
 
-template <class Real> void test(sctl::Long Nelem_ptcl, sctl::Long FourierOrder, bool write_ref, sctl::Integer peri_mode, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode) {
+template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Integer peri_mode, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode) {
 
   // Combine single-layer and double-layer kernels in these proportions
   const Real SL_scal = 1.0;
@@ -28,22 +28,25 @@ template <class Real> void test(sctl::Long Nelem_ptcl, sctl::Long FourierOrder, 
 
   PeriodicGeom<Real> obj;
   sctl::Vector<sctl::Long> ptcls(Nptcl);
-  ptcls = Nelem_ptcl;
+  ptcls = 1;
   sctl::Vector<Real> ptcls_Xcs;
   sctl::Vector<Real> ptcls_rs;
   sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
   sctl::Vector<Real> NormalOrient;
   Real box_sidelen = 0.5;
-  std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_only_ptcls(Nptcl*2, ElemOrder, FourierOrder, 0, 1, box_sidelen, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+  std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_straight(Nelem_, ElemOrder, FourierOrder, 0, peri_mode, box_sidelen/2., comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
   elem_lst0 = std::get<0>(build0);
-  // std::cout << "elem list 0 size is " << elem_lst0.Size() << std::endl;
-  std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_only_ptcls(Nptcl*2, ElemOrder, FourierOrder, 1, peri_mode, box_sidelen, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+  std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_straight(Nelem, ElemOrder, FourierOrder, 1, peri_mode, box_sidelen/2., comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
   elem_lst_nbr = std::get<0>(build_nbr);
   NormalOrient = std::get<1>(build_nbr);
-  // std::cout << "elem list with neighbor size is " << elem_lst_nbr.Size() << ", size of normal orient is " << NormalOrient.Dim() << std::endl;
-  const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); // should be 3
+  // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_only_ptcls(Nptcl*2, ElemOrder, FourierOrder, 0, 1, box_sidelen, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+  // elem_lst0 = std::get<0>(build0);
+  // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_only_ptcls(Nptcl*2, ElemOrder, FourierOrder, 1, peri_mode, box_sidelen, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+  // elem_lst_nbr = std::get<0>(build_nbr);
+  // NormalOrient = std::get<1>(build_nbr);
+  const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); 
   Nptcl = ptcls_rs.Dim(); 
-  // std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
+  std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
 
   sctl::Vector<Real> X0; // target coordinates
   elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
@@ -127,72 +130,76 @@ template <class Real> void test(sctl::Long Nelem_ptcl, sctl::Long FourierOrder, 
     sctl::Vector<sctl::Long> ptcls_trg;
     sctl::Vector<Real> ptcls_Xcs_trg;
     sctl::Vector<Real> ptcls_rs_trg;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_straight(Nelem_trg, ElemOrder, FourierOrder_trg, 0, box_sidelen/2., comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_straight(Nelem_trg, ElemOrder, FourierOrder_trg, 0, peri_mode, box_sidelen/2., comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
     elem_lst_trg = std::get<0>(build_trg);
     
     VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
-    sctl::Vector<Real> X0_all = vol_vis.GetCoord();
-    // std::cout << "size of X0 all is " << X0_all.Dim();
-    sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
-    std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-    X0 = std::get<0>(trg_tuple);
-    filtered_inds = std::get<1>(trg_tuple);
-    // std::cout << "size of X0 is " << X0.Dim() << std::endl;
+    sctl::Vector<Real> X0 = vol_vis.GetCoord();
+    // sctl::Vector<Real> X0_all = vol_vis.GetCoord();
+    // // std::cout << "size of X0 all is " << X0_all.Dim();
+    // sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
+    // std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    // X0 = std::get<0>(trg_tuple);
+    // filtered_inds = std::get<1>(trg_tuple);
+    // // std::cout << "size of X0 is " << X0.Dim() << std::endl;
 
     LayerPotenOp0.SetTargetCoord(X0);
     sctl::Vector<Real> U,U2;
     BIO(&U, sigma);
     U += bg_flow(X0);
-    sctl::Vector<Real> U_vis(X0_all.Dim());
-    U_vis = 0.;
-    sctl::Long X1_ptr = 0;
-    for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
-      if (filtered_inds[i] == 0) {
-        U_vis[i*3] = U[X1_ptr*3];
-        U_vis[i*3+1] = U[X1_ptr*3+1];
-        U_vis[i*3+2] = U[X1_ptr*3+2];
-        X1_ptr += 1;
-      }
-    }
+    // sctl::Vector<Real> U_vis(X0_all.Dim());
+    // U_vis = 0.;
+    // sctl::Long X1_ptr = 0;
+    // for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+    //   if (filtered_inds[i] == 0) {
+    //     U_vis[i*3] = U[X1_ptr*3];
+    //     U_vis[i*3+1] = U[X1_ptr*3+1];
+    //     U_vis[i*3+2] = U[X1_ptr*3+2];
+    //     X1_ptr += 1;
+    //   }
+    // }
 
-    // std::string filename_vis = "vis/U_ptcl_only_"+std::to_string(peri_mode)+"_periodic";
-    // vol_vis.WriteVTK(filename_vis, U_vis);
-
-    sctl::Vector<sctl::Long> size_loc(1);
-    size_loc[0] = X0_all.Dim();
-    sctl::Vector<sctl::Long> size_all(1);
-    comm.Allreduce((sctl::Iterator<sctl::Long>) size_loc.begin(), (sctl::Iterator<sctl::Long>) size_all.begin(), 1, sctl::CommOp::SUM);
-    std::cout << "rank " << comm.Rank() << " size loc = " << size_loc[0] << ", size all is " << size_all[0] << std::endl;
-    std::string filename = "U_4_16_ptclonly_Nelem_8_Nptcl_6";
-    std::string filename_out = "out/"+filename+".txt";
-    std::string filename_vis = "vis/"+filename;
     if (write_ref) {
+      std::string filename_vis = "vis/U_ptcl_only_"+std::to_string(peri_mode)+"_periodic";
       vol_vis.WriteVTK(filename_vis, U_vis);
-      sctl::Vector<Real> U_vis_all(size_all[0]);
-      comm.Allgather((sctl::Iterator<Real>) U_vis.begin(), size_loc[0], (sctl::Iterator<Real>) U_vis_all.begin(), size_all[0]);
-      std::cout << U_vis_all.Dim() << std::endl;
-      if (!comm.Rank()) {
-        U_vis_all.Write(filename_out.c_str());
-      }
-    } else {
-      sctl::Vector<Real> U_ref;
-      if (!comm.Rank()) {
-        U_ref.Read(filename_out.c_str());
-      }
-      comm.PartitionN(U_ref,size_loc[0]);
-      // std::cout << "dim of U ref is " << U_ref.Dim() << ", dim of U vis is " << U_vis.Dim() << std::endl;
-      const auto err = U_vis - U_ref;
-      double max_err = 0;
-      for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
-      sctl::Vector<Real> err_loc(1);
-      err_loc[0] = max_err;
-      sctl::Vector<Real> err_all(1);
-      err_all[0] = 0;
-      comm.Allreduce((sctl::Iterator<sctl::Long>) err_loc.begin(), (sctl::Iterator<sctl::Long>) err_all.begin(), 1, sctl::CommOp::MAX);
-      if (!comm.Rank()) {
-        std::cout<<"Max error = "<< std::setprecision(10) << err_all[0] << std::endl;
-      }
     }
+    
+
+    // sctl::Vector<sctl::Long> size_loc(1);
+    // size_loc[0] = X0_all.Dim();
+    // sctl::Vector<sctl::Long> size_all(1);
+    // comm.Allreduce((sctl::Iterator<sctl::Long>) size_loc.begin(), (sctl::Iterator<sctl::Long>) size_all.begin(), 1, sctl::CommOp::SUM);
+    // std::cout << "rank " << comm.Rank() << " size loc = " << size_loc[0] << ", size all is " << size_all[0] << std::endl;
+    // std::string filename = "U_4_16_ptclonly_Nelem_8_Nptcl_6";
+    // std::string filename_out = "out/"+filename+".txt";
+    // std::string filename_vis = "vis/"+filename;
+    // if (write_ref) {
+    //   vol_vis.WriteVTK(filename_vis, U_vis);
+    //   sctl::Vector<Real> U_vis_all(size_all[0]);
+    //   comm.Allgather((sctl::Iterator<Real>) U_vis.begin(), size_loc[0], (sctl::Iterator<Real>) U_vis_all.begin(), size_all[0]);
+    //   std::cout << U_vis_all.Dim() << std::endl;
+    //   if (!comm.Rank()) {
+    //     U_vis_all.Write(filename_out.c_str());
+    //   }
+    // } else {
+    //   sctl::Vector<Real> U_ref;
+    //   if (!comm.Rank()) {
+    //     U_ref.Read(filename_out.c_str());
+    //   }
+    //   comm.PartitionN(U_ref,size_loc[0]);
+    //   // std::cout << "dim of U ref is " << U_ref.Dim() << ", dim of U vis is " << U_vis.Dim() << std::endl;
+    //   const auto err = U_vis - U_ref;
+    //   double max_err = 0;
+    //   for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
+    //   sctl::Vector<Real> err_loc(1);
+    //   err_loc[0] = max_err;
+    //   sctl::Vector<Real> err_all(1);
+    //   err_all[0] = 0;
+    //   comm.Allreduce((sctl::Iterator<sctl::Long>) err_loc.begin(), (sctl::Iterator<sctl::Long>) err_all.begin(), 1, sctl::CommOp::MAX);
+    //   if (!comm.Rank()) {
+    //     std::cout<<"Max error = "<< std::setprecision(10) << err_all[0] << std::endl;
+    //   }
+    // }
 
   }
 }
