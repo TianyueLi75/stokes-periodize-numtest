@@ -81,7 +81,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
 
   sctl::Vector<Real> X0; // target coordinates
   elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
-  const auto X_proxy = Periodize<Real>::GetProxySurf(); // proxy points coordinates
+  const auto X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
 
   // for (long i=0; i < ptcls_Xcs.Dim()/3; i++) {
   //   std::cout << "rank " << comm.Rank() << " stores ptcl at " << ptcls_Xcs[i*3] << ", " << ptcls_Xcs[i*3+1] << ", " << ptcls_Xcs[i*3+2] <<std::endl;
@@ -129,7 +129,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
       // std::cout << "in far eval" << std::endl;
       sctl::Vector<Real> U_proxy, U_far;
       LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
-      Periodize<Real>::EvalFarField(U_far, X0, U_proxy);
+      Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
       (*U) += U_far;
     } 
     // comm.Barrier();
