@@ -42,34 +42,36 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
   sctl::Vector<Real> ptcls_rs;
   sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
   sctl::Vector<Real> NormalOrient;
+  // peri_mode = 1 for 1-periodic.
+  // TODO: remove sinusoidal with mag 0.3.
   if (channel_mode == 0) {// straight channel
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_straight(Nelem_channel, ElemOrder, FourierOrder, 0, 0.2, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_straight(Nelem_channel, ElemOrder, FourierOrder, 0, 3, 0.25, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_straight(Nelem_channel, ElemOrder, FourierOrder, 1, 0.2, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_straight(Nelem_channel, ElemOrder, FourierOrder, 1, 3, 0.25, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr); // only needed for self eval which uses nbr object.
   } else if (channel_mode == 1) {// sinusoidal with mag = 0.1
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 0, 0.2, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 0, 1, 0.2, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 1, 0.2, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 1, 1, 0.2, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
   } else if (channel_mode == 2) {// sinusoidal with mag = 0.3
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 0, 0.1, 0.25, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 0, 1, 0.1, 0.25, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 1, 0.1, 0.25, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 1, 1, 0.1, 0.25, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
   } else if (channel_mode == 3) {
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, 1, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 1, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 1, 1, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
   } else if (channel_mode == 4) {
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 0, 0.2, 0.05, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 0, 1, 0.2, 0.05, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 1, 0.2, 0.05, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 1, 1, 0.2, 0.05, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
   } else {
@@ -144,26 +146,27 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     std::cout << "Rank " << comm.Rank()<< " calculating target points." << std::endl;
     //TODO: should split target up by comm.Rank() not element, since Vol_vis should be shortened..
     PeriodicGeom<Real> trg;
-    const sctl::Long Nelem_trg = 8;
+    const sctl::Long Nelem_trg = 4;
     const sctl::Long FourierOrder_trg = 16;
     sctl::SlenderElemList<Real> elem_lst_trg;
     sctl::Vector<sctl::Long> ptcls_trg;
     sctl::Vector<Real> ptcls_Xcs_trg;
     sctl::Vector<Real> ptcls_rs_trg;
+    // peri_mode = 1 for 1-periodic
     if (channel_mode == 0) {
-      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_straight(Nelem_trg, ElemOrder, FourierOrder_trg, 0, 0.2, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
+      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_straight(Nelem_trg, ElemOrder, FourierOrder_trg, 0, 1, 0.25, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
       elem_lst_trg = std::get<0>(build_trg);
     } else if (channel_mode == 1) {
-      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_sinusoidal(Nelem_trg, ElemOrder, FourierOrder_trg, 0, 0.2, 0.1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
+      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_sinusoidal(Nelem_trg, ElemOrder, FourierOrder_trg, 0, 1, 0.2, 0.1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
       elem_lst_trg = std::get<0>(build_trg);
     } else if (channel_mode == 2) {
-      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_sinusoidal(Nelem_trg, ElemOrder, FourierOrder_trg, 0, 0.1, 0.25, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
+      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_sinusoidal(Nelem_trg, ElemOrder, FourierOrder_trg, 0, 1, 0.1, 0.25, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
       elem_lst_trg = std::get<0>(build_trg);
     } else if (channel_mode == 3) {
-      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, 0.1, 0.1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
+      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, 1, 0.1, 0.1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
       elem_lst_trg = std::get<0>(build_trg);
     } else if (channel_mode == 4) {
-      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 0, 0.2, 0.05, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
+      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 0, 1, 0.2, 0.02, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
       elem_lst_trg = std::get<0>(build_trg);
     } else {
       SCTL_ASSERT(false); // not implemented

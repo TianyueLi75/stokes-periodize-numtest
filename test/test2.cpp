@@ -27,23 +27,24 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
   const sctl::Long ElemOrder = 10;
 
   PeriodicGeom<Real> obj;
-  sctl::Vector<sctl::Long> ptcls(Nptcl);
-  ptcls = 1;
+  // sctl::Vector<sctl::Long> ptcls(Nptcl);
+  // ptcls = 1;
+  sctl::Vector<sctl::Long> ptcls;
   sctl::Vector<Real> ptcls_Xcs;
   sctl::Vector<Real> ptcls_rs;
   sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
   sctl::Vector<Real> NormalOrient;
-  Real box_sidelen = 0.5;
-  std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_straight(Nelem_, ElemOrder, FourierOrder, 0, peri_mode, box_sidelen/2., comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-  elem_lst0 = std::get<0>(build0);
-  std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_straight(Nelem, ElemOrder, FourierOrder, 1, peri_mode, box_sidelen/2., comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-  elem_lst_nbr = std::get<0>(build_nbr);
-  NormalOrient = std::get<1>(build_nbr);
-  // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_only_ptcls(Nptcl*2, ElemOrder, FourierOrder, 0, 1, box_sidelen, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+  // Real box_sidelen = 0.5;
+  // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_straight(Nelem, ElemOrder, FourierOrder, 0, peri_mode, box_sidelen/2., comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
   // elem_lst0 = std::get<0>(build0);
-  // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_only_ptcls(Nptcl*2, ElemOrder, FourierOrder, 1, peri_mode, box_sidelen, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+  // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_straight(Nelem, ElemOrder, FourierOrder, 1, peri_mode, box_sidelen/2., comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
   // elem_lst_nbr = std::get<0>(build_nbr);
   // NormalOrient = std::get<1>(build_nbr);
+  std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+  elem_lst0 = std::get<0>(build0);
+  std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 1, peri_mode, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+  elem_lst_nbr = std::get<0>(build_nbr);
+  NormalOrient = std::get<1>(build_nbr);
   const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); 
   Nptcl = ptcls_rs.Dim(); 
   std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
@@ -59,10 +60,10 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     SCTL_ASSERT(false);
   }
   
-  // sctl::Vector<Real> Xnbr,Xnbrn;
-  // elem_lst_nbr.GetNodeCoord(&Xnbr, &Xnbrn, nullptr);
-  // // elem_lst_nbr.WriteVTK("vis/S-nbr-normal",Xnbrn,comm);
-  // elem_lst_nbr.WriteVTK("vis/S-ptcl-only",Xnbr,comm); // visualization with particle inside.
+  std::string nbr_vis = "vis/Snbr_ptcl_only_"+std::to_string(peri_mode)+"_periodic";
+  sctl::Vector<Real> Xnbr,Xnbrn;
+  elem_lst_nbr.GetNodeCoord(&Xnbr, &Xnbrn, nullptr);
+  elem_lst_nbr.WriteVTK(nbr_vis,Xnbr,comm); // visualization with particle inside.
 
   StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
   LayerPotenOp0.AddElemList(elem_lst_nbr);
@@ -130,34 +131,36 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Vector<sctl::Long> ptcls_trg;
     sctl::Vector<Real> ptcls_Xcs_trg;
     sctl::Vector<Real> ptcls_rs_trg;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_straight(Nelem_trg, ElemOrder, FourierOrder_trg, 0, peri_mode, box_sidelen/2., comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_straight(Nelem_trg, ElemOrder, FourierOrder_trg, 0, peri_mode, 1./2., comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
     elem_lst_trg = std::get<0>(build_trg);
     
+    // sctl::CubeVolumeVis<Real> vol_vis(50, 1.0, comm);
     VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
-    sctl::Vector<Real> X0 = vol_vis.GetCoord();
-    // sctl::Vector<Real> X0_all = vol_vis.GetCoord();
-    // // std::cout << "size of X0 all is " << X0_all.Dim();
-    // sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
-    // std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-    // X0 = std::get<0>(trg_tuple);
-    // filtered_inds = std::get<1>(trg_tuple);
-    // // std::cout << "size of X0 is " << X0.Dim() << std::endl;
+    sctl::Vector<Real> X0_all = vol_vis.GetCoord();
+    // std::cout << "size of X0 all is " << X0_all.Dim();
+    sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
+    std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    X0 = std::get<0>(trg_tuple);
+    filtered_inds = std::get<1>(trg_tuple);
+    // std::cout << "size of X0 is " << X0.Dim() << std::endl;
 
     LayerPotenOp0.SetTargetCoord(X0);
     sctl::Vector<Real> U,U2;
     BIO(&U, sigma);
+    // std::cout << "size of U before background is " << U.Dim() << std::endl;
     U += bg_flow(X0);
-    // sctl::Vector<Real> U_vis(X0_all.Dim());
-    // U_vis = 0.;
-    // sctl::Long X1_ptr = 0;
-    // for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
-    //   if (filtered_inds[i] == 0) {
-    //     U_vis[i*3] = U[X1_ptr*3];
-    //     U_vis[i*3+1] = U[X1_ptr*3+1];
-    //     U_vis[i*3+2] = U[X1_ptr*3+2];
-    //     X1_ptr += 1;
-    //   }
-    // }
+    // sctl::Vector<Real> U_vis = U;
+    sctl::Vector<Real> U_vis(X0_all.Dim());
+    U_vis = 0.;
+    sctl::Long X1_ptr = 0;
+    for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+      if (filtered_inds[i] == 0) {
+        U_vis[i*3] = U[X1_ptr*3];
+        U_vis[i*3+1] = U[X1_ptr*3+1];
+        U_vis[i*3+2] = U[X1_ptr*3+2];
+        X1_ptr += 1;
+      }
+    }
 
     if (write_ref) {
       std::string filename_vis = "vis/U_ptcl_only_"+std::to_string(peri_mode)+"_periodic";
