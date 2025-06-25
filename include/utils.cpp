@@ -95,6 +95,121 @@ template <class Real> void VolumeVis<Real>::GetVTUData(sctl::VTUData& vtu_data, 
   }
 }
 
+template <class Real> CubeVolumeVisShifted<Real>::CubeVolumeVisShifted(const sctl::Long N_, Real L, const sctl::Comm& comm_) : N(N_), comm(comm_) {
+  const sctl::Long pid = comm.Rank();
+  const sctl::Long Np = comm.Size();
+
+  const sctl::Long NN = sctl::pow<COORD_DIM-1,sctl::Long>(N);
+  const sctl::Long a = (N-1)*(pid+0)/Np;
+  const sctl::Long b = (N-1)*(pid+1)/Np;
+  N0 = b-a+1;
+  if (N0<2) return;
+
+  coord.ReInit(N0 * NN * COORD_DIM);
+  for (sctl::Long i = 0; i < N0; i++) {
+    for (sctl::Long j = 0; j < NN; j++) {
+      for (sctl::Long k = 0; k < COORD_DIM; k++) {
+        sctl::Long idx = ((i+a)*NN+j);
+        // coord[(i*NN+j)*COORD_DIM+k] = (((idx/sctl::pow<sctl::Long>(N,k)) % N)/(Real)(N-1)*2 - 1) * L;
+        coord[(i*NN+j)*COORD_DIM+k] = (((idx/sctl::pow<sctl::Long>(N,k)) % N)/(Real)(N-1) -0.5) * L + 0.5; // TODO: just for analytical solution test, assuming center at (0.5,0.5,0.5).
+      }
+    }
+  }
+}
+
+template <class Real> const sctl::Vector<Real>& CubeVolumeVisShifted<Real>::GetCoord() const {
+  return coord;
+}
+
+template <class Real> void CubeVolumeVisShifted<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
+  for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
+  for (const auto& x :     F) vtu_data.value.PushBack((float)x);
+  for (sctl::Long i = 0; i < N0-1; i++) {
+    for (sctl::Long j = 0; j < N-1; j++) {
+      for (sctl::Long k = 0; k < N-1; k++) {
+        auto idx = [this](sctl::Long i, sctl::Long j, sctl::Long k) {
+          return (i*N+j)*N+k;
+        };
+        vtu_data.connect.PushBack(idx(i+0,j+0,k+0));
+        vtu_data.connect.PushBack(idx(i+0,j+0,k+1));
+        vtu_data.connect.PushBack(idx(i+0,j+1,k+1));
+        vtu_data.connect.PushBack(idx(i+0,j+1,k+0));
+        vtu_data.connect.PushBack(idx(i+1,j+0,k+0));
+        vtu_data.connect.PushBack(idx(i+1,j+0,k+1));
+        vtu_data.connect.PushBack(idx(i+1,j+1,k+1));
+        vtu_data.connect.PushBack(idx(i+1,j+1,k+0));
+        vtu_data.offset.PushBack(vtu_data.connect.Dim());;
+        vtu_data.types.PushBack(12);
+      }
+    }
+  }
+}
+template <class Real> void CubeVolumeVisShifted<Real>::WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const {
+  sctl::VTUData vtu_data;
+  GetVTUData(vtu_data, F);
+  vtu_data.WriteVTK(fname, comm);
+}
+
+
+// template <class Real> RectVolumeVis<Real>::RectVolumeVis(const sctl::Long NL_, const sctl::Long NW_, Real L, Real W, const sctl::Comm& comm_) : NL(NL_), NW(NW_), comm(comm_) {
+//   const sctl::Long pid = comm.Rank();
+//   const sctl::Long Np = comm.Size();
+//   // width side squared
+//   const sctl::Long NN = sctl::pow<COORD_DIM-1,sctl::Long>(NW);
+//   // length side split into processes
+//   const sctl::Long a = (NL-1)*(pid+0)/Np;
+//   const sctl::Long b = (NL-1)*(pid+1)/Np;
+//   N0 = b-a+1;
+//   if (N0<2) return;
+//   coord.ReInit(N0 * NN * COORD_DIM);
+//   for (sctl::Long i = 0; i < N0; i++) {
+//     for (sctl::Long j = 0; j < NN; j++) {
+//       // x coordinate
+//       sctl::Long idx = ((i+a)*NN+j); // ith layer along x direction, jth index on square grid
+//       coord[(i*NN+j)*COORD_DIM+0] = ((idx % NW)/(Real)(N-1) *2 - 1) * L;
+//       // y-z coordinates
+//       for (sctl::Long k = 1; k < COORD_DIM; k++) {
+//         sctl::Long idx = ((i+a)*NN+j); // ith layer along x direction, jth index on square grid
+//         coord[(i*NN+j)*COORD_DIM+k] = (((idx/sctl::pow<sctl::Long>(NW,k)) % NL)/(Real)(N-1) *2 - 1) * W;
+//         // coord[(i*NN+j)*COORD_DIM+k] = (((idx/sctl::pow<sctl::Long>(N,k)) % N)/(Real)(N-1)) * L;
+//       }
+      
+//     }
+//   }
+// }
+// template <class Real> const sctl::Vector<Real>& RectVolumeVis<Real>::GetCoord() const {
+//   return coord;
+// }
+// template <class Real> void RectVolumeVis<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
+//   for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
+//   for (const auto& x :     F) vtu_data.value.PushBack((float)x);
+//   for (sctl::Long i = 0; i < N0-1; i++) {
+//     for (sctl::Long j = 0; j < N-1; j++) {
+//       for (sctl::Long k = 0; k < N-1; k++) {
+//         auto idx = [this](sctl::Long i, sctl::Long j, sctl::Long k) {
+//           return (i*N+j)*N+k;
+//         };
+//         vtu_data.connect.PushBack(idx(i+0,j+0,k+0));
+//         vtu_data.connect.PushBack(idx(i+0,j+0,k+1));
+//         vtu_data.connect.PushBack(idx(i+0,j+1,k+1));
+//         vtu_data.connect.PushBack(idx(i+0,j+1,k+0));
+//         vtu_data.connect.PushBack(idx(i+1,j+0,k+0));
+//         vtu_data.connect.PushBack(idx(i+1,j+0,k+1));
+//         vtu_data.connect.PushBack(idx(i+1,j+1,k+1));
+//         vtu_data.connect.PushBack(idx(i+1,j+1,k+0));
+//         vtu_data.offset.PushBack(vtu_data.connect.Dim());;
+//         vtu_data.types.PushBack(12);
+//       }
+//     }
+//   }
+// }
+// template <class Real> void RectVolumeVis<Real>::WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const {
+//   sctl::VTUData vtu_data;
+//   GetVTUData(vtu_data, F);
+//   vtu_data.WriteVTK(fname, comm);
+// }
+
+
 template <class Real> StokesBIO<Real>::StokesBIO(const Real SL_scal, const Real DL_scal, const sctl::Comm comm)
   : comm_(comm), SL_scal_(SL_scal), DL_scal_(DL_scal), LayerPotenSL(ker_FxU, false, comm), LayerPotenDL(ker_DxU, false, comm) {
   LayerPotenSL.SetAccuracy(1e-14);
@@ -405,35 +520,24 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   sctl::Vector<Real> Xc, eps, orient;
   sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
 
-  // sctl::Long n = 3;
-  sctl::Long n = 1;
+  sctl::Long n = 4;
+  // sctl::Long n = 1;
 
-  // // varying radius
-  // auto get_r = [&r_channel](const Real& x, const Real& angle) {
-  //   if (x < 0.1 || x > 0.9) {
-  //     return r_channel;
-  //   } else {
-  //     return r_channel + 0.3*r_channel*sctl::cos<Real>(angle);
-  //   }
-  // };
-
-  // constant radius
+  // varying radius
   auto get_r = [&r_channel](const Real& x, const Real& angle) {
-    return r_channel;
+    return r_channel + 0.3*r_channel*sctl::cos<Real>(angle);
   };
 
-  auto get_angle = [&n](const Real& x) {
-    // no flat side:
-    // return 2.*sctl::const_pi<Real>() * n * x;
-    // flat at x<0.1 and x>0.9
-    if (x<0.1) {
-      return 0.;
-    } else if (x<0.9) {
-      return 2.*sctl::const_pi<Real>() * n * (x-0.1) / 0.8; 
-    } else {
-      return 2.*sctl::const_pi<Real>() * n;
-    }
+  // varying helix radius
+  auto get_r_spiral = [&r_spiral](const Real& x) {
+    return r_spiral * (-0.5 * sctl::cos<Real>(2. * sctl::const_pi<Real>() * x) + 1);
+    // return r_spiral;
   };
+
+  // // constant radius
+  // auto get_r = [&r_channel](const Real& x, const Real& angle) {
+  //   return r_channel;
+  // };
 
   for (sctl::Long i = 0; i < Nelem; i++) {
     ElemOrderVec.PushBack(ElemOrder);
@@ -442,10 +546,10 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
     for (sctl::Long j = 0; j < ElemOrderVec[i]; j++) {
       const Real x = (i+nodes[j])/Nelem;
       Xc.PushBack(x);
-      // const Real angle = 2. * sctl::const_pi<Real>() * n * x; 
-      const Real angle = get_angle(x);
-      Xc.PushBack(0.5 + r_spiral * sctl::cos<Real>(angle));
-      Xc.PushBack(0.5 + r_spiral * sctl::sin<Real>(angle));
+      const Real angle = 2.*sctl::const_pi<Real>() * n * x;
+      const Real r_spiral_loc = get_r_spiral(x);
+      Xc.PushBack(0.5 + r_spiral_loc * sctl::cos<Real>(angle));
+      Xc.PushBack(0.5 + r_spiral_loc * sctl::sin<Real>(angle));
       eps.PushBack(get_r(x, angle));
 
       orient.PushBack(0);
@@ -478,6 +582,31 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   return std::make_tuple(elem_lst,NormalOrient_);
 }
 
+template <class Real> sctl::SlenderElemList<Real> PeriodicGeom<Real>::free_ptcls(const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs){
+  comm_ = comm;
+  sctl::Long Nelem_ptcl_tot = 0;
+  sctl::Vector<Real> Xc, eps, orient;
+  sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
+  add_particles(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs,0);
+  std::cout << "Comm.Rank = " << comm.Rank() << " size of Xc list after adding particles: " << Xc.Dim() << "; size of eps: " << eps.Dim() << std::endl;
+  for (sctl::Long ptcl_i = 0; ptcl_i < ptcls.Dim(); ptcl_i++) {
+    Nelem_ptcl_tot += ptcls[ptcl_i];
+  }
+  sctl::Vector<Real> NormalOrient;
+  { // set NormalOrient 
+    for (sctl::Long i = 0; i < Nelem_ptcl_tot; i++) {
+      for (sctl::Long j = 0; j < ElemOrder*FourierOrder*COORD_DIM; j++) {
+        NormalOrient.PushBack(-1);
+      }
+    }
+  }
+  sctl::SlenderElemList<Real> elem_lst;
+  sctl::Vector<Real> NormalOrient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, NormalOrient, 0, 1);
+  std::cout << "Comm.Rank = " << comm.Rank() << " size of elem here is " << elem_lst.Size() << std::endl;
+  return elem_lst;
+}
+
+
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_ptcls1(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const sctl::Integer peri_mode, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
   comm_ = comm;
   sctl::Long Nelem_ptcl_tot = 0;
@@ -500,6 +629,12 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
     ptcls_Xcs.PushBack(0.25);
     ptcls_Xcs.PushBack(0.3);
     ptcls_rs.PushBack(0.1);
+    
+    // // One sphere centered in space.
+    // ptcls_Xcs.PushBack(0.5);
+    // ptcls_Xcs.PushBack(0.5);
+    // ptcls_Xcs.PushBack(0.5);
+    // ptcls_rs.PushBack(0.3);
 
     ptcls.PushBack(Nelem);
     ptcls.PushBack(Nelem);
@@ -524,18 +659,27 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   return std::make_tuple(elem_lst,NormalOrient_);
 }
 
-template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_ptcls2(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const sctl::Integer peri_mode, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
+// TODO: make nptcl an input?
+template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_ptcls2(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const sctl::Integer peri_mode, const sctl::Comm& comm, const sctl::Long Nptcl, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
   comm_ = comm;
+  // sctl::Long Nptcl = 25;
+  SCTL_ASSERT((Nptcl==25) || (Nptcl == 100) || (Nptcl == 500));
   sctl::Long Nelem_ptcl_tot = 0;
   if (nbr_range == 0) {
-    SCTL_ASSERT(ptcls.Dim()==0);
-    SCTL_ASSERT(ptcls_Xcs.Dim()==0);
-    SCTL_ASSERT(ptcls_rs.Dim()==0);
-    // TODO read from file
-    sctl::Matrix<Real> Xc_from_file;
-    Xc_from_file.Read("data/sphere_data.txt");
-    std::cout << "checking read file: size of Xc from file is " << Xc_from_file.Dim(0) << ", " << Xc_from_file.Dim(1) << std::endl;
-    sctl::Long Nptcl = Xc_from_file.Dim(0);
+    // std::cout << "create matrix" << std::endl;
+    sctl::Matrix<Real> Xc_from_file(Nptcl,4);
+    std::string data_filename = "data/sphere_data_"+std::to_string(Nptcl)+".txt";
+    std::ifstream infile(data_filename);
+    if (!infile) {
+        std::cerr << "Error opening file!" << std::endl;
+    }
+    for (sctl::Long row=0; row < Nptcl; row++) {
+      for (sctl::Long col=0; col < 4; col++) {
+        if (!(infile >> Xc_from_file(row,col))) {
+          std::cerr << "not enough entries in data file" << std::endl;
+        }
+      }
+    }
     for (sctl::Long i=0; i<Nptcl; i++) {
       ptcls_Xcs.PushBack(Xc_from_file(i,0));
       ptcls_Xcs.PushBack(Xc_from_file(i,1));
@@ -726,6 +870,7 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::InitElemList(sctl::
   sctl::Vector<Real> OrientVec_nbr = vec_nbr_copy(OrientVec_,nbr_range, peri_mode);
   // std::cout << "locElemord dim, fourierorder dim, X dim, R dim, Orient dim:  " << LocElemOrder_nbr.Dim() << ", " << LocFourierOrder_nbr.Dim() << ", " << X_nbr.Dim() <<", " << R_nbr.Dim() << ", " << OrientVec_nbr.Dim() << std::endl;
   elem_lst.template Init<Real>(LocElemOrder_nbr, LocFourierOrder_nbr, X_nbr, R_nbr, OrientVec_nbr);  
+  // elem_lst.template Init<Real>(LocElemOrder_nbr, LocFourierOrder_nbr, X_nbr, R_nbr);  
   // }
   return NormalOrient_;
 }
@@ -830,6 +975,7 @@ template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> Pe
       
       if (!outside) {
         // std::cout << "rank " << comm_.Rank() << ", inside particle" << std::endl;
+        // std::cout << "inside particle, remove." << std::endl;
         filtered_inds[i] = 1; // =1 if inside.
         break;  
       }
