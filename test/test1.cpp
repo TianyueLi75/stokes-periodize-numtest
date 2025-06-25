@@ -25,12 +25,8 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
   const Real DL_scal = 1.0;
 
   const Real tol = 1e-15;
-  const Real gmres_tol = 1e-10;
+  const Real gmres_tol = 1e-8;
   const sctl::Long ElemOrder = 10;
-
-  // std::cout << "Number of threads before is "<< omp_get_num_threads() << std::endl;
-  // omp_set_num_threads(16);
-  // std::cout << "Number of threads after is "<< omp_get_num_threads() << std::endl;
 
   PeriodicGeom<Real> obj;
   sctl::Vector<sctl::Long> ptcls;
@@ -42,36 +38,35 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
   sctl::Vector<Real> ptcls_rs;
   sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
   sctl::Vector<Real> NormalOrient;
-  // peri_mode = 1 for 1-periodic.
-  // TODO: remove sinusoidal with mag 0.3.
+  sctl::Long peri_mode = 1;
   if (channel_mode == 0) {// straight channel
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_straight(Nelem_channel, ElemOrder, FourierOrder, 0, 3, 0.25, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_straight(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.25, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_straight(Nelem_channel, ElemOrder, FourierOrder, 1, 3, 0.25, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_straight(Nelem_channel, ElemOrder, FourierOrder, 1, peri_mode, 0.25, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr); // only needed for self eval which uses nbr object.
   } else if (channel_mode == 1) {// sinusoidal with mag = 0.1
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 0, 1, 0.2, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.2, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 1, 1, 0.2, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 1, peri_mode, 0.2, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
-  } else if (channel_mode == 2) {// sinusoidal with mag = 0.3
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 0, 1, 0.1, 0.25, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+  } else if (channel_mode == 2) {// sinusoidal with mag = 0.3, changed recently, unchecked.
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.1, 0.3, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 1, 1, 0.1, 0.25, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_sinusoidal(Nelem_channel, ElemOrder, FourierOrder, 1, peri_mode, 0.1, 0.3, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
   } else if (channel_mode == 3) {
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, 1, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 1, 1, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 1, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
   } else if (channel_mode == 4) {
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 0, 1, 0.2, 0.05, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.5, 0.05, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 1, 1, 0.2, 0.05, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 1, peri_mode, 0.5, 0.05, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
   } else {
@@ -80,19 +75,25 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
   // std::cout << "Size of elem_lst_nbr is " << elem_lst_nbr.Size() << ", Size of elem_lst0 is " << elem_lst0.Size() <<std::endl;
   const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); // should be 3
   Nptcl = ptcls_rs.Dim(); // Number of particles could have changed after initializing.
+  std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
 
   sctl::Vector<Real> X0; // target coordinates
   elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
-  const auto X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
+  // const auto X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
+  sctl::Vector<Real> X_proxy;
+  if (peri_mode == 1) {
+    X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
+  } else if (peri_mode == 3) {
+    X_proxy = Periodize3D<Real>::GetProxySurf(); // proxy points coordinates
+  } else {
+    SCTL_ASSERT(false);
+  }
 
-  // for (long i=0; i < ptcls_Xcs.Dim()/3; i++) {
-  //   std::cout << "rank " << comm.Rank() << " stores ptcl at " << ptcls_Xcs[i*3] << ", " << ptcls_Xcs[i*3+1] << ", " << ptcls_Xcs[i*3+2] <<std::endl;
-  // }
-
+  // std::string nbr_vis = "vis/Snbr_test1_"+std::to_string(peri_mode)+"_periodic";
   // sctl::Vector<Real> Xnbr,Xnbrn;
-  // elem_lst_nbr.GetNodeCoord(&Xnbr, Xnbrn, nullptr);
-  // // elem_lst_nbr.WriteVTK("vis/S-nbr-normal",Xnbrn,comm);
-  elem_lst0.WriteVTK("vis/S-ptcl",X0,comm); // visualization with particle inside.
+  // elem_lst_nbr.GetNodeCoord(&Xnbr, &Xnbrn, nullptr);
+  // elem_lst_nbr.WriteVTK(nbr_vis,Xnbr,comm);
+  // elem_lst0.WriteVTK("vis/S-ptcl",X0,comm); // visualization with particle inside.
 
   StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
   LayerPotenOp0.AddElemList(elem_lst_nbr);
@@ -105,7 +106,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
   LayerPotenOp_proxy.SetAccuracy(tol);
 
   // periodized layer potential operator
-  const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient, &comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+  const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&peri_mode, &comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
     const sctl::Long N = sigma.Dim();
     // std::cout << "in BIO, dim of sigma is " << N << std::endl;
 
@@ -116,25 +117,27 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
       }
     }
 
-    // std::cout << " before U set zero" << std::endl;
     U->SetZero();
-    // std::cout << "after U set zero" << std::endl;
-    // std::cout << "wavy 2 debug: size of LayerPotenOp is "<< LayerPotenOp0.Dim(1) << ", " << LayerPotenOp0.Dim(0) << std::endl;
     LayerPotenOp0.ComputePotential(*U, sigma_nbr);
-    // if (DL_scal && U->Dim() == N) (*U) -= sigma*0.5*NormalOrient * DL_scal; // for double-layer
     if (DL_scal && U->Dim() == N) {
-      // std::cout << "self to self, dim of NormalOrient is " << NormalOrient.Dim() << std::endl;
       (*U) -= sigma*0.5*NormalOrient * DL_scal;
     }
 
     { // Add far-field
-      // std::cout << "in far eval" << std::endl;
       sctl::Vector<Real> U_proxy, U_far;
       LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
-      Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
+      if (peri_mode==1) {
+        // 1-periodic
+        Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
+      } else if (peri_mode==3) {
+        // 3-periodic
+        Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
+      } else {
+        std::cout << "2-periodic not yet implemented." << std::endl;
+        SCTL_ASSERT(false);
+      }
       (*U) += U_far;
     } 
-    // comm.Barrier();
   };
 
   // Solve for sigma to satisfy no-slip boundary conditions: BIO(sigma) + bg_flow = 0
@@ -143,10 +146,9 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
   solver(&sigma, BIO, -bg_flow(X0), gmres_tol);
 
   { // Evaluate in interior, and write visualization
-    std::cout << "Rank " << comm.Rank()<< " calculating target points." << std::endl;
-    //TODO: should split target up by comm.Rank() not element, since Vol_vis should be shortened..
+    // std::cout << "Rank " << comm.Rank()<< " calculating target points." << std::endl;
     PeriodicGeom<Real> trg;
-    const sctl::Long Nelem_trg = 4;
+    const sctl::Long Nelem_trg = Nelem_channel;
     const sctl::Long FourierOrder_trg = 16;
     sctl::SlenderElemList<Real> elem_lst_trg;
     sctl::Vector<sctl::Long> ptcls_trg;
@@ -154,24 +156,23 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     sctl::Vector<Real> ptcls_rs_trg;
     // peri_mode = 1 for 1-periodic
     if (channel_mode == 0) {
-      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_straight(Nelem_trg, ElemOrder, FourierOrder_trg, 0, 1, 0.25, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
+      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_straight(Nelem_trg, ElemOrder, FourierOrder_trg, 0, peri_mode, 0.25, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
       elem_lst_trg = std::get<0>(build_trg);
     } else if (channel_mode == 1) {
-      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_sinusoidal(Nelem_trg, ElemOrder, FourierOrder_trg, 0, 1, 0.2, 0.1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
+      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_sinusoidal(Nelem_trg, ElemOrder, FourierOrder_trg, 0, peri_mode, 0.2, 0.1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
       elem_lst_trg = std::get<0>(build_trg);
     } else if (channel_mode == 2) {
-      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_sinusoidal(Nelem_trg, ElemOrder, FourierOrder_trg, 0, 1, 0.1, 0.25, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
+      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_sinusoidal(Nelem_trg, ElemOrder, FourierOrder_trg, 0, peri_mode, 0.1, 0.3, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
       elem_lst_trg = std::get<0>(build_trg);
     } else if (channel_mode == 3) {
-      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, 1, 0.1, 0.1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
+      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.1, 0.1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
       elem_lst_trg = std::get<0>(build_trg);
     } else if (channel_mode == 4) {
-      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 0, 1, 0.2, 0.02, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
+      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.5, 0.05, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
       elem_lst_trg = std::get<0>(build_trg);
     } else {
       SCTL_ASSERT(false); // not implemented
     }
-    // std::cout << "dim of elem_lst_trg is " << elem_lst_trg.Size() << std::endl;
 
     VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
     sctl::Vector<Real> X0_all = vol_vis.GetCoord(); // set new target coordinates
@@ -210,24 +211,26 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     sctl::Vector<sctl::Long> size_all(1);
     comm.Allreduce((sctl::Iterator<sctl::Long>) size_loc.begin(), (sctl::Iterator<sctl::Long>) size_all.begin(), 1, sctl::CommOp::SUM);
     std::cout << "rank " << comm.Rank() << " size loc = " << size_loc[0] << ", size all is " << size_all[0] << std::endl;
-    std::string filename = "U_8_16_"+std::to_string(channel_mode)+"_"+std::to_string(geom_mode)+"_"+std::to_string(Nptcl);
+    std::string filename = "ConvDiv_U_exact_"+std::to_string(comm.Rank());
+    // std::string filename = "Conv_div";
     std::string filename_out = "out/"+filename+".txt";
     std::string filename_vis = "vis/"+filename;
     if (write_ref) {
-      vol_vis.WriteVTK(filename_vis, U_vis);
+      // vol_vis.WriteVTK(filename_vis, U_vis);
       // sctl::Vector<Real> U_vis_all(size_all[0]);
       // comm.Allgather((sctl::Iterator<Real>) U_vis.begin(), size_loc[0], (sctl::Iterator<Real>) U_vis_all.begin(), size_all[0]);
-      // std::cout << U_vis_all.Dim() << std::endl;
       // if (!comm.Rank()) {
-      //   U_vis_all.Write(filename_out.c_str());
+        // U_vis_all.Write(filename_out.c_str());
+        // std::cout << "Rank 0 finished writing." << std::endl;
       // }
+      U.Write(filename_out.c_str());
     } else {
       sctl::Vector<Real> U_ref;
-      if (!comm.Rank()) {
-        U_ref.Read(filename_out.c_str());
-      }
-      comm.PartitionN(U_ref,size_loc[0]);
-      // std::cout << "dim of U ref is " << U_ref.Dim() << ", dim of U vis is " << U_vis.Dim() << std::endl;
+      // if (!comm.Rank()) {
+      //   U_ref.Read(filename_out.c_str());
+      // }
+      // comm.PartitionN(U_ref,size_loc[0]);
+      U_ref.Read(filename_out.c_str());
       const auto err = U_vis - U_ref;
       double max_err = 0;
       for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
@@ -240,25 +243,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
         std::cout<<"Max error = "<< std::setprecision(10) << err_all[0] << std::endl;
       }
     }
-    // if (!comm.Rank()) {
-    //   if (write_ref) {
-    //     vol_vis.WriteVTK(filename_vis, U_vis);
-    //     U_vis.Write(filename_out.c_str());
-    //   } else {
-    //     sctl::Vector<Real> U_ref;
-    //     U_ref.Read(filename_out.c_str());
-    //     // 
-    //     // std::cout << "dim of U ref is " << U_ref.Dim() << ", dim of U vis is " << U_vis.Dim() << std::endl;
-    //     const auto err = U_vis_all - U_ref;
-    //     // std::cout << "dim of U ref is " << U_ref.Dim() << ", dim of U vis is " << U_vis.Dim() << std::endl;
-    //     // sctl::Vector<Real> U_ref_loc(U_vis.Dim(),(sctl::Iterator<Real>) U_ref.begin(),false);
-    //     // const auto err = U_vis - U_ref_loc;
-    //     double max_err = 0;
-    //     for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
-    //     std::cout<<"Max error = "<< max_err <<'\n';
-    //   }
-    // }
-
+    
   }
 }
 

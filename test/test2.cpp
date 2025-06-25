@@ -16,11 +16,24 @@ template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
   return U;
 }
 
+// // Background flow that is constant in only x direction.
+// template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
+//   const sctl::Long N = X.Dim()/3;
+//   sctl::Vector<Real> U(3*N);
+//   for (sctl::Long i = 0; i < N; i++) {
+//     U[i*3+0] = 1.;
+//     U[i*3+1] = 0.;
+//     U[i*3+2] = 0.;
+//   }
+//   return U;
+// }
+
 template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Integer peri_mode, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode) {
 
   // Combine single-layer and double-layer kernels in these proportions
   const Real SL_scal = 1.0;
   const Real DL_scal = 1.0;
+  // const Real DL_scal = 0.0;
 
   const Real tol = 1e-15;
   const Real gmres_tol = 1e-10;
@@ -34,15 +47,9 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
   sctl::Vector<Real> ptcls_rs;
   sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
   sctl::Vector<Real> NormalOrient;
-  // Real box_sidelen = 0.5;
-  // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_straight(Nelem, ElemOrder, FourierOrder, 0, peri_mode, box_sidelen/2., comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-  // elem_lst0 = std::get<0>(build0);
-  // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_straight(Nelem, ElemOrder, FourierOrder, 1, peri_mode, box_sidelen/2., comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-  // elem_lst_nbr = std::get<0>(build_nbr);
-  // NormalOrient = std::get<1>(build_nbr);
-  std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+  std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 0, 1, comm, 25, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
   elem_lst0 = std::get<0>(build0);
-  std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 1, peri_mode, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+  std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 1, peri_mode, 25, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
   elem_lst_nbr = std::get<0>(build_nbr);
   NormalOrient = std::get<1>(build_nbr);
   const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); 
@@ -51,6 +58,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 
   sctl::Vector<Real> X0; // target coordinates
   elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
+  // std::cout << "size of X0: " <<  X0.Dim() << std::endl;
   sctl::Vector<Real> X_proxy;
   if (peri_mode == 1) {
     X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
@@ -87,14 +95,9 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
       }
     }
 
-    // std::cout << " before U set zero" << std::endl;
     U->SetZero();
-    // std::cout << "after U set zero" << std::endl;
-    // std::cout << "wavy 2 debug: size of LayerPotenOp is "<< LayerPotenOp0.Dim(1) << ", " << LayerPotenOp0.Dim(0) << std::endl;
     LayerPotenOp0.ComputePotential(*U, sigma_nbr);
-    // if (DL_scal && U->Dim() == N) (*U) -= sigma*0.5*NormalOrient * DL_scal; // for double-layer
     if (DL_scal && U->Dim() == N) {
-      // std::cout << "self to self, dim of NormalOrient is " << NormalOrient.Dim() << std::endl;
       (*U) -= sigma*0.5*NormalOrient * DL_scal;
     }
 
@@ -120,22 +123,15 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
   // Solve for sigma to satisfy no-slip boundary conditions: BIO(sigma) + bg_flow = 0
   sctl::Vector<Real> sigma;
   sctl::GMRES<Real> solver(comm);
-  solver(&sigma, BIO, -bg_flow(X0), gmres_tol);
+  sctl::Vector<Real> U0 = -bg_flow(X0);
+  solver(&sigma, BIO, U0, gmres_tol);
 
   { // Evaluate in interior, and write visualization
     std::cout << "Rank " << comm.Rank()<< " calculating target points." << std::endl;
-    PeriodicGeom<Real> trg;
-    const sctl::Long Nelem_trg = 4;
-    const sctl::Long FourierOrder_trg = 16;
-    sctl::SlenderElemList<Real> elem_lst_trg;
-    sctl::Vector<sctl::Long> ptcls_trg;
-    sctl::Vector<Real> ptcls_Xcs_trg;
-    sctl::Vector<Real> ptcls_rs_trg;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_straight(Nelem_trg, ElemOrder, FourierOrder_trg, 0, peri_mode, 1./2., comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
-    elem_lst_trg = std::get<0>(build_trg);
-    
-    // sctl::CubeVolumeVis<Real> vol_vis(50, 1.0, comm);
-    VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
+    PeriodicGeom<Real> trg;    
+    CubeVolumeVisShifted<Real> vol_vis(50, 1.0, comm);
+    // VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
+    // X0 = vol_vis.GetCoord();
     sctl::Vector<Real> X0_all = vol_vis.GetCoord();
     // std::cout << "size of X0 all is " << X0_all.Dim();
     sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
@@ -145,9 +141,8 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     // std::cout << "size of X0 is " << X0.Dim() << std::endl;
 
     LayerPotenOp0.SetTargetCoord(X0);
-    sctl::Vector<Real> U,U2;
+    sctl::Vector<Real> U;
     BIO(&U, sigma);
-    // std::cout << "size of U before background is " << U.Dim() << std::endl;
     U += bg_flow(X0);
     // sctl::Vector<Real> U_vis = U;
     sctl::Vector<Real> U_vis(X0_all.Dim());
@@ -161,6 +156,8 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         X1_ptr += 1;
       }
     }
+    // sctl::Vector<Real> bgU = bg_flow(X0);
+    // vol_vis.WriteVTK("vis/backgroundU", bgU);
 
     if (write_ref) {
       std::string filename_vis = "vis/U_ptcl_only_"+std::to_string(peri_mode)+"_periodic";
