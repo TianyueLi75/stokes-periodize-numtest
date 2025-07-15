@@ -450,7 +450,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   return std::make_tuple(elem_lst,NormalOrient_);
 };
 
-template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_conv_div(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const sctl::Integer peri_mode, const Real r1, const Real r2, const sctl::Comm& comm, sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
+template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_conv_div(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const sctl::Integer peri_mode, const Real r1, const Real r2, const sctl::Comm& comm, sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const sctl::Long ptcl_ord, const int geom_mode){
   comm_ = comm;
   sctl::Vector<Real> Xc, eps, orient;
   sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
@@ -494,7 +494,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
     }
     // std::cout << ptcls_Xcs.Dim() << "; " << ptcls_rs.Dim() << std::endl;
     sctl::Vector<sctl::Long> ptcls_(ptcls_rs.Dim());
-    ptcls_ = 1;
+    ptcls_ = ptcl_ord;
     ptcls.Swap(ptcls_);
     add_particles(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     for (sctl::Long ptcl_i = 0; ptcl_i < ptcls.Dim(); ptcl_i++) {
@@ -663,7 +663,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_ptcls2(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const sctl::Integer peri_mode, const sctl::Comm& comm, const sctl::Long Nptcl, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
   comm_ = comm;
   // sctl::Long Nptcl = 25;
-  SCTL_ASSERT((Nptcl==25) || (Nptcl == 100) || (Nptcl == 500));
+  // SCTL_ASSERT((Nptcl==25) || (Nptcl == 100) || (Nptcl == 500));
   sctl::Long Nelem_ptcl_tot = 0;
   if (nbr_range == 0) {
     // std::cout << "create matrix" << std::endl;
@@ -672,6 +672,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
     std::ifstream infile(data_filename);
     if (!infile) {
         std::cerr << "Error opening file!" << std::endl;
+        SCTL_ASSERT(false);
     }
     for (sctl::Long row=0; row < Nptcl; row++) {
       for (sctl::Long col=0; col < 4; col++) {
@@ -880,6 +881,8 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::vec_nbr_copy(const 
   sctl::Long Nrepeat = 2*nbr_range + 1;
   if (peri_mode==3) {
     Nrepeat = Nrepeat * Nrepeat * Nrepeat;
+  } else if (peri_mode==2) {
+    Nrepeat = Nrepeat * Nrepeat;
   }
   sctl::Long N = X.Dim();
   sctl::Vector<Real> X_nbr(Nrepeat*N); // repeat X Nrepeat times
@@ -907,23 +910,33 @@ template <class Real> sctl::Vector<sctl::Long> PeriodicGeom<Real>::vec_nbr_copy(
 }
 
 template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::X_nbr_copy(const sctl::Vector<Real> X, const sctl::Integer nbr_range, const sctl::Integer peri_mode) {
+  sctl::Long N = X.Dim();
   if (nbr_range>0) { // duplicate geomtry to add images
-    sctl::Vector<Real> Xc_;
+    sctl::Long Nrepeat = 2*nbr_range + 1;
+    if (peri_mode==3) {
+      Nrepeat = Nrepeat * Nrepeat * Nrepeat;
+    } else if (peri_mode==2) {
+      Nrepeat = Nrepeat * Nrepeat;
+    }
+    sctl::Vector<Real> Xc_(N*Nrepeat);
+    sctl::Long Xcptr = 0;
     if (peri_mode == 1) {
       for (sctl::Long k0 = -nbr_range; k0 <= nbr_range; k0++) {
-        for (sctl::Long i = 0; i < X.Dim()/3; i++) { // shift in x
-          Xc_.PushBack(X[i*3+0] + k0);
-          Xc_.PushBack(X[i*3+1]);
-          Xc_.PushBack(X[i*3+2]);
+        Xcptr = (k0+nbr_range)*N;
+        for (sctl::Long i = 0; i < N/3; i++) { // shift in x
+          Xc_[Xcptr + i*3+0] = X[i*3+0] + k0;
+          Xc_[Xcptr + i*3+1] = X[i*3+1];
+          Xc_[Xcptr + i*3+2] = X[i*3+2];
         }
       }
     } else if (peri_mode == 2) {
       for (sctl::Long k1 = -nbr_range; k1 <= nbr_range; k1++) {
         for (sctl::Long k0 = -nbr_range; k0 <= nbr_range; k0++) {
+          Xcptr = (k0+nbr_range)*N + (k1+nbr_range)*(2*nbr_range+1)*N;
           for (sctl::Long i = 0; i < X.Dim()/3; i++) { // shift in x
-            Xc_.PushBack(X[i*3+0] + k0);
-            Xc_.PushBack(X[i*3+1] + k1);
-            Xc_.PushBack(X[i*3+2]);
+            Xc_[Xcptr + i*3+0] = X[i*3+0] + k0;
+            Xc_[Xcptr + i*3+1] = X[i*3+1] + k1;
+            Xc_[Xcptr + i*3+2] = X[i*3+2];
           }
         }
       }
@@ -931,10 +944,11 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::X_nbr_copy(const sc
       for (sctl::Long k2 = -nbr_range; k2 <= nbr_range; k2++) {
         for (sctl::Long k1 = -nbr_range; k1 <= nbr_range; k1++) {
           for (sctl::Long k0 = -nbr_range; k0 <= nbr_range; k0++) {
-            for (sctl::Long i = 0; i < X.Dim()/3; i++) { // shift in x
-              Xc_.PushBack(X[i*3+0] + k0);
-              Xc_.PushBack(X[i*3+1] + k1);
-              Xc_.PushBack(X[i*3+2] + k2);
+            Xcptr = (k0+nbr_range)*N + (k1+nbr_range)*(2*nbr_range+1)*N + (k2+nbr_range)*(2*nbr_range+1)*(2*nbr_range+1)*N;
+            for (sctl::Long i = 0; i < X.Dim()/3; i++) {
+              Xc_[Xcptr + i*3+0] = X[i*3+0] + k0;
+              Xc_[Xcptr + i*3+1] = X[i*3+1] + k1;
+              Xc_[Xcptr + i*3+2] = X[i*3+2] + k2;
             }
           }
         }
@@ -947,6 +961,49 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::X_nbr_copy(const sc
     return X;
   }
 }
+
+// Previous version -- pushback, large memory reallocation cost
+// template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::X_nbr_copy(const sctl::Vector<Real> X, const sctl::Integer nbr_range, const sctl::Integer peri_mode) {
+//   if (nbr_range>0) { // duplicate geomtry to add images
+//     sctl::Vector<Real> Xc_;
+//     if (peri_mode == 1) {
+//       for (sctl::Long k0 = -nbr_range; k0 <= nbr_range; k0++) {
+//         for (sctl::Long i = 0; i < X.Dim()/3; i++) { // shift in x
+//           Xc_.PushBack(X[i*3+0] + k0);
+//           Xc_.PushBack(X[i*3+1]);
+//           Xc_.PushBack(X[i*3+2]);
+//         }
+//       }
+//     } else if (peri_mode == 2) {
+//       for (sctl::Long k1 = -nbr_range; k1 <= nbr_range; k1++) {
+//         for (sctl::Long k0 = -nbr_range; k0 <= nbr_range; k0++) {
+//           for (sctl::Long i = 0; i < X.Dim()/3; i++) { // shift in x
+//             Xc_.PushBack(X[i*3+0] + k0);
+//             Xc_.PushBack(X[i*3+1] + k1);
+//             Xc_.PushBack(X[i*3+2]);
+//           }
+//         }
+//       }
+//     } else if (peri_mode == 3) {
+//       for (sctl::Long k2 = -nbr_range; k2 <= nbr_range; k2++) {
+//         for (sctl::Long k1 = -nbr_range; k1 <= nbr_range; k1++) {
+//           for (sctl::Long k0 = -nbr_range; k0 <= nbr_range; k0++) {
+//             for (sctl::Long i = 0; i < X.Dim()/3; i++) { // shift in x
+//               Xc_.PushBack(X[i*3+0] + k0);
+//               Xc_.PushBack(X[i*3+1] + k1);
+//               Xc_.PushBack(X[i*3+2] + k2);
+//             }
+//           }
+//         }
+//       }
+//     } else {
+//       SCTL_ASSERT(false);
+//     }
+//     return Xc_;
+//   } else {
+//     return X;
+//   }
+// }
 
 template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> PeriodicGeom<Real>::filter_target(const sctl::Vector<Real> X, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real> ptcls_rs, const sctl::Vector<Real> ptcls_Xcs, const int geom_mode) {
   const sctl::Long N = X.Dim()/3; // number of targets
