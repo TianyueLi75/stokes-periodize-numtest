@@ -174,15 +174,14 @@ template <class Real> void Sprial_self_conv(sctl::Long Nelem, sctl::Long Fourier
     }
 }
 
-// TODO: ask D about Allgather even when using U_vis (same size as X0_all, even with VolVis.)
 template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Integer peri_mode, sctl::Comm comm, const sctl::Long Nptcl) {
 
     // Combine single-layer and double-layer kernels in these proportions
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
 
-    const Real tol = 1e-15;
-    const Real gmres_tol = 1e-8;
+    const Real tol = 1e-10;
+    const Real gmres_tol = 1e-10;
     const sctl::Long ElemOrder = 10;
 
     if (!comm.Rank()) {
@@ -207,8 +206,11 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
     NormalOrient = std::get<1>(build_nbr);
 
     const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); // should be 3
-    std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
-
+    if (!comm.Rank()) {
+        std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
+        std::cout << "total number of particles is " << ptcls.Dim() << ", number of elements per processor is " << elem_lst0.Size() << std::endl;
+    }
+    
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
     sctl::Vector<Real> X_proxy;
@@ -357,29 +359,33 @@ template <class Real> void channel_self_conv(sctl::Long Nelem, sctl::Long Fourie
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
 
-    const Real tol = 1e-15;
-    const Real gmres_tol = 1e-10;
+    const Real tol = 1e-6;
+    const Real gmres_tol = 1e-8;
     const sctl::Long ElemOrder = 10;
 
     PeriodicGeom<Real> obj;
     sctl::Long Nptcl = 50; // placeholder; will be replaced inside conv-div channel build.
+    sctl::Long ptcl_ord = 1;
     sctl::Vector<sctl::Long> ptcls(Nptcl);
-    ptcls = 1;
+    ptcls = ptcl_ord;
     sctl::Vector<Real> ptcls_Xcs;
     sctl::Vector<Real> ptcls_rs;
     sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
     sctl::Vector<Real> NormalOrient;
     sctl::Long peri_mode = 1;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem, ElemOrder, FourierOrder, 0, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, 0);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem, ElemOrder, FourierOrder, 0, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, 0);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_conv_div(Nelem, ElemOrder, FourierOrder, 1, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, 0);  
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_conv_div(Nelem, ElemOrder, FourierOrder, 1, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, 0);  
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
   
     // std::cout << "Size of elem_lst_nbr is " << elem_lst_nbr.Size() << ", Size of elem_lst0 is " << elem_lst0.Size() <<std::endl;
     const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); // should be 3
     Nptcl = ptcls_rs.Dim(); // Number of particles could have changed after initializing.
-    std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
+    if (!comm.Rank()) {
+        std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
+        std::cout << "total number of particles is " << Nptcl << ", number of elements per processor is " << elem_lst0.Size() << std::endl;
+    }
 
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
@@ -398,7 +404,6 @@ template <class Real> void channel_self_conv(sctl::Long Nelem, sctl::Long Fourie
     // periodized layer potential operator
     const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&peri_mode, &comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         const sctl::Long N = sigma.Dim();
-        // std::cout << "in BIO, dim of sigma is " << N << std::endl;
 
         sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
         for (sctl::Long k = 0; k < Nrepeat; k++) {
@@ -414,7 +419,6 @@ template <class Real> void channel_self_conv(sctl::Long Nelem, sctl::Long Fourie
         }
 
         { // Add far-field
-            // std::cout << "in far eval" << std::endl;
             sctl::Vector<Real> U_proxy, U_far;
             LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
             Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
@@ -422,21 +426,27 @@ template <class Real> void channel_self_conv(sctl::Long Nelem, sctl::Long Fourie
         } 
     };
 
+    sctl::Profile::Tic("Setup");
+    LayerPotenOp0.Setup();
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    sctl::Profile::reset();
+
     // Solve for sigma to satisfy no-slip boundary conditions: BIO(sigma) + bg_flow = 0
     sctl::Vector<Real> sigma;
-    sctl::GMRES<Real> solver(comm);
+    sctl::GMRES<Real> solver(comm,false);
     solver(&sigma, BIO, -bg_flow(X0), gmres_tol);
 
     { // Evaluate in interior, and write visualization
         // std::cout << "Rank " << comm.Rank()<< " calculating target points." << std::endl;
         PeriodicGeom<Real> trg;
-        const sctl::Long Nelem_trg = Nelem;
+        const sctl::Long Nelem_trg = 16;
         const sctl::Long FourierOrder_trg = 16;
         sctl::SlenderElemList<Real> elem_lst_trg;
         sctl::Vector<sctl::Long> ptcls_trg; // dim = 0 so no particles are first generated
         sctl::Vector<Real> ptcls_Xcs_trg;
         sctl::Vector<Real> ptcls_rs_trg;
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_conv_div(Nelem_trg, ElemOrder, FourierOrder_trg, 0, peri_mode, 0.1, 0.1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, 0);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_conv_div(Nelem_trg, ElemOrder, FourierOrder_trg, 0, peri_mode, 0.1, 0.1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, ptcl_ord, 0);
         elem_lst_trg = std::get<0>(build_trg);
 
         VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
@@ -511,7 +521,7 @@ int main(int argc, char** argv) {
   using Real = double;
 
   {
-    //sctl::Profile::Enable(true);
+    sctl::Profile::Enable(true);
     sctl::Comm comm = sctl::Comm::World();
     long test_mode = std::stol(argv[1]); // =0 for Sprial, =1 for 1-particle; =2 for conv div
     long peri_mode = std::stol(argv[2]); // 1- or 3- periodic
@@ -527,9 +537,13 @@ int main(int argc, char** argv) {
     // }
 
     // for conv div channel
-    for (int i=4; i<25; i += 4) {
-        Nelem_lst.PushBack(i);
-    }
+    Nelem_lst.PushBack(6);
+    Nelem_lst.PushBack(12);
+    Nelem_lst.PushBack(24);
+    // for (int i=12; i<17; i += 4) {
+    //     Nelem_lst.PushBack(i);
+    // }
+    // Nelem_lst.PushBack(4);
     // } 
     
     sctl::Vector<sctl::Long> FourierOrder_lst;
@@ -540,14 +554,14 @@ int main(int argc, char** argv) {
     // for (int i=24; i<85; i += 12) {
     //     FourierOrder_lst.PushBack(i);
     // }
-    FourierOrder_lst.PushBack(16);
-    FourierOrder_lst.PushBack(24);
-    FourierOrder_lst.PushBack(36);
-    FourierOrder_lst.PushBack(48);
+    // FourierOrder_lst.PushBack(16);
+    // FourierOrder_lst.PushBack(24);
+    FourierOrder_lst.PushBack(32);
+    FourierOrder_lst.PushBack(64);
 
     // Sprial_self_conv<Real>(60, 80, true, comm);
     // particle_self_conv<Real>(1, 16, 1, true, comm, 1);
-    // channel_self_conv<Real>(4, 36, true, comm);
+    // channel_self_conv<Real>(4, 16, false, comm);
     
     sctl::Long Nelem, FourierOrder;
     for (int i=Nelem_lst.Dim()-1; i>=0; i--) {
@@ -565,6 +579,7 @@ int main(int argc, char** argv) {
                 } else {
                     particle_self_conv<Real>(Nelem, FourierOrder, true, peri_mode, comm, 25);
                 }
+                // continue;
             } else {
                 if (test_mode==0) {
                     Sprial_self_conv<Real>(Nelem, FourierOrder, false, comm);

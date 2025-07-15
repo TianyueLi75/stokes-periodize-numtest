@@ -36,6 +36,7 @@ endif
 CXXFLAGS += -Wall -Wfloat-conversion
 
 # Enable profiling
+# CXXFLAGS += -DSCTL_PROFILE=100 -DSCTL_VERBOSE
 CXXFLAGS += -DSCTL_PROFILE=5 -DSCTL_VERBOSE
 
 # Enable MPI (CXX must be set to mpicxx)
@@ -92,7 +93,17 @@ test: $(TEST_BIN)
 test_ptcl: $(BINDIR)/test1
 
 # Test self_conv without particle:
-test_wavy: $(BINDIR)/test_selfconv
+test_multi_periodic: $(BINDIR)/test2
+
+test_free: $(BINDIR)/test3
+
+test_free_copies: $(BINDIR)/test3_copies
+
+test_dense: $(BINDIR)/test4
+
+test_selfconv: $(BINDIR)/test_convergence
+
+test_ptcl_conv: $(BINDIR)/test2_ptcl_conv
 
 # Rules for building binaries
 $(BINDIR)/%: $(OBJDIR)/%.o
