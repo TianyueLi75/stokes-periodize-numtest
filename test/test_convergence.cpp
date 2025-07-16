@@ -426,11 +426,11 @@ template <class Real> void channel_self_conv(sctl::Long Nelem, sctl::Long Fourie
         } 
     };
 
-    sctl::Profile::Tic("Setup");
-    LayerPotenOp0.Setup();
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    sctl::Profile::reset();
+    // sctl::Profile::Tic("Setup");
+    // LayerPotenOp0.Setup();
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    // sctl::Profile::reset();
 
     // Solve for sigma to satisfy no-slip boundary conditions: BIO(sigma) + bg_flow = 0
     sctl::Vector<Real> sigma;
@@ -521,7 +521,7 @@ int main(int argc, char** argv) {
   using Real = double;
 
   {
-    sctl::Profile::Enable(true);
+    // sctl::Profile::Enable(true);
     sctl::Comm comm = sctl::Comm::World();
     long test_mode = std::stol(argv[1]); // =0 for Sprial, =1 for 1-particle; =2 for conv div
     long peri_mode = std::stol(argv[2]); // 1- or 3- periodic
@@ -572,14 +572,14 @@ int main(int argc, char** argv) {
                 std::cout << "Nelem = " << Nelem << ", FourierOrder = " << FourierOrder << "; " << std::endl;
             }
             if (i==Nelem_lst.Dim()-1 && j == FourierOrder_lst.Dim()-1) {
-                if (test_mode==0) {
-                    Sprial_self_conv<Real>(Nelem, FourierOrder, true, comm);
-                } else if (test_mode==2) {
-                    channel_self_conv<Real>(Nelem, FourierOrder, true, comm); 
-                } else {
-                    particle_self_conv<Real>(Nelem, FourierOrder, true, peri_mode, comm, 25);
-                }
-                // continue;
+                // if (test_mode==0) {
+                //     Sprial_self_conv<Real>(Nelem, FourierOrder, true, comm);
+                // } else if (test_mode==2) {
+                //     channel_self_conv<Real>(Nelem, FourierOrder, true, comm); 
+                // } else {
+                //     particle_self_conv<Real>(Nelem, FourierOrder, true, peri_mode, comm, 25);
+                // }
+                continue;
             } else {
                 if (test_mode==0) {
                     Sprial_self_conv<Real>(Nelem, FourierOrder, false, comm);

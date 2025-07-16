@@ -58,9 +58,9 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
   } else if (channel_mode == 3) {
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, 1, geom_mode);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 1, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 1, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, 1, geom_mode);  
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
   } else if (channel_mode == 4) {
@@ -165,7 +165,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
       std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_sinusoidal(Nelem_trg, ElemOrder, FourierOrder_trg, 0, peri_mode, 0.1, 0.3, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
       elem_lst_trg = std::get<0>(build_trg);
     } else if (channel_mode == 3) {
-      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.1, 0.1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
+      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.1, 0.1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, 1, geom_mode);
       elem_lst_trg = std::get<0>(build_trg);
     } else if (channel_mode == 4) {
       std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.5, 0.05, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
