@@ -98,7 +98,6 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     } else {
         SCTL_ASSERT(false);
     }
-    elem_lst0.WriteVTK("vis/25spheroids",X0,comm);
 
     // Create point charges at random locations close to particle center, by a distance of at most 0.2r.
     sctl::Long Ncharge;
@@ -145,7 +144,64 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     LayerPotenOp_proxy.SetTargetCoord(X_proxy);
     LayerPotenOp_proxy.SetAccuracy(tol);
 
-    // periodized layer potential operator
+    // =============== PRECONDITIONING =======================================
+    sctl::Vector<sctl::Long> ptcls_pre;
+    sctl::Vector<Real> ptcls_Xcs_pre;
+    sctl::Vector<Real> ptcls_rs_pre;
+    sctl::SlenderElemList<Real> elem_lst_precond, elem_lst_precond_nbr;
+    sctl::Vector<Real> NormalOrient_pre;
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, geom_mode);
+    elem_lst_precond = std::get<0>(build_precond);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond_nbr = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 1, peri_mode, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, geom_mode);
+    elem_lst_precond_nbr = std::get<0>(build_precond_nbr);
+    NormalOrient_pre = std::get<1>(build_precond_nbr);
+    sctl::Vector<Real> X0_precond; // target coordinates
+    elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
+
+    StokesBIO Precond_bio(SL_scal, DL_scal, comm.Self());
+    Precond_bio.SetAccuracy(tol); // set quadrature accuracy
+    Precond_bio.AddElemList(elem_lst_precond_nbr);
+    Precond_bio.SetTargetCoord(X0_precond);
+    StokesBIO Precond_proxy(SL_scal, DL_scal, comm.Self()); // TODO: does this need to be precond too? 
+    Precond_proxy.AddElemList(elem_lst_precond);
+    Precond_proxy.SetTargetCoord(X_proxy);
+    Precond_proxy.SetAccuracy(tol); 
+
+    const auto BIO_1ptcl = [&DL_scal,&Precond_bio,&Precond_proxy,&Nrepeat,&NormalOrient_pre,&X0_precond,&peri_mode](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        const sctl::Long N = sigma.Dim();
+        // std::cout << "in BIO 1ptcl, dim of sigma is " << N << std::endl;
+        sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
+        for (sctl::Long k = 0; k < Nrepeat; k++) {
+            for (sctl::Long i = 0; i < N; i++) {
+                sigma_nbr[k*N+i] = sigma[i];
+            }
+        }
+        U->SetZero();
+        Precond_bio.ComputePotential(*U, sigma_nbr);
+
+        if (DL_scal && U->Dim() == N) {
+            // std::cout << "Should appear here, in self-eval jump condition" << std::endl;
+            (*U) -= sigma*0.5*NormalOrient_pre * DL_scal;
+        }
+        { // Add far-field
+            sctl::Vector<Real> U_proxy, U_far;
+            Precond_proxy.ComputePotential(U_proxy, sigma);
+            if (peri_mode==1) {
+                // 1-periodic
+                Periodize1D<Real>::EvalFarField(U_far, X0_precond, U_proxy);
+            } else if (peri_mode==3) {
+                // 3-periodic
+                Periodize3D<Real>::EvalFarField(U_far, X0_precond, U_proxy);
+            } else {
+                std::cout << "2-periodic not yet implemented." << std::endl;
+                SCTL_ASSERT(false);
+            }
+            // std::cout << "size of proxy far eval: " << U_far.Dim() << "; size of U: " << U->Dim() << std::endl; 
+            (*U) += U_far;
+        } 
+    };
+
+        // periodized layer potential operator
     const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&peri_mode](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         const sctl::Long N = sigma.Dim();
         // std::cout << "in BIO, dim of sigma is " << N << std::endl;
@@ -182,12 +238,92 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         // comm.Barrier();
     };
 
+    sctl::Long A11size = 3*ElemOrder*FourierOrder*Nelem;
+    sctl::Vector<sctl::Vector<Real>> PrecondMat(A11size);
+    // sctl::Vector<sctl::Vector<Real>> PtclMat(A11size);
+    sctl::Vector<Real> SigmaCol_precond(A11size);
+    for (sctl::Long col=0; col < A11size; col ++) {
+      SigmaCol_precond = 0.;
+      SigmaCol_precond[col] = 1.;
+      BIO_1ptcl(PrecondMat.begin() + col,SigmaCol_precond);
+    }
+    sctl::Matrix<Real> A11(A11size,A11size);
+    for (long col=0; col < A11size; col++) {
+      for (long row = 0; row < A11size; row++) {
+        A11(row,col) = PrecondMat[col][row];
+      }
+    }      
+    sctl::Matrix<Real> Usvd, VT, S, SforInv;
+    sctl::Matrix<Real> A11forSVD = sctl::Matrix<Real>(A11);
+    A11forSVD.SVD(Usvd, S, VT);
+    SforInv = sctl::Matrix<Real>(S);
+    sctl::Matrix<Real> Sinv = SforInv.pinv(1e-16);
+
+    // Apply A11inv to each panel of sigma.
+    const auto AinvApply = [&Usvd,&Sinv,&VT,&A11size](const sctl::Vector<Real>& sig) {
+        sctl::Long N = sig.Dim();
+        sctl::Long Nptcl = N / A11size; 
+        sctl::Vector<Real> AinvSigma(N);
+        for (sctl::Long i=0; i<Nptcl; i++) {
+            // for each particle, apply A11inv.
+            sctl::Matrix<Real> sigMat(A11size,1,(sctl::Iterator<Real>) sig.begin() + i*A11size,true);
+            sctl::Matrix<Real> AinvSigmaMat = VT.Transpose() * (Sinv * (Usvd.Transpose() * sigMat));
+            for (sctl::Long j=0; j<A11size; j++) {
+                AinvSigma[i*A11size + j] = AinvSigmaMat(j,0);
+            }
+        }
+        return AinvSigma;
+    };
+
+    const auto BIO_precond = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&peri_mode,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        const sctl::Long N = sigma.Dim();
+        // std::cout << "in BIO, dim of sigma is " << N << std::endl;
+
+        // RIGHT PRECONDITIONER: sigma -> A-1*sigma
+        sctl::Vector<Real> AinvSigma = AinvApply(sigma);
+        
+        sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
+        for (sctl::Long k = 0; k < Nrepeat; k++) {
+            for (sctl::Long i = 0; i < N; i++) {
+                // sigma_nbr[k*N+i] = sigma[i];
+                sigma_nbr[k*N+i] = AinvSigma[i];
+            }
+        }
+
+        U->SetZero();
+        LayerPotenOp0.ComputePotential(*U, sigma_nbr);
+        if (DL_scal && U->Dim() == N) {
+            // (*U) -= sigma*0.5*NormalOrient * DL_scal;
+            (*U) -= AinvSigma*0.5*NormalOrient * DL_scal;
+        }
+        { // Add far-field
+            sctl::Vector<Real> U_proxy, U_far;
+            // LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
+            LayerPotenOp_proxy.ComputePotential(U_proxy, AinvSigma);
+            if (peri_mode==1) {
+                // 1-periodic
+                Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
+            } else if (peri_mode==3) {
+                // 3-periodic
+                Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
+            } else {
+                std::cout << "2-periodic not yet implemented." << std::endl;
+                SCTL_ASSERT(false);
+            }
+            
+            (*U) += U_far;
+        } 
+    };
+
     // first gmres to remove timing for matrix loading, and set Krylov preconditioner.
     sctl::Vector<Real> sigma_temp;
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
     // PRECOND with Krylov
-    solver(&sigma_temp, BIO, field_on_surf, gmres_tol, -1, false, nullptr, &krylov_precond);
+    // solver(&sigma_temp, BIO, field_on_surf, gmres_tol, -1, false, nullptr, &krylov_precond);
+    // PRECOND WITH A11
+    // solver(&sigma_temp, BIO_precond, field_on_surf, 1e0); 
+    solver(&sigma_temp, BIO_precond, field_on_surf, gmres_tol, -1, false, nullptr, &krylov_precond); 
     sctl::Profile::reset();
 
     LayerPotenOp0.ClearSetup();
@@ -200,7 +336,13 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Profile::Tic("Solver");
     // solver(&sigma, BIO, field_on_surf, gmres_tol);
     // PRECOND with Krylov
-    solver(&sigma, BIO, field_on_surf, gmres_tol, -1, false, nullptr, &krylov_precond);
+    // solver(&sigma, BIO, field_on_surf, gmres_tol, -1, false, nullptr, &krylov_precond);
+    // PRECOND with A11inv
+    // solver(&sigma, BIO_precond, field_on_surf, gmres_tol);
+    solver(&sigma, BIO_precond, field_on_surf, gmres_tol, -1, false, nullptr, &krylov_precond);
+    sctl::Vector<Real> sigma_ = AinvApply(sigma); // apply A11
+    sigma.Swap(sigma_); // A11*sigma is true solution to A sigma = f
+    //////////////
     sctl::Profile::Toc();
     sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
     sctl::Profile::reset();
