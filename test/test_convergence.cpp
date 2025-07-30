@@ -19,14 +19,15 @@ template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
     return U;
 }
 
-template <class Real> void Sprial_self_conv(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Comm comm) {
+// Trefoil knot channel without particles
+template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Comm comm) {
 
     // Combine single-layer and double-layer kernels in these proportions
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
 
-    const Real tol = 1e-15;
-    const Real gmres_tol = 1e-13;
+    const Real tol = 1e-8;
+    const Real gmres_tol = 1e-10;
     const sctl::Long ElemOrder = 10;
 
     PeriodicGeom<Real> obj;
@@ -35,9 +36,9 @@ template <class Real> void Sprial_self_conv(sctl::Long Nelem, sctl::Long Fourier
     sctl::Vector<Real> ptcls_rs;
     sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
     sctl::Vector<Real> NormalOrient;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_spiral(Nelem, ElemOrder, FourierOrder, 0, 1, 0.5, 0.05, comm, ptcls, ptcls_rs, ptcls_Xcs, 0);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_trefoil(Nelem, ElemOrder, FourierOrder, 0, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, 1, 0);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_spiral(Nelem, ElemOrder, FourierOrder, 1, 1, 0.5, 0.05, comm, ptcls, ptcls_rs, ptcls_Xcs, 0);  
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_trefoil(Nelem, ElemOrder, FourierOrder, 1, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, 1, 0);  
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
 
@@ -49,11 +50,7 @@ template <class Real> void Sprial_self_conv(sctl::Long Nelem, sctl::Long Fourier
     X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
 
     if (write_ref) {
-        elem_lst0.WriteVTK("vis/Sprial",X0,comm);
-        // std::string nbr_vis = "vis/Sprial";
-        // sctl::Vector<Real> Xnbr;
-        // elem_lst_nbr.GetNodeCoord(&Xnbr, nullptr, nullptr);
-        // elem_lst_nbr.WriteVTK(nbr_vis,Xnbr,comm);
+        elem_lst0.WriteVTK("vis/trefoil",X0,comm);
     }   
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
@@ -65,6 +62,58 @@ template <class Real> void Sprial_self_conv(sctl::Long Nelem, sctl::Long Fourier
     LayerPotenOp_proxy.AddElemList(elem_lst0);
     LayerPotenOp_proxy.SetTargetCoord(X_proxy);
     LayerPotenOp_proxy.SetAccuracy(tol);
+
+    // sctl::Profile::Tic("Preconditioners");
+    // // PRECONDITIONING PANEL: CYLINDER
+    // sctl::Vector<Real> Xc_precond, eps_precond; 
+    // sctl::Vector<sctl::Long> ElemOrderVec_precond(1), FourierOrderVec_precond(1);
+    // ElemOrderVec_precond[0] = ElemOrder;
+    // FourierOrderVec_precond[0] = FourierOrder;
+    // // Determine approximate radius of channel based on channel_mode
+    // Real channel_radius = 0.035;
+    // const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrder);
+    // for (sctl::Long j = 0; j < ElemOrder; j++) { // loop over panel nodes
+    //   const Real x = (nodes[j]) / Nelem; // size of precond panel should be same as one panel on pipe
+    //   Xc_precond.PushBack(x+0.5); //  shift panel to center of unit box, arbitrary.
+    //   Xc_precond.PushBack(0.5); 
+    //   Xc_precond.PushBack(0.5); 
+    //   eps_precond.PushBack(channel_radius); 
+    // }
+    // sctl::SlenderElemList<Real> elem_lst_precond(ElemOrderVec_precond, FourierOrderVec_precond, Xc_precond, eps_precond);
+    // sctl::Vector<Real> X0_precond; // target coordinates
+    // elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
+    // StokesBIO Precond_bio(SL_scal, DL_scal, comm.Self());
+    // Precond_bio.SetAccuracy(tol); // set quadrature accuracy
+    // Precond_bio.AddElemList(elem_lst_precond);
+    // Precond_bio.SetTargetCoord(X0_precond);
+    // const auto BIO_1panel = [&DL_scal,&Precond_bio,&Nrepeat](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+    //     U->SetZero();
+    //     Precond_bio.ComputePotential(*U, sigma);
+    //     (*U) -= sigma*0.5 * DL_scal;
+    // };
+
+    // sctl::Long A11size = 3*ElemOrder*FourierOrder;
+    // sctl::Vector<sctl::Vector<Real>> PrecondMat(A11size);
+    // sctl::Vector<Real> SigmaCol_precond(A11size);
+    // for (sctl::Long col=0; col < A11size; col ++) {
+    //     SigmaCol_precond = 0.;
+    //     SigmaCol_precond[col] = 1.;
+    //     BIO_1panel(PrecondMat.begin()+col,SigmaCol_precond);
+    // }
+    // sctl::Matrix<Real> A11(A11size,A11size);
+    // for (sctl::Long col=0; col < A11size; col++) {
+    //     for (sctl::Long row = 0; row < A11size; row++) {
+    //         A11(row,col) = PrecondMat[col][row];
+    //     }
+    // }
+    // sctl::Matrix<Real> Usvd, VT, S, SforInv;
+    // sctl::Matrix<Real> A11forSVD = sctl::Matrix<Real>(A11);
+    // A11forSVD.SVD(Usvd, S, VT);
+    // SforInv = sctl::Matrix<Real>(S);
+    // sctl::Matrix<Real> Sinv = SforInv.pinv(1e-16);
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm);
+    // sctl::Profile::reset();
 
     // periodized layer potential operator
     const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
@@ -92,21 +141,58 @@ template <class Real> void Sprial_self_conv(sctl::Long Nelem, sctl::Long Fourier
         } 
     };
 
-    // Solve for sigma to satisfy no-slip boundary conditions: BIO(sigma) + bg_flow = 0
+
+    // // Apply A11inv to each panel of a vector.
+    // const auto AinvApply = [&Usvd,&Sinv,&VT,&A11size](const sctl::Vector<Real>& vec) {
+    //     sctl::Long N = vec.Dim();
+    //     sctl::Long Npanels = N / A11size; 
+    //     // std::cout << "Debug, Npanel = " << Npanels << std::endl;
+    //     sctl::Vector<Real> AinvVec(N);
+    //     for (sctl::Long i=0; i<Npanels; i++) {
+    //         // for each panel, apply A11inv.
+    //         sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
+    //         sctl::Matrix<Real> AinvVecMat = VT.Transpose() * (Sinv * (Usvd.Transpose() * vecMat));
+    //         for (sctl::Long j=0; j<A11size; j++) {
+    //             AinvVec[i*A11size + j] = AinvVecMat(j,0);
+    //         }
+    //     }
+    //     return AinvVec;
+    // };
+
+    // const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+    //     sctl::Vector<Real> Uloc;
+    //     BIO(&Uloc,sigma);
+    //     // LEFT PRECONDITIONER: u -> A11inv*u
+    //     (*U) = AinvApply(Uloc);
+    // };
+
+    sctl::GMRES<Real> solver(comm);
+    // sctl::KrylovPrecond<Real> krylov_precond;
+
+    sctl::Vector<Real> sigma_temp;
+    // solver(&sigma_temp, BIO_precond, X0, 1e0);
+    solver(&sigma_temp, BIO, X0, 1e0);
+    sctl::Profile::reset();
+
     sctl::Vector<Real> sigma;
-    sctl::GMRES<Real> solver(comm, false); // skip print-outs
-    solver(&sigma, BIO, -bg_flow(X0), gmres_tol);
+    sctl::Profile::Tic("Solve");
+    // sctl::Vector<Real> A11invF = AinvApply(-bg_flow(X0));
+    // solver(&sigma, BIO_precond, A11invF, gmres_tol);
+    solver(&sigma,BIO,-bg_flow(X0),gmres_tol);
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm);
+    
 
     { // Evaluate in interior, and write visualization
         // std::cout << "Rank " << comm.Rank()<< " calculating target points." << std::endl;
         PeriodicGeom<Real> trg;
-        const sctl::Long Nelem_trg = 20;
-        const sctl::Long FourierOrder_trg = 32;
+        const sctl::Long Nelem_trg = 200;
+        const sctl::Long FourierOrder_trg = 16;
         sctl::SlenderElemList<Real> elem_lst_trg;
         sctl::Vector<sctl::Long> ptcls_trg;
         sctl::Vector<Real> ptcls_Xcs_trg;
         sctl::Vector<Real> ptcls_rs_trg;
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_spiral(Nelem_trg, ElemOrder, FourierOrder_trg, 0, 1, 0.5, 0.05, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, 0);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_trefoil(Nelem_trg, ElemOrder, FourierOrder_trg, 0, 1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, 1, 0);
         elem_lst_trg = std::get<0>(build_trg);
 
         VolumeVis<Real> vol_vis(elem_lst_trg, comm, true); 
@@ -120,19 +206,19 @@ template <class Real> void Sprial_self_conv(sctl::Long Nelem, sctl::Long Fourier
         sctl::Vector<sctl::Long> size_all(1);
         comm.Allreduce((sctl::Iterator<sctl::Long>) size_loc.begin(), (sctl::Iterator<sctl::Long>) size_all.begin(), 1, sctl::CommOp::SUM);
         // std::cout << "rank " << comm.Rank() << " size loc = " << size_loc[0] << ", size all is " << size_all[0] << std::endl;
-        std::string filename = "Sprial_U_exact";
+        // std::string filename = "Trefoil_U_exact";
+        std::string filename = "Trefoil_U_exact_"+std::to_string(comm.Rank());
         std::string filename_out = "out/"+filename+".txt";
         std::string filename_vis = "vis/"+filename;
         
         if (write_ref) {
-            // std::cout << "write ref" << std::endl;
-            sctl::Vector<Real> U_all(size_all[0]);
-            comm.Allgather((sctl::Iterator<Real>) U.begin(), size_loc[0], (sctl::Iterator<Real>) U_all.begin(), size_all[0]);
-            if (!comm.Rank()) {
-                U_all.Write(filename_out.c_str());
-            }
+            // // std::cout << "write ref" << std::endl;
+            // sctl::Vector<Real> U_all(size_all[0]);
+            // comm.Allgather((sctl::Iterator<Real>) U.begin(), size_loc[0], (sctl::Iterator<Real>) U_all.begin(), size_all[0]);
+            // if (!comm.Rank()) {
+            //     U_all.Write(filename_out.c_str());
+            // }
             
-            // Visualization: with first and last panels
             VolumeVis<Real> vol_vis_write(elem_lst_trg, comm); 
             X0 = vol_vis_write.GetCoord();
             LayerPotenOp0.SetTargetCoord(X0);
@@ -140,14 +226,18 @@ template <class Real> void Sprial_self_conv(sctl::Long Nelem, sctl::Long Fourier
             BIO(&Uvis, sigma);
             Uvis += bg_flow(X0);
             vol_vis_write.WriteVTK(filename_vis, Uvis); 
+
+            U.Write(filename_out.c_str());
             
         } else {
             sctl::Vector<Real> U_ref;
-            if (!comm.Rank()) {
-                U_ref.Read(filename_out.c_str());
-            }
-            comm.PartitionN(U_ref,size_loc[0]);
+            // if (!comm.Rank()) {
+            //     U_ref.Read(filename_out.c_str());
+            // }
+            // comm.PartitionN(U_ref,size_loc[0]);
             // std::cout << "dim of U ref is " << U_ref.Dim() << ", dim of U vis is " << U_vis.Dim() << std::endl;
+            U_ref.Read(filename_out.c_str());
+
             const auto err = U - U_ref;
             double max_err = 0;
             for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
@@ -523,43 +613,42 @@ int main(int argc, char** argv) {
   {
     // sctl::Profile::Enable(true);
     sctl::Comm comm = sctl::Comm::World();
-    long test_mode = std::stol(argv[1]); // =0 for Sprial, =1 for 1-particle; =2 for conv div
+    long test_mode = std::stol(argv[1]); // =0 for trefoil, =1 for 1-particle; =2 for conv div
     long peri_mode = std::stol(argv[2]); // 1- or 3- periodic
 
     sctl::Vector<sctl::Long> Nelem_lst;
-    // if (test_mode==1) { // particle, doesn't need many panels -- but if using Nptcl = 25 will need more panels
-    //     for (int i=1; i<10; i += 2) {
-    //         Nelem_lst.PushBack(2*i);
-    //     }
-    // } else { // conv div or spiral
-    // for (int i=8; i<33; i += 4) {
-    //     Nelem_lst.PushBack(2*i);
-    // }
-
-    // for conv div channel
-    Nelem_lst.PushBack(6);
-    Nelem_lst.PushBack(12);
-    Nelem_lst.PushBack(24);
-    // for (int i=12; i<17; i += 4) {
-    //     Nelem_lst.PushBack(i);
-    // }
-    // Nelem_lst.PushBack(4);
-    // } 
+    if (test_mode==1) { // particle, doesn't need many panels -- but if using Nptcl = 25 will need more panels
+        for (int i=1; i<10; i += 2) {
+            Nelem_lst.PushBack(2*i);
+        }
+    } else if (test_mode == 0) { // trefoil needs more panels
+        for (int i=200; i<601; i += 200) {
+            Nelem_lst.PushBack(i);
+        }
+    } else {
+        // for conv div channel
+        Nelem_lst.PushBack(6);
+        Nelem_lst.PushBack(12);
+        Nelem_lst.PushBack(24);
+        // for (int i=12; i<17; i += 4) {
+        //     Nelem_lst.PushBack(i);
+        // }
+    } 
     
     sctl::Vector<sctl::Long> FourierOrder_lst;
-    // FourierOrder_lst.PushBack(4);
-    // FourierOrder_lst.PushBack(8);
-    // FourierOrder_lst.PushBack(12);
-    // FourierOrder_lst.PushBack(16);
-    // for (int i=24; i<85; i += 12) {
-    //     FourierOrder_lst.PushBack(i);
-    // }
-    // FourierOrder_lst.PushBack(16);
-    // FourierOrder_lst.PushBack(24);
-    FourierOrder_lst.PushBack(32);
-    FourierOrder_lst.PushBack(64);
+    if (test_mode == 2) {
+        FourierOrder_lst.PushBack(16);
+        FourierOrder_lst.PushBack(32);
+        FourierOrder_lst.PushBack(64);
+    } else {
+        FourierOrder_lst.PushBack(16);
+        FourierOrder_lst.PushBack(32);
+        FourierOrder_lst.PushBack(64);
+        FourierOrder_lst.PushBack(84); // TODO: do 96 instead?
+    }
 
-    // Sprial_self_conv<Real>(60, 80, true, comm);
+    sctl::Profile::Enable(true);
+    // trefoil_self_conv<Real>(600, 84, true, comm);
     // particle_self_conv<Real>(1, 16, 1, true, comm, 1);
     // channel_self_conv<Real>(4, 16, false, comm);
     
@@ -572,17 +661,17 @@ int main(int argc, char** argv) {
                 std::cout << "Nelem = " << Nelem << ", FourierOrder = " << FourierOrder << "; " << std::endl;
             }
             if (i==Nelem_lst.Dim()-1 && j == FourierOrder_lst.Dim()-1) {
-                // if (test_mode==0) {
-                //     Sprial_self_conv<Real>(Nelem, FourierOrder, true, comm);
-                // } else if (test_mode==2) {
-                //     channel_self_conv<Real>(Nelem, FourierOrder, true, comm); 
-                // } else {
-                //     particle_self_conv<Real>(Nelem, FourierOrder, true, peri_mode, comm, 25);
-                // }
-                continue;
+                if (test_mode==0) {
+                    trefoil_self_conv<Real>(Nelem, FourierOrder, true, comm);
+                } else if (test_mode==2) {
+                    channel_self_conv<Real>(Nelem, FourierOrder, true, comm); 
+                } else {
+                    particle_self_conv<Real>(Nelem, FourierOrder, true, peri_mode, comm, 25);
+                }
+                // continue;
             } else {
                 if (test_mode==0) {
-                    Sprial_self_conv<Real>(Nelem, FourierOrder, false, comm);
+                    trefoil_self_conv<Real>(Nelem, FourierOrder, false, comm);
                 } else if (test_mode==2) {
                     channel_self_conv<Real>(Nelem, FourierOrder, false, comm); 
                 } else {
@@ -590,7 +679,6 @@ int main(int argc, char** argv) {
                 }
                 
             }
-            // std::cout << "Comm rank " << comm.Rank() << "arrived at main function before barrier." << std::endl;
         }
     }
     

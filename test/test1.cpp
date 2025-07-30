@@ -7,11 +7,12 @@
  * Background flow with unit pressure gradient along X-axis.
  */
 template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
+  const Real dp = 10.; // add more strength to background flow.
   const sctl::Long N = X.Dim()/3;
   sctl::Vector<Real> U(N*3);
   for (sctl::Long i = 0; i < N; i++) {
     const auto x = X.begin() + i*3;
-    U[i*3+0] = -((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
+    U[i*3+0] = -dp*((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
     U[i*3+1] = 0;
     U[i*3+2] = 0;
   }
@@ -24,8 +25,8 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
   const Real SL_scal = 1.0;
   const Real DL_scal = 1.0;
 
-  const Real tol = 1e-15;
-  const Real gmres_tol = 1e-8;
+  const Real tol = 1e-8;
+  const Real gmres_tol = 1e-9;
   const sctl::Long ElemOrder = 10;
 
   PeriodicGeom<Real> obj;
@@ -58,15 +59,21 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
   } else if (channel_mode == 3) {
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, 1, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.1, 0.2, comm, ptcls, ptcls_rs, ptcls_Xcs, 1, geom_mode);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 1, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, 1, geom_mode);  
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 1, peri_mode, 0.1, 0.2, comm, ptcls, ptcls_rs, ptcls_Xcs, 1, geom_mode);  
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
   } else if (channel_mode == 4) {
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.5, 0.05, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst0 = std::get<0>(build0);
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 1, peri_mode, 0.5, 0.05, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);  
+    elem_lst_nbr = std::get<0>(build_nbr);
+    NormalOrient = std::get<1>(build_nbr);
+  } else if (channel_mode == 5) {
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_trefoil(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, comm, ptcls, ptcls_rs, ptcls_Xcs, 1, geom_mode);
+    elem_lst0 = std::get<0>(build0);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_trefoil(Nelem_channel, ElemOrder, FourierOrder, 1, peri_mode, comm, ptcls, ptcls_rs, ptcls_Xcs, 1, geom_mode);  
     elem_lst_nbr = std::get<0>(build_nbr);
     NormalOrient = std::get<1>(build_nbr);
   } else {
@@ -93,7 +100,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
   // sctl::Vector<Real> Xnbr,Xnbrn;
   // elem_lst_nbr.GetNodeCoord(&Xnbr, &Xnbrn, nullptr);
   // elem_lst_nbr.WriteVTK(nbr_vis,Xnbr,comm);
-  // elem_lst0.WriteVTK("vis/S-ptcl",X0,comm); // visualization with particle inside.
+  elem_lst0.WriteVTK("vis/S_trefoil_ptcl",X0,comm); // visualization with particle inside.
 
   StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
   LayerPotenOp0.AddElemList(elem_lst_nbr);
@@ -170,6 +177,9 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     } else if (channel_mode == 4) {
       std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_spiral(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, 0.5, 0.05, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, geom_mode);
       elem_lst_trg = std::get<0>(build_trg);
+    } else if (channel_mode == 5) {
+      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_trefoil(Nelem_channel, ElemOrder, FourierOrder, 0, peri_mode, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, 1, geom_mode);
+      elem_lst_trg = std::get<0>(build_trg);
     } else {
       SCTL_ASSERT(false); // not implemented
     }
@@ -206,17 +216,30 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
         }
       }
     }
+    // std::cout << "after Uvis" << std::endl;
     sctl::Vector<sctl::Long> size_loc(1);
     size_loc[0] = X0_all.Dim();
     sctl::Vector<sctl::Long> size_all(1);
     comm.Allreduce((sctl::Iterator<sctl::Long>) size_loc.begin(), (sctl::Iterator<sctl::Long>) size_all.begin(), 1, sctl::CommOp::SUM);
     std::cout << "rank " << comm.Rank() << " size loc = " << size_loc[0] << ", size all is " << size_all[0] << std::endl;
-    std::string filename = "ConvDiv_U_exact_"+std::to_string(comm.Rank());
-    // std::string filename = "Conv_div";
+    // std::string filename = "ConvDiv_U_exact_"+std::to_string(comm.Rank());
+    std::string filename = "Trefoil";
     std::string filename_out = "out/"+filename+".txt";
     std::string filename_vis = "vis/"+filename;
+    
+    Real max_u = 0.;
+    for (const auto e : U) max_u = std::max<Real>(max_u, sctl::fabs(e));
+    sctl::Vector<Real> u_loc(1);
+    u_loc[0] = max_u;
+    sctl::Vector<Real> u_all(1);
+    u_all[0] = 0.;
+    comm.Allreduce((sctl::Iterator<Real>) u_loc.begin(), (sctl::Iterator<Real>) u_all.begin(), 1, sctl::CommOp::MAX);
+    if (!comm.Rank()) {
+      std::cout << "max u is " << std::setprecision(12) << u_all[0] << std::endl;
+    }
+    
     if (write_ref) {
-      // vol_vis.WriteVTK(filename_vis, U_vis);
+      vol_vis.WriteVTK(filename_vis, U_vis);
       // sctl::Vector<Real> U_vis_all(size_all[0]);
       // comm.Allgather((sctl::Iterator<Real>) U_vis.begin(), size_loc[0], (sctl::Iterator<Real>) U_vis_all.begin(), size_all[0]);
       // if (!comm.Rank()) {
