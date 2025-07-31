@@ -86,6 +86,6 @@ template <class Real> class Periodize3D {
 };
 
 #include "periodize.cpp"
-#include "periodize3d.cpp"
+// #include "periodize3d.cpp"
 
 #endif

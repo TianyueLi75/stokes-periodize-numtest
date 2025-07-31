@@ -118,7 +118,14 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         Stokeslet_sigma[i*6+5] = rand_mag * disp_z; 
         
     }
-    sctl::Vector<Real> field_on_surf = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy, peri_mode);
+    // sctl::Vector<Real> field_on_surf = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy, peri_mode);
+    sctl::Vector<Real> field_on_surf;
+    if (peri_mode == 1) {
+        field_on_surf = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy, peri_mode);
+    } else {
+        // Setting peri_mode=1 and Ncopy = 0 calculates ker.Eval from current copy to current copy.
+        field_on_surf = exact_field(X0, Xsrc, Stokeslet_sigma, 0, 1);
+    }
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
     LayerPotenOp0.AddElemList(elem_lst_nbr);
@@ -287,8 +294,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         std::cout << "------------------- DONE WITH SOLVE ======================" << std::endl;
     }
 
-    { // Evaluate in interior, and write visualization
-        // std::cout << "Rank " << comm.Rank()<< " calculating target points." << std::endl;
+    { 
         PeriodicGeom<Real> trg;    
         CubeVolumeVisShifted<Real> vol_vis(20, 1.0, comm);
         // VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
@@ -302,68 +308,75 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         LayerPotenOp0.SetTargetCoord(X0);
         sctl::Vector<Real> U;
         BIO(&U, sigma);
-        // Exact solution from Xsrc and Stokeslet_sigma
-        sctl::Vector<Real> field_on_trg = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy, peri_mode);
 
-        // get max abs error
-        const auto err = U - field_on_trg;
-        double max_err = 0;
-        Real max_u = 0.;
-        for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
-        for (const auto e : field_on_trg) max_u = std::max<Real>(max_u, sctl::fabs(e));
+        if (peri_mode == 1) { // Check evaluation with manufactured solution only for 1-peri case.
+            sctl::Vector<Real> field_on_trg = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy, peri_mode);
+            // get max abs error
+            const auto err = U - field_on_trg;
+            double max_err = 0;
+            Real max_u = 0.;
+            for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
+            for (const auto e : field_on_trg) max_u = std::max<Real>(max_u, sctl::fabs(e));
+            sctl::Vector<Real> err_loc(1);
+            err_loc[0] = max_err;
+            sctl::Vector<Real> err_all(1);
+            err_all[0] = 0;
+            // comm.Allreduce((sctl::Iterator<sctl::Long>) err_loc.begin(), (sctl::Iterator<sctl::Long>) err_all.begin(), 1, sctl::CommOp::MAX);
+            comm.Allreduce((sctl::Iterator<Real>) err_loc.begin(), (sctl::Iterator<Real>) err_all.begin(), 1, sctl::CommOp::MAX);
         
-        // std::cout<< "Rank " << comm.Rank() << " Max error = "<< std::setprecision(10) << max_err << ", max u = " << max_u << std::endl;
+            sctl::Vector<Real> u_loc(1);
+            u_loc[0] = max_u;
+            sctl::Vector<Real> u_all(1);
+            u_all[0] = 0.;
+            comm.Allreduce((sctl::Iterator<Real>) u_loc.begin(), (sctl::Iterator<Real>) u_all.begin(), 1, sctl::CommOp::MAX);
 
-        sctl::Vector<Real> err_loc(1);
-        err_loc[0] = max_err;
-        sctl::Vector<Real> err_all(1);
-        err_all[0] = 0;
-        // comm.Allreduce((sctl::Iterator<sctl::Long>) err_loc.begin(), (sctl::Iterator<sctl::Long>) err_all.begin(), 1, sctl::CommOp::MAX);
-        comm.Allreduce((sctl::Iterator<Real>) err_loc.begin(), (sctl::Iterator<Real>) err_all.begin(), 1, sctl::CommOp::MAX);
-        
-        sctl::Vector<Real> u_loc(1);
-        u_loc[0] = max_u;
-        sctl::Vector<Real> u_all(1);
-        u_all[0] = 0.;
-        comm.Allreduce((sctl::Iterator<Real>) u_loc.begin(), (sctl::Iterator<Real>) u_all.begin(), 1, sctl::CommOp::MAX);
-
-        if (!comm.Rank()) {
-            std::cout<<"Max error = "<< std::setprecision(15) << err_all[0] << std::endl;
-            std::cout<<"Max u = "<< std::setprecision(15) << u_all[0] << std::endl;
-            std::cout<<"Max relative error = "<< std::setprecision(15) << err_all[0] / u_all[0] << std::endl;
-        }
-
-        
-        if (write_ref) {
-            // For visualization
-            sctl::Vector<Real> U_vis(X0_all.Dim());
-            sctl::Vector<Real> U_vis_exact(X0_all.Dim());
-            sctl::Vector<Real> err_vis(X0_all.Dim());
-            U_vis = 0.;
-            U_vis_exact = 0.;
-            err_vis = 0.;
-            sctl::Long X1_ptr = 0;
-            for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
-                if (filtered_inds[i] == 0) {
-                    U_vis[i*3] = U[X1_ptr*3];
-                    U_vis[i*3+1] = U[X1_ptr*3+1];
-                    U_vis[i*3+2] = U[X1_ptr*3+2];
-
-                    U_vis_exact[i*3] = field_on_trg[X1_ptr*3];
-                    U_vis_exact[i*3+1] = field_on_trg[X1_ptr*3+1];
-                    U_vis_exact[i*3+2] = field_on_trg[X1_ptr*3+2];
-
-                    err_vis[i*3] = err[X1_ptr*3];
-                    err_vis[i*3+1] = err[X1_ptr*3+1];
-                    err_vis[i*3+2] = err[X1_ptr*3+2];
-                    X1_ptr += 1;
-                }
+            if (!comm.Rank()) {
+                std::cout<<"Max error = "<< std::setprecision(15) << err_all[0] << std::endl;
+                std::cout<<"Max u = "<< std::setprecision(15) << u_all[0] << std::endl;
+                std::cout<<"Max relative error = "<< std::setprecision(15) << err_all[0] / u_all[0] << std::endl;
             }
-            vol_vis.WriteVTK("vis/exact_soln", U_vis_exact);
-            vol_vis.WriteVTK("vis/BIE_soln", U_vis);
-            vol_vis.WriteVTK("vis/err", err_vis);
-        }
-    }
+            if (write_ref) {
+                // For visualization
+                sctl::Vector<Real> U_vis(X0_all.Dim());
+                sctl::Vector<Real> U_vis_exact(X0_all.Dim());
+                sctl::Vector<Real> err_vis(X0_all.Dim());
+                U_vis = 0.;
+                U_vis_exact = 0.;
+                err_vis = 0.;
+                sctl::Long X1_ptr = 0;
+                for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+                    if (filtered_inds[i] == 0) {
+                        U_vis[i*3] = U[X1_ptr*3];
+                        U_vis[i*3+1] = U[X1_ptr*3+1];
+                        U_vis[i*3+2] = U[X1_ptr*3+2];
+
+                        U_vis_exact[i*3] = field_on_trg[X1_ptr*3];
+                        U_vis_exact[i*3+1] = field_on_trg[X1_ptr*3+1];
+                        U_vis_exact[i*3+2] = field_on_trg[X1_ptr*3+2];
+
+                        err_vis[i*3] = err[X1_ptr*3];
+                        err_vis[i*3+1] = err[X1_ptr*3+1];
+                        err_vis[i*3+2] = err[X1_ptr*3+2];
+                        X1_ptr += 1;
+                    }
+                }
+                vol_vis.WriteVTK("vis/exact_soln", U_vis_exact);
+                vol_vis.WriteVTK("vis/BIE_soln", U_vis);
+                vol_vis.WriteVTK("vis/err", err_vis);
+            }
+        } else {
+            Real max_u = 0.;
+            for (const auto e : U) max_u = std::max<Real>(max_u, sctl::fabs(e));
+            sctl::Vector<Real> u_loc(1);
+            u_loc[0] = max_u;
+            sctl::Vector<Real> u_all(1);
+            u_all[0] = 0.;
+            comm.Allreduce((sctl::Iterator<Real>) u_loc.begin(), (sctl::Iterator<Real>) u_all.begin(), 1, sctl::CommOp::MAX);
+            if (!comm.Rank()) {
+                std::cout<<"Max u = "<< std::setprecision(15) << u_all[0] << std::endl;
+            }
+        }        
+    } 
 }
 
 
