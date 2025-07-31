@@ -131,9 +131,10 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     LayerPotenOp_proxy.SetAccuracy(tol);
 
     // =============== PRECONDITIONING =======================================
+    sctl::Profile::Tic("Preconditioning");
     sctl::Vector<sctl::Long> ptcls_pre;
     sctl::Vector<Real> ptcls_Xcs_pre, ptcls_rs_pre;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, 0);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, 1);
     sctl::SlenderElemList<Real> elem_lst_precond = std::get<0>(build_precond);
     sctl::Vector<Real> X0_precond; // target coordinates
     elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
@@ -206,6 +207,13 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     SforInv = sctl::Matrix<Real>(S);
     sctl::Matrix<Real> Sinv = SforInv.pinv(1e-16);
 
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm);
+    sctl::Profile::reset();
+    if (!comm.Rank()) {
+        std::cout << "------------------- START OF SOLVE ======================" << std::endl;
+    }
+
     // Apply A11inv to each panel of vec.
     const auto AinvApply = [&Usvd,&Sinv,&VT,&A11size, &comm](const sctl::Vector<Real>& vec) {
         sctl::Long N = vec.Dim();
@@ -221,43 +229,6 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         }
         return AinvVec;
     };
-
-    // const auto BIO_precond = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&peri_mode,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //     const sctl::Long N = sigma.Dim();
-        
-    //     sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
-    //     for (sctl::Long k = 0; k < Nrepeat; k++) {
-    //         for (sctl::Long i = 0; i < N; i++) {
-    //             sigma_nbr[k*N+i] = sigma[i];
-    //         }
-    //     }
-
-    //     sctl::Vector<Real> Uloc;
-    //     LayerPotenOp0.ComputePotential(Uloc, sigma_nbr);
-    //     if (DL_scal && U->Dim() == N) {
-    //         Uloc -= sigma*0.5*NormalOrient * DL_scal;
-    //     }
-    //     { // Add far-field
-    //         sctl::Vector<Real> U_proxy, U_far;
-    //         // LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
-    //         LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
-    //         if (peri_mode==1) {
-    //             // 1-periodic
-    //             Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
-    //         } else if (peri_mode==3) {
-    //             // 3-periodic
-    //             Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
-    //         } else {
-    //             std::cout << "2-periodic not yet implemented." << std::endl;
-    //             SCTL_ASSERT(false);
-    //         }
-            
-    //         Uloc += U_far;
-    //     } 
-
-    //     // LEFT PRECONDITIONER: u -> A11inv*u
-    //     (*U) = AinvApply(Uloc);
-    // };
 
     const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         sctl::Vector<Real> Uloc;
