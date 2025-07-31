@@ -2,8 +2,9 @@
 
 template <class Real> class PeriodizeOp {
   static constexpr Real tol = sctl::machine_eps<Real>()*64; // tolerance for pseudo-inverse
-  static constexpr sctl::Long m0 = 20; // multipole order
   static constexpr sctl::Integer COORD_DIM = 3;
+  static constexpr sctl::Long m0 = 20; // multipole order
+  static constexpr sctl::Long level = 30; // levels of tree expansion and evaluation
 
   using KerM2M = sctl::Stokes3D_FxU;
   using KerM2L = sctl::Stokes3D_FxU;
@@ -105,8 +106,10 @@ template <class Real> class PeriodizeOp {
     static sctl::Matrix<Real> BC_UE2DC_helper() {
       sctl::Profile::Scoped prof(__FUNCTION__);
 
+      std::string data_file = "data/Mbc_ue2dc_1d_l"+std::to_string(level)+"_m"+std::to_string(m0)+".mat";
       sctl::Matrix<Real> M;
-      M.template Read<sctl::QuadReal>("data/Mbc_ue2dc_1d.mat");
+      // M.template Read<sctl::QuadReal>("data/Mbc_ue2dc_1d_l30_m20.mat");
+      M.template Read<sctl::QuadReal>(data_file.c_str());
       if (M.Dim(0) || M.Dim(1)) return M;
 
       const KerM2L ker_m2l;
@@ -122,7 +125,7 @@ template <class Real> class PeriodizeOp {
         M2M[i][i] = 1;
       }
 
-      for (sctl::Long l = 0; l < 30; l++) { // tree-code (hierarchical) summation
+      for (sctl::Long l = 0; l < level; l++) { // tree-code (hierarchical) summation
         std::cout<<"level = "<<l<<'\n';
         const sctl::Long box_length = ((sctl::Long)1) << l;
 
@@ -144,12 +147,13 @@ template <class Real> class PeriodizeOp {
       //  }
       //}
 
-      M.template Write<sctl::QuadReal>("data/Mbc_ue2dc_1d.mat");
+      // M.template Write<sctl::QuadReal>("data/Mbc_ue2dc_1d_l30_m20.mat");
+      M.template Write<sctl::QuadReal>(data_file.c_str());
       return M;
     }
-
 };
 
+////////////// Periodize1D /////////////////////////////
 template <class Real> const sctl::Vector<Real>& Periodize1D<Real>::GetProxySurf() {
   static const auto X = PeriodizeOp<Real>::uc_surf(1, sctl::Vector<Real>{0.5,0.5,0.5});
   return X;
@@ -190,3 +194,48 @@ template <class Real> const sctl::Matrix<Real>& Periodize1D<Real>::GetMat_UC2DE1
   return Mbc;
 }
 
+////////////// Periodize3D /////////////////////////////
+template <class Real> const sctl::Vector<Real>& Periodize3D<Real>::GetProxySurf() {
+  static const sctl::Vector<Real> proxy_surf = [](){
+    sctl::Vector<Real> X;
+    X.template Read<PrecompReal>("data/dn_equiv_surf_l30_m20.mat");
+    return X;
+  }();
+  return proxy_surf;
+}
+
+template <class Real> void Periodize3D<Real>::EvalFarField(sctl::Vector<Real>& U_far, const sctl::Vector<Real>& Xt, const sctl::Vector<Real>& U_proxy) {
+  const auto& Mbc0 = GetMat_UC2DE0();
+  const auto& Mbc1 = GetMat_UC2DE1();
+  const sctl::Long N = Mbc0.Dim(0);
+  SCTL_ASSERT(U_proxy.Dim() == N);
+
+  // Compute the equivalent density at proxy points
+  auto proxy_density = (sctl::Matrix<Real>(1,N,(sctl::Iterator<Real>)U_proxy.begin(),false) * Mbc0) * Mbc1;
+
+  // Evaluate the potential from proxy points at the targets Xt
+  U_far = 0;
+  static const sctl::Stokes3D_FxU stokeslet;
+  stokeslet.template Eval<Real,true>(U_far, Xt, GetProxySurf(), sctl::Vector<Real>(), sctl::Vector<Real>(N,proxy_density.begin(),false));
+}
+
+template <class Real> const sctl::Matrix<Real>& Periodize3D<Real>::GetMat_UC2DE0() {
+  static sctl::Matrix<Real> Mbc = [](){
+    sctl::Matrix<Real> Mbc_ue2dc, M_dc2de0, M_uc2ue0, M_uc2ue1;
+    M_uc2ue0.template Read<PrecompReal>("data/M_uc2ue0_l30_m20.mat");
+    M_uc2ue1.template Read<PrecompReal>("data/M_uc2ue1_l30_m20.mat");
+    Mbc_ue2dc.template Read<PrecompReal>("data/Mbc_ue2dc_l30_m20.mat");
+    M_dc2de0.template Read<PrecompReal>("data/M_dc2de0_l30_m20.mat");
+    return (M_uc2ue0 * (M_uc2ue1 * Mbc_ue2dc)) * M_dc2de0;
+  }();
+  return Mbc;
+}
+
+template <class Real> const sctl::Matrix<Real>& Periodize3D<Real>::GetMat_UC2DE1() {
+  static sctl::Matrix<Real> Mbc = [](){
+    sctl::Matrix<Real> M_dc2de1;
+    M_dc2de1.template Read<PrecompReal>("data/M_dc2de1_l30_m20.mat");
+    return M_dc2de1;
+  }();
+  return Mbc;
+}
