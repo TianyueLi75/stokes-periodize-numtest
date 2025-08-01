@@ -6,22 +6,6 @@
 //     Solve BIE for periodic spheres given BC
 //     Evaluate flow field at targets exterior to spheres through BIE solution and compare with exact flow field from Stokeslets.
 
-// /**
-//  * Background flow with unit pressure gradient along X-axis.
-//  */
-// template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
-//     const Real pdrive = 1;
-//     const sctl::Long N = X.Dim()/3;
-//     sctl::Vector<Real> U(N*3);
-//     for (sctl::Long i = 0; i < N; i++) {
-//         const auto x = X.begin() + i*3;
-//         U[i*3+0] = -pdrive * ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
-//         U[i*3+1] = 0;
-//         U[i*3+2] = 0;
-//     }
-//     return U;
-// }
-
 // Loop over copies and add consecutively, to reduce memory requirements. Perhaps do 2D planes at a time.
 template <class Real> sctl::Vector<Real> exact_field(const sctl::Vector<Real>& Xtrg, const sctl::Vector<Real>& Xsrc, const sctl::Vector<Real>& sigma, const sctl::Long Ncopy, const sctl::Integer peri_mode) {
     sctl::Stokes3D_FxU ker;
@@ -54,7 +38,7 @@ template <class Real> sctl::Vector<Real> exact_field(const sctl::Vector<Real>& X
     return U;
 }
 
-template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl::Integer peri_mode, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode, sctl::Long Ncopy, sctl::Long m0, sctl::Long level) {
+template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl::Integer peri_mode, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode, sctl::Long Ncopy, sctl::Long level, sctl::Long m0) {
 
     // Combine single-layer and double-layer kernels in these proportions
     const Real SL_scal = 1.0;
@@ -90,10 +74,9 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
 
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
-    Periodize1D<Real>::Set_Order_Param(m0,level);
     sctl::Vector<Real> X_proxy;
     if (peri_mode == 1) {
-        X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
+        X_proxy = Periodize1D<Real>::GetProxySurf(level,m0); // proxy points coordinates
     } else if (peri_mode == 3) {
         X_proxy = Periodize3D<Real>::GetProxySurf(); // proxy points coordinates
     } else {
@@ -134,7 +117,14 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
         Stokeslet_sigma[i*6+5] = rand_mag * disp_z; 
         
     }
-    sctl::Vector<Real> field_on_surf = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy, peri_mode);
+    // sctl::Vector<Real> field_on_surf = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy, peri_mode);
+    sctl::Vector<Real> field_on_surf;
+    if (peri_mode == 1) {
+        field_on_surf = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy, peri_mode);
+    } else {
+        // Setting peri_mode=1 and Ncopy = 0 calculates ker.Eval from current copy to current copy.
+        field_on_surf = exact_field(X0, Xsrc, Stokeslet_sigma, 0, 1);
+    }
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
     LayerPotenOp0.AddElemList(elem_lst_nbr);
@@ -147,7 +137,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
     LayerPotenOp_proxy.SetAccuracy(tol);
 
     // periodized layer potential operator
-    const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&peri_mode](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+    const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&peri_mode,&level,&m0](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         const sctl::Long N = sigma.Dim();
         // std::cout << "in BIO, dim of sigma is " << N << std::endl;
 
@@ -169,7 +159,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
             LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
             if (peri_mode==1) {
                 // 1-periodic
-                Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
+                Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy, level, m0);
             } else if (peri_mode==3) {
                 // 3-periodic
                 Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
@@ -272,10 +262,10 @@ int main(int argc, char** argv) {
     long Nptcl = std::stol(argv[4]); // number of particles inside
     long geom_mode = std::stol(argv[5]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
     long Ncopy = std::stol(argv[6]); // Number of copies on each side to add to sources 
-    long m0 = std::stol(argv[7]); 
-    long level = std::stol(argv[8]); 
+    long level = std::stol(argv[7]); 
+    long m0 = std::stol(argv[8]); 
 
-    test<Real>(Nelem_ptcl, FourierOrder, peri_mode, comm, Nptcl, geom_mode, Ncopy, m0, level);
+    test<Real>(Nelem_ptcl, FourierOrder, peri_mode, comm, Nptcl, geom_mode, Ncopy, level, m0);
   }
 
   sctl::Comm::MPI_Finalize();

@@ -159,6 +159,24 @@ template <class Real> const sctl::Vector<Real>& Periodize1D<Real>::GetProxySurf(
   return X;
 }
 
+template <class Real> const sctl::Vector<Real>& Periodize1D<Real>::GetProxySurf(const sctl::Long level_in, const sctl::Long m0_in) {
+  static const sctl::Vector<Real> proxy_surf = [&level_in,&m0_in](){
+    std::string data_dn = "data/dn_equiv_surf_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+    // std::string data_up = "data/up_check_surf_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+    sctl::Vector<Real> X;
+    X.template Read<PrecompReal>(data_dn.c_str());
+    if (!X.Dim()) {
+      X = PeriodizeOp<Real>::uc_surf(1, sctl::Vector<Real>{0.5,0.5,0.5});
+      X.template Write<PrecompReal>(data_dn.c_str());
+      // X.template Write<PrecompReal>(data_up.c_str());
+    }
+    return X;
+  }();
+  // std::cout << "reading proxy surf or making it" << std::endl;
+  return proxy_surf;
+}
+
+
 template <class Real> void Periodize1D<Real>::EvalFarField(sctl::Vector<Real>& U_far, const sctl::Vector<Real>& Xt, const sctl::Vector<Real>& U_proxy) {
   // std::cout << "in eval far field, getting matrices. " << std::endl;
   const auto& Mbc0 = GetMat_UC2DE0();
@@ -176,6 +194,24 @@ template <class Real> void Periodize1D<Real>::EvalFarField(sctl::Vector<Real>& U
   stokeslet.template Eval<Real,true>(U_far, Xt, GetProxySurf(), sctl::Vector<Real>(), sctl::Vector<Real>(N,proxy_density.begin(),false));
 }
 
+template <class Real> void Periodize1D<Real>::EvalFarField(sctl::Vector<Real>& U_far, const sctl::Vector<Real>& Xt, const sctl::Vector<Real>& U_proxy, const sctl::Long level_in, const sctl::Long m0_in) {
+  // std::cout << "in eval far field, getting matrices. " << std::endl;
+  const auto& Mbc0 = GetMat_UC2DE0(level_in, m0_in);
+  const auto& Mbc1 = GetMat_UC2DE1(level_in, m0_in);
+  const sctl::Long N = Mbc0.Dim(0);
+  // std::cout << N << ", " << U_proxy.Dim() << std::endl;
+  SCTL_ASSERT(U_proxy.Dim() == N);
+
+  // Compute the equivalent density at proxy points
+  auto proxy_density = (sctl::Matrix<Real>(1,N,(sctl::Iterator<Real>)U_proxy.begin(),false) * Mbc0) * Mbc1;
+
+  // std::cout << "evaluate potential from proxy to Xt" << std::endl;
+  // Evaluate the potential from proxy points at the targets Xt
+  U_far = 0;
+  static const sctl::Stokes3D_FxU stokeslet;
+  stokeslet.template Eval<Real,true>(U_far, Xt, GetProxySurf(level_in, m0_in), sctl::Vector<Real>(), sctl::Vector<Real>(N,proxy_density.begin(),false));
+}
+
 template <class Real> const sctl::Matrix<Real>& Periodize1D<Real>::GetMat_UC2DE0() {
   static sctl::Matrix<Real> Mbc = [](){
     const auto [M_uc2ue0, M_uc2ue1] = PeriodizeOp<Real>::UC2UE();
@@ -186,9 +222,59 @@ template <class Real> const sctl::Matrix<Real>& Periodize1D<Real>::GetMat_UC2DE0
   return Mbc;
 }
 
+template <class Real> const sctl::Matrix<Real>& Periodize1D<Real>::GetMat_UC2DE0(const sctl::Long level_in, const sctl::Long m0_in) {
+  static sctl::Matrix<Real> Mbc = [&level_in,&m0_in](){
+    std::string data1 = "data/M_uc2ue0_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+    std::string data2 = "data/M_uc2ue1_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+    std::string data3 = "data/Mbc_ue2dc_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+    std::string data4 = "data/M_dc2de0_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+    sctl::Matrix<Real> Mbc_ue2dc, M_dc2de0, M_uc2ue0, M_uc2ue1;
+    M_uc2ue0.template Read<PrecompReal>(data1.c_str());
+
+    if (M_uc2ue0.Dim(0) || M_uc2ue0.Dim(1)) {
+      // std::cout << " successfully read file." << std::endl;
+      M_uc2ue1.template Read<PrecompReal>(data2.c_str());
+      Mbc_ue2dc.template Read<PrecompReal>(data3.c_str());
+      M_dc2de0.template Read<PrecompReal>(data4.c_str());
+    } else {
+      // std::cout << " Didn't read file, making now." << std::endl;
+      std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl1 = PeriodizeOp<Real>::UC2UE();
+      M_uc2ue0 = std::get<0>(tpl1);
+      M_uc2ue1 = std::get<1>(tpl1);
+      std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl2 = PeriodizeOp<Real>::DC2DE();
+      M_dc2de0 = std::get<0>(tpl2);
+      Mbc_ue2dc = PeriodizeOp<Real>::BC_UE2DC();
+      M_uc2ue0.template Write<PrecompReal>(data1.c_str());
+      M_uc2ue1.template Write<PrecompReal>(data2.c_str());
+      Mbc_ue2dc.template Write<PrecompReal>(data3.c_str());
+      M_dc2de0.template Write<PrecompReal>(data4.c_str());
+    }
+    // std::cout << M_uc2ue0.Dim(0)<< ", "  << M_uc2ue1.Dim(0)<< ", "  << Mbc_ue2dc.Dim(0)<< ", "  << M_dc2de0.Dim(0) << std::endl;
+    return (M_uc2ue0 * (M_uc2ue1 * Mbc_ue2dc)) * M_dc2de0;
+  }();
+  return Mbc;
+}
+
 template <class Real> const sctl::Matrix<Real>& Periodize1D<Real>::GetMat_UC2DE1() {
   static sctl::Matrix<Real> Mbc = [](){
     const auto [M_dc2de0, M_dc2de1] = PeriodizeOp<Real>::DC2DE();
+    return M_dc2de1;
+  }();
+  return Mbc;
+}
+
+template <class Real> const sctl::Matrix<Real>& Periodize1D<Real>::GetMat_UC2DE1(const sctl::Long level_in, const sctl::Long m0_in) {
+  static sctl::Matrix<Real> Mbc = [&level_in,&m0_in](){
+    std::string data_file = "data/M_dc2de1_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+    sctl::Matrix<Real> M_dc2de1;
+    M_dc2de1.template Read<PrecompReal>(data_file.c_str());
+
+    if (M_dc2de1.Dim(0)==0 && M_dc2de1.Dim(1)==0) {
+      std::cout << "Writing data file" << std::endl;
+      std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl2 = PeriodizeOp<Real>::DC2DE();
+      M_dc2de1 = std::get<1>(tpl2);
+      M_dc2de1.template Write<PrecompReal>(data_file.c_str());
+    }
     return M_dc2de1;
   }();
   return Mbc;
