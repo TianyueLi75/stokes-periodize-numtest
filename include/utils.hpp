@@ -308,6 +308,7 @@ template <class Real> class PeriodicGeom {
 
     sctl::Vector<Real> X_nbr_copy(const sctl::Vector<Real> X, const sctl::Integer nbr_range, const sctl::Integer peri_mode);
 
+    sctl::Vector<Real> form_targets(const sctl::Long r_ord, const sctl::Long azi_ord, const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm);
 
     /**
      * Given a list of target X, and particle location information, filter out targets inside particles. 

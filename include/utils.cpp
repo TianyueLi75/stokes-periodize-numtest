@@ -1141,6 +1141,45 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::X_nbr_copy(const sc
 //   }
 // }
 
+template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::form_targets(const sctl::Long r_ord, const sctl::Long azi_ord, const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm) {
+  // Create streakline targets at Ngroups cross sections, divided evenly among processes in comm, and return the local list.
+  sctl::Vector<Real> Xtrgs;
+
+  // elems in elem_lst stored distributively, so use Ngroups_per_process.
+  sctl::Vector<Real> s_param, sin_theta, cos_theta;
+  s_param.PushBack(0); // only take starting value of panel
+  // s_param.PushBack(1);
+  for (sctl::Long i = 0; i < azi_ord; i++) {
+    const Real t = i/(Real)azi_ord;
+    sin_theta.PushBack(sctl::sin<Real>(2*sctl::const_pi<Real>()*t));
+    cos_theta.PushBack(sctl::cos<Real>(2*sctl::const_pi<Real>()*t));
+  }
+
+  sctl::Long Nelem = elem_lst.Size();
+  for (sctl::Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
+    const Real t_order_inv = 1/(Real)azi_ord;
+    const Real r_order_inv = (1-1e-3)/(Real)(r_ord-1);
+    sctl::Vector<Real> X_, Xc(3);
+    elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
+    Xc = 0;
+    for (sctl::Long j = 0; j < azi_ord; j++) {
+      for (sctl::Long l = 0; l < 3; l++) {
+        Xc[l] += X_[j*3+l] * t_order_inv;
+      }
+    }
+    for (sctl::Long j = 0; j < azi_ord; j++) {
+      for (sctl::Long k = 0; k < azi_ord; k++) {
+        for (sctl::Long l = 0; l < 3; l++) {
+          Xtrgs.PushBack((X_[j*3+l]-Xc[l])*k*r_order_inv + Xc[l]);
+        }
+      }
+    }
+  }
+  
+  return Xtrgs;
+  
+}
+
 template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> PeriodicGeom<Real>::filter_target(const sctl::Vector<Real> X, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real> ptcls_rs, const sctl::Vector<Real> ptcls_Xcs, const int geom_mode) {
   const sctl::Long N = X.Dim()/3; // number of targets
   const sctl::Long Nptcl = ptcls.Dim(); // number of particles
