@@ -45,8 +45,8 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
     const Real DL_scal = 1.0;
 
     // const Real tol = 1e-15;
-    const Real tol = 1e-8;
-    const Real gmres_tol = 1e-12;
+    const Real tol = 1e-14;
+    const Real gmres_tol = 1e-15;
     const sctl::Long ElemOrder = 10;
     
     PeriodicGeom<Real> obj;

@@ -3,8 +3,8 @@
 template <class Real> class PeriodizeOp {
   static constexpr Real tol = sctl::machine_eps<Real>()*64; // tolerance for pseudo-inverse
   static constexpr sctl::Integer COORD_DIM = 3;
-  static constexpr sctl::Long m0 = 20; // multipole order
-  static constexpr sctl::Long level = 30; // levels of tree expansion and evaluation
+  static constexpr sctl::Long m0 = 2; // multipole order
+  static constexpr sctl::Long level = 4; // levels of tree expansion and evaluation
 
   using KerM2M = sctl::Stokes3D_FxU;
   using KerM2L = sctl::Stokes3D_FxU;
