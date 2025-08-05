@@ -62,6 +62,27 @@ template <class Real> class VolumeVis {
     sctl::Vector<Real> coord;
 };
 
+template <class Real> class XsectionVis {
+    static constexpr sctl::Integer COORD_DIM = 3;
+
+  public:
+    XsectionVis() = default;
+    XsectionVis(const sctl::Long r_ord, const sctl::Long azi_ord, const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm = sctl::Comm::Self());
+    const sctl::Vector<Real>& GetCoord() const;
+    void SetCoord(const sctl::Vector<Real> new_coord);
+    void WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const;
+    void GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const;
+  
+  private:
+
+    sctl::Comm comm_;
+    sctl::Long Nelem;
+    sctl::Vector<Real> coord;
+    sctl::Integer s_order;
+    sctl::Integer t_order;
+    sctl::Integer r_order;
+};
+
 /**
  * @brief Represents a uniformly discretized cube volume, shifted to have corner at origin.
  *

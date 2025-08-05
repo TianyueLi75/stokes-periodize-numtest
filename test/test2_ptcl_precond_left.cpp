@@ -46,7 +46,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 
     // const Real tol = 1e-15;
     const Real tol = 1e-14;
-    const Real gmres_tol = 1e-15;
+    const Real gmres_tol = 1e-13;
     const sctl::Long ElemOrder = 10;
     
     PeriodicGeom<Real> obj;
@@ -76,7 +76,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
     sctl::Vector<Real> X_proxy;
     if (peri_mode == 1) {
-        X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
+        X_proxy = Periodize1D<Real>::GetProxySurf(30,20); // proxy points coordinates
     } else if (peri_mode == 3) {
         X_proxy = Periodize3D<Real>::GetProxySurf(); // proxy points coordinates
     } else {
@@ -180,7 +180,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
             LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
             if (peri_mode==1) {
                 // 1-periodic
-                Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
+                Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy,30,20);
             } else if (peri_mode==3) {
                 // 3-periodic
                 Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
