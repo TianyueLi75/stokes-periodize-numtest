@@ -1,4 +1,3 @@
-
 template <class Real> VolumeVis<Real>::VolumeVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm, const bool shortened) : comm_(comm) {
   Nelem = elem_lst.Size();
   sctl::Vector<Real> s_param, sin_theta, cos_theta;
@@ -36,7 +35,7 @@ template <class Real> VolumeVis<Real>::VolumeVis(const sctl::SlenderElemList<Rea
   } else {
     for (sctl::Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
       const Real t_order_inv = 1/(Real)t_order;
-      const Real r_order_inv = (1-1e-6)/(Real)(r_order-1);
+      const Real r_order_inv = (1-1e-3)/(Real)(r_order-1);
       sctl::Vector<Real> X_, Xc(COORD_DIM);
       elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
       for (sctl::Long i = 0; i < s_order; i++) {
@@ -149,6 +148,88 @@ template <class Real> void CubeVolumeVisShifted<Real>::WriteVTK(const std::strin
   GetVTUData(vtu_data, F);
   vtu_data.WriteVTK(fname, comm);
 }
+
+template <class Real> XsectionVis<Real>::XsectionVis(const sctl::Long r_ord, const sctl::Long azi_ord, const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm) : comm_(comm) {
+  s_order = 1;
+  r_order = r_ord;
+  t_order = azi_ord;
+  
+  sctl::Vector<Real> s_param, sin_theta, cos_theta;
+  s_param.PushBack(0.); // only take starting value of panel
+  // for (sctl::Long i = 0; i < s_order; i++) {
+  //   const Real t = i/(Real)(s_order-1);
+  //   s_param.PushBack(t);
+  // }
+  for (sctl::Long i = 0; i < azi_ord; i++) {
+    const Real t = i/(Real)azi_ord;
+    sin_theta.PushBack(sctl::sin<Real>(2*sctl::const_pi<Real>()*t));
+    cos_theta.PushBack(sctl::cos<Real>(2*sctl::const_pi<Real>()*t));
+  }
+  Nelem = elem_lst.Size();
+  for (sctl::Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
+    const Real t_order_inv = 1/(Real)azi_ord;
+    const Real r_order_inv = (1-1e-3)/(Real)(r_ord+1);
+    sctl::Vector<Real> X_, Xc(3);
+    elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
+    Xc = 0;
+    for (sctl::Long j = 0; j < azi_ord; j++) {
+      for (sctl::Long l = 0; l < 3; l++) {
+        Xc[l] += X_[j*3+l] * t_order_inv;
+      }
+    }
+    for (sctl::Long j = 0; j < azi_ord; j++) {
+      for (sctl::Long k = 1; k <= r_ord; k++) {
+        for (sctl::Long l = 0; l < 3; l++) {
+          coord.PushBack((X_[j*3+l]-Xc[l])*k*r_order_inv + Xc[l]);
+        }
+      }
+    }
+  }
+}
+
+template <class Real> const sctl::Vector<Real>& XsectionVis<Real>::GetCoord() const {
+  return coord;
+}
+
+template <class Real> void XsectionVis<Real>::SetCoord(const sctl::Vector<Real> new_coord) {
+  coord = new_coord;
+}
+
+template <class Real> void XsectionVis<Real>::WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const {
+  sctl::VTUData vtu_data;
+  GetVTUData(vtu_data, F);
+  vtu_data.WriteVTK(fname, comm_);
+}
+
+template <class Real> void XsectionVis<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
+  for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
+  for (const auto& x :     F) vtu_data.value.PushBack((float)x);
+  for (sctl::Long l = 0; l < Nelem; l++) {
+    const sctl::Long offset = l * s_order*t_order*r_order;
+    for (sctl::Long i = 0; i < s_order-1; i++) {
+      for (sctl::Long j = 0; j < t_order; j++) {
+        for (sctl::Long k = 0; k < r_order-1; k++) {
+          auto idx = [this,&offset](sctl::Long i, sctl::Long j, sctl::Long k) {
+            return offset+(i*t_order+(j%t_order))*r_order+k;
+          };
+          vtu_data.connect.PushBack(idx(i+0,j+0,k+0));
+          vtu_data.connect.PushBack(idx(i+0,j+0,k+1));
+          vtu_data.connect.PushBack(idx(i+0,j+1,k+1));
+          vtu_data.connect.PushBack(idx(i+0,j+1,k+0));
+          vtu_data.connect.PushBack(idx(i+1,j+0,k+0));
+          vtu_data.connect.PushBack(idx(i+1,j+0,k+1));
+          vtu_data.connect.PushBack(idx(i+1,j+1,k+1));
+          vtu_data.connect.PushBack(idx(i+1,j+1,k+0));
+          vtu_data.offset.PushBack(vtu_data.connect.Dim());;
+          vtu_data.types.PushBack(12);
+        }
+      }
+    }
+  }
+}
+
+
+
 
 
 // template <class Real> RectVolumeVis<Real>::RectVolumeVis(const sctl::Long NL_, const sctl::Long NW_, Real L, Real W, const sctl::Comm& comm_) : NL(NL_), NW(NW_), comm(comm_) {
@@ -1147,12 +1228,15 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::form_targets(const 
 
   // elems in elem_lst stored distributively, so use Ngroups_per_process.
   sctl::Vector<Real> s_param, sin_theta, cos_theta;
-  s_param.PushBack(0); // only take starting value of panel
+  s_param.PushBack(0.); // only take starting value of panel
   // s_param.PushBack(1);
   for (sctl::Long i = 0; i < azi_ord; i++) {
     const Real t = i/(Real)azi_ord;
     sin_theta.PushBack(sctl::sin<Real>(2*sctl::const_pi<Real>()*t));
     cos_theta.PushBack(sctl::cos<Real>(2*sctl::const_pi<Real>()*t));
+  }
+  if (!comm.Rank()) {
+    std::cout << "length of sin theta is " << sin_theta.Dim() << std::endl;
   }
 
   sctl::Long Nelem = elem_lst.Size();
@@ -1161,6 +1245,7 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::form_targets(const 
     const Real r_order_inv = (1-1e-3)/(Real)(r_ord-1);
     sctl::Vector<Real> X_, Xc(3);
     elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
+    // std::cout << "on Rank " << comm.Rank() << ", size of elem lst target points is " << X_.Dim() << std::endl;
     Xc = 0;
     for (sctl::Long j = 0; j < azi_ord; j++) {
       for (sctl::Long l = 0; l < 3; l++) {

@@ -8,8 +8,8 @@ int main(int argc, char** argv) {
   {
     sctl::Comm comm = sctl::Comm::World();
 
-    sctl::Long level_in = 30;
-    sctl::Long m0_in = 20;
+    sctl::Long level_in = std::stol(argv[1]);
+    sctl::Long m0_in = std::stol(argv[2]);
     
     // Set ProxySurf
     sctl::Vector<Real> X_proxy = Periodize1D<Real>::GetProxySurf(level_in, m0_in); // proxy points coordinates

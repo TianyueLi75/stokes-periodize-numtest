@@ -104,7 +104,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     // const auto X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
     sctl::Vector<Real> X_proxy;
     if (peri_mode == 1) {
-        X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
+        X_proxy = Periodize1D<Real>::GetProxySurf(30,20); // proxy points coordinates
     } else if (peri_mode == 3) {
         X_proxy = Periodize3D<Real>::GetProxySurf(); // proxy points coordinates
     } else {
@@ -264,7 +264,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
         LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
         if (peri_mode==1) {
             // 1-periodic
-            Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
+            Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy, 30, 20);
         } else if (peri_mode==3) {
             // 3-periodic
             Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
