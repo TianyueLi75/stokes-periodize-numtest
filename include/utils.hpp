@@ -30,7 +30,7 @@ template <class Real> class VolumeVis {
      * @param comm MPI communicator.
      * @param shortened whether to restrict to inner target points.
      */
-    VolumeVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm = sctl::Comm::Self(), const bool shortened = false);
+    VolumeVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm = sctl::Comm::Self());
 
     /**
      * @brief Get the coordinates of the discretization points.
@@ -64,10 +64,13 @@ template <class Real> class VolumeVis {
 
 template <class Real> class XsectionVis {
     static constexpr sctl::Integer COORD_DIM = 3;
+    static constexpr sctl::Integer s_order = 4;
+    static constexpr sctl::Integer t_order = 16;
+    static constexpr sctl::Integer r_order = 5; 
 
   public:
     XsectionVis() = default;
-    XsectionVis(const sctl::Long r_ord, const sctl::Long azi_ord, const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm = sctl::Comm::Self());
+    XsectionVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm = sctl::Comm::Self());
     const sctl::Vector<Real>& GetCoord() const;
     void SetCoord(const sctl::Vector<Real> new_coord);
     void WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const;
@@ -78,9 +81,6 @@ template <class Real> class XsectionVis {
     sctl::Comm comm_;
     sctl::Long Nelem;
     sctl::Vector<Real> coord;
-    sctl::Integer s_order;
-    sctl::Integer t_order;
-    sctl::Integer r_order;
 };
 
 /**

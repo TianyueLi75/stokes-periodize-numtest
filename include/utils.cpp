@@ -1,4 +1,4 @@
-template <class Real> VolumeVis<Real>::VolumeVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm, const bool shortened) : comm_(comm) {
+template <class Real> VolumeVis<Real>::VolumeVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm) : comm_(comm) {
   Nelem = elem_lst.Size();
   sctl::Vector<Real> s_param, sin_theta, cos_theta;
   for (sctl::Long i = 0; i < s_order; i++) {
@@ -10,46 +10,22 @@ template <class Real> VolumeVis<Real>::VolumeVis(const sctl::SlenderElemList<Rea
     sin_theta.PushBack(sctl::sin<Real>(2*sctl::const_pi<Real>()*t));
     cos_theta.PushBack(sctl::cos<Real>(2*sctl::const_pi<Real>()*t));
   }
-  if (shortened) {
-    for (sctl::Long elem_idx = 1; elem_idx < Nelem-1; elem_idx++) {
-      const Real t_order_inv = 1/(Real)t_order;
-      const Real r_order_inv = (1-1e-3)/(Real)(r_order-1);
-      sctl::Vector<Real> X_, Xc(COORD_DIM);
-      elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
-      for (sctl::Long i = 0; i < s_order; i++) {
-        Xc = 0;
-        for (sctl::Long j = 0; j < t_order; j++) {
-          for (sctl::Long l = 0; l < COORD_DIM; l++) {
-            Xc[l] += X_[(i*t_order+j)*COORD_DIM+l] * t_order_inv;
-          }
-        }
-        for (sctl::Long j = 0; j < t_order; j++) {
-          for (sctl::Long k = 0; k < r_order; k++) {
-            for (sctl::Long l = 0; l < COORD_DIM; l++) {
-              coord.PushBack((X_[(i*t_order+j)*COORD_DIM+l]-Xc[l])*k*r_order_inv + Xc[l]);
-            }
-          }
+  for (sctl::Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
+    const Real t_order_inv = 1/(Real)t_order;
+    const Real r_order_inv = (1-1e-3)/(Real)(r_order-1);
+    sctl::Vector<Real> X_, Xc(COORD_DIM);
+    elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
+    for (sctl::Long i = 0; i < s_order; i++) {
+      Xc = 0;
+      for (sctl::Long j = 0; j < t_order; j++) {
+        for (sctl::Long l = 0; l < COORD_DIM; l++) {
+          Xc[l] += X_[(i*t_order+j)*COORD_DIM+l] * t_order_inv;
         }
       }
-    }
-  } else {
-    for (sctl::Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
-      const Real t_order_inv = 1/(Real)t_order;
-      const Real r_order_inv = (1-1e-3)/(Real)(r_order-1);
-      sctl::Vector<Real> X_, Xc(COORD_DIM);
-      elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
-      for (sctl::Long i = 0; i < s_order; i++) {
-        Xc = 0;
-        for (sctl::Long j = 0; j < t_order; j++) {
+      for (sctl::Long j = 0; j < t_order; j++) {
+        for (sctl::Long k = 0; k < r_order; k++) {
           for (sctl::Long l = 0; l < COORD_DIM; l++) {
-            Xc[l] += X_[(i*t_order+j)*COORD_DIM+l] * t_order_inv;
-          }
-        }
-        for (sctl::Long j = 0; j < t_order; j++) {
-          for (sctl::Long k = 0; k < r_order; k++) {
-            for (sctl::Long l = 0; l < COORD_DIM; l++) {
-              coord.PushBack((X_[(i*t_order+j)*COORD_DIM+l]-Xc[l])*k*r_order_inv + Xc[l]);
-            }
+            coord.PushBack((X_[(i*t_order+j)*COORD_DIM+l]-Xc[l])*k*r_order_inv + Xc[l]);
           }
         }
       }
@@ -149,38 +125,35 @@ template <class Real> void CubeVolumeVisShifted<Real>::WriteVTK(const std::strin
   vtu_data.WriteVTK(fname, comm);
 }
 
-template <class Real> XsectionVis<Real>::XsectionVis(const sctl::Long r_ord, const sctl::Long azi_ord, const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm) : comm_(comm) {
-  s_order = 1;
-  r_order = r_ord;
-  t_order = azi_ord;
-  
+template <class Real> XsectionVis<Real>::XsectionVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm) : comm_(comm) {
+  Nelem = elem_lst.Size();
   sctl::Vector<Real> s_param, sin_theta, cos_theta;
-  s_param.PushBack(0.); // only take starting value of panel
-  // for (sctl::Long i = 0; i < s_order; i++) {
-  //   const Real t = i/(Real)(s_order-1);
-  //   s_param.PushBack(t);
-  // }
-  for (sctl::Long i = 0; i < azi_ord; i++) {
-    const Real t = i/(Real)azi_ord;
+  for (sctl::Long i = 0; i < s_order; i++) {
+    const Real t = i/(Real)(s_order-1);
+    s_param.PushBack(t);
+  }
+  for (sctl::Long i = 0; i < t_order; i++) {
+    const Real t = i/(Real)t_order;
     sin_theta.PushBack(sctl::sin<Real>(2*sctl::const_pi<Real>()*t));
     cos_theta.PushBack(sctl::cos<Real>(2*sctl::const_pi<Real>()*t));
   }
-  Nelem = elem_lst.Size();
   for (sctl::Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
-    const Real t_order_inv = 1/(Real)azi_ord;
-    const Real r_order_inv = (1-1e-3)/(Real)(r_ord+1);
-    sctl::Vector<Real> X_, Xc(3);
+    const Real t_order_inv = 1/(Real)t_order;
+    const Real r_order_inv = (1-1e-3)/(Real)(r_order-1);
+    sctl::Vector<Real> X_, Xc(COORD_DIM);
     elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
-    Xc = 0;
-    for (sctl::Long j = 0; j < azi_ord; j++) {
-      for (sctl::Long l = 0; l < 3; l++) {
-        Xc[l] += X_[j*3+l] * t_order_inv;
+    for (sctl::Long i = 0; i < s_order; i++) {
+      Xc = 0;
+      for (sctl::Long j = 0; j < t_order; j++) {
+        for (sctl::Long l = 0; l < COORD_DIM; l++) {
+          Xc[l] += X_[(i*t_order+j)*COORD_DIM+l] * t_order_inv;
+        }
       }
-    }
-    for (sctl::Long j = 0; j < azi_ord; j++) {
-      for (sctl::Long k = 1; k <= r_ord; k++) {
-        for (sctl::Long l = 0; l < 3; l++) {
-          coord.PushBack((X_[j*3+l]-Xc[l])*k*r_order_inv + Xc[l]);
+      for (sctl::Long j = 0; j < t_order; j++) {
+        for (sctl::Long k = 0; k < r_order; k++) {
+          for (sctl::Long l = 0; l < COORD_DIM; l++) {
+            coord.PushBack((X_[(i*t_order+j)*COORD_DIM+l]-Xc[l])*k*r_order_inv + Xc[l]);
+          }
         }
       }
     }
@@ -390,7 +363,15 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   if (ptcls.Dim()>0) {
     sctl::Long Nptcl = ptcls.Dim();
     if (nbr_range == 0) {
-      many_sphs(ptcls_Xcs, ptcls_rs, Xc, 0, eps, Nptcl);
+      if (Nptcl == 1) {
+        // Special test case of one particle on centerline
+        ptcls_Xcs.ReInit(3);
+        ptcls_rs.ReInit(1);
+        ptcls_Xcs = 0.5;
+        ptcls_rs = r / 2.;
+      } else {
+        many_sphs(ptcls_Xcs, ptcls_rs, Xc, 0, eps, Nptcl);
+      }
     }
     add_particles(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     for (sctl::Long ptcl_i = 0; ptcl_i < ptcls.Dim(); ptcl_i++) {
@@ -825,7 +806,6 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   return std::make_tuple(elem_lst,NormalOrient_);
 }
 
-// TODO: make nptcl an input?
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_ptcls2(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const sctl::Integer peri_mode, const sctl::Comm& comm, const sctl::Long Nptcl, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
   comm_ = comm;
   // sctl::Long Nptcl = 25;
@@ -834,7 +814,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   if (nbr_range == 0) {
     // std::cout << "create matrix" << std::endl;
     sctl::Matrix<Real> Xc_from_file(Nptcl,4);
-    std::string data_filename = "data/sphere_data_"+std::to_string(Nptcl)+".txt";
+    std::string data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_larger.txt";
     std::ifstream infile(data_filename);
     if (!infile) {
         std::cerr << "Error opening file!" << std::endl;
@@ -1222,6 +1202,7 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::X_nbr_copy(const sc
 //   }
 // }
 
+// Replaced by XsectionVis
 template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::form_targets(const sctl::Long r_ord, const sctl::Long azi_ord, const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm) {
   // Create streakline targets at Ngroups cross sections, divided evenly among processes in comm, and return the local list.
   sctl::Vector<Real> Xtrgs;
@@ -1439,7 +1420,7 @@ template <class Real> void PeriodicGeom<Real>::packed_sphs_conv_div(sctl::Vector
           ptcl_r_loc *= 0.9;
           iter_cnt += 1;
         } 
-        if (iter_cnt < 30 && ptcl_r_loc >= 1e-5) {
+        if (iter_cnt < 30 && ptcl_r_loc >= 0.01) {
           ptcls_Xcs.PushBack(X);
           ptcls_Xcs.PushBack(Y + 0.5);
           ptcls_Xcs.PushBack(Z + 0.5);
