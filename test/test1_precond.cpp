@@ -39,13 +39,13 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
 
-    const Real tol = 1e-10;
-    const Real gmres_tol = 1e-11;
+    const Real tol = 1e-14;
+    const Real gmres_tol = 1e-13;
     const sctl::Long ElemOrder = 10;
 
     PeriodicGeom<Real> obj;
     sctl::Vector<sctl::Long> ptcls;
-    sctl::Long ptcl_ord = 1;
+    sctl::Long ptcl_ord = 4;
     if (Nptcl>0) {
         ptcls.ReInit(Nptcl);
         ptcls = ptcl_ord;
@@ -121,7 +121,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     LayerPotenOp_proxy.SetTargetCoord(X_proxy);
     LayerPotenOp_proxy.SetAccuracy(tol);
 
-    elem_lst0.WriteVTK("vis/Channel_ptcl_precond",X0,comm);
+    // elem_lst0.WriteVTK("vis/Channel_ptcl_precond",X0,comm);
 
     // Get global index of the starting panel on this process
     sctl::Vector<sctl::Long> ElemOrderVec_temp(Nelem_channel + ptcl_ord * Nptcl);
@@ -281,7 +281,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     const auto AinvApply = [&Usvd,&Sinv,&VT,&A11size,&Usvd_p,&Sinv_p,&VT_p,&A11size_ptcl,&Nelem_channel,&loc_elem_cnt,&loc_elem_dsp,&Nptcl](const sctl::Vector<Real>& vec) {
         sctl::Vector<Real> AinvVec(vec.Dim());
         if (Nptcl == 0 || (loc_elem_dsp+loc_elem_cnt) <= Nelem_channel) {
-            std::cout << "All panels" << std::endl;
+            // std::cout << "All panels" << std::endl;
             // if no particles in channel or if all panels here are on channel
             sctl::Long N = vec.Dim();
             sctl::Long Npanels = N / A11size; 
@@ -294,7 +294,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
             }
         } else {
             if (loc_elem_dsp >= Nelem_channel) {
-                std::cout << "All particles" << std::endl;
+                // std::cout << "All particles" << std::endl;
                 // all panels here are ptcl
                 sctl::Long N = vec.Dim();
                 sctl::Long Nptcls = N / A11size_ptcl; 
@@ -309,7 +309,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
                 sctl::Long Npanels_here = Nelem_channel - loc_elem_dsp;
                 sctl::Long Nptcls_here = loc_elem_cnt - Npanels_here;
                 // DEBUG
-                std::cout << "CHECK panel-ptcl split: Npanel = " << Npanels_here << ", Nptcl = " << Nptcls_here << std::endl;
+                // std::cout << "CHECK panel-ptcl split: Npanel = " << Npanels_here << ", Nptcl = " << Nptcls_here << std::endl;
                 ///////////////
                 for (sctl::Long i=0; i<Npanels_here; i++) {
                     sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
@@ -338,56 +338,73 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     };
 
     // first gmres to remove timing for matrix loading, and set Krylov preconditioner.
-    sctl::Vector<Real> sigma_temp;
+    // sctl::Vector<Real> sigma_temp;
     sctl::GMRES<Real> solver(comm);
-    sctl::KrylovPrecond<Real> krylov_precond;
+    // sctl::KrylovPrecond<Real> krylov_precond;
     sctl::Vector<Real> A11invF = AinvApply(-bg_flow(X0));
 
-    if (precond_mode == 0) {
-        // no precond
-        solver(&sigma_temp, BIO, -bg_flow(X0), 1e0); 
-    } else if (precond_mode == 1) {
-        // K no A11inv
-        solver(&sigma_temp, BIO, -bg_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
-    } else if (precond_mode == 2) {
-        // A11inv no K
-        solver(&sigma_temp, BIO_precond, A11invF, 1e0); 
-    } else {
-        // A11inv and K
-        solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond); 
-    }
-    sctl::Profile::reset();
+    // if (precond_mode == 0) {
+    //     // no precond
+    //     solver(&sigma_temp, BIO, -bg_flow(X0), 1e0); 
+    // } else if (precond_mode == 1) {
+    //     // K no A11inv
+    //     solver(&sigma_temp, BIO, -bg_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
+    // } else if (precond_mode == 2) {
+    //     // A11inv no K
+    //     solver(&sigma_temp, BIO_precond, A11invF, 1e0); 
+    // } else {
+    //     // A11inv and K
+    //     solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond); 
+    // }
+    // sctl::Profile::reset();
 
-    LayerPotenOp0.ClearSetup();
-    sctl::Profile::Tic("Setup");
-    LayerPotenOp0.Setup();
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm);
+    // LayerPotenOp0.ClearSetup();
+    // sctl::Profile::Tic("Setup");
+    // LayerPotenOp0.Setup();
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm);
 
     sctl::Vector<Real> sigma;
-    sctl::Profile::Tic("Solver");
-    if (precond_mode == 0) {
-        // no precond
-        solver(&sigma, BIO, -bg_flow(X0), gmres_tol); 
-    } else if (precond_mode == 1) {
-        // K no A11inv
-        solver(&sigma, BIO, -bg_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
-    } else if (precond_mode == 2) {
-        // A11inv no K
-        solver(&sigma, BIO_precond, A11invF, gmres_tol);
-    } else {
-        // A11inv and K
-        solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    }
+    // sctl::Profile::Tic("Solver");
+    // if (precond_mode == 0) {
+    //     // no precond
+    //     solver(&sigma, BIO, -bg_flow(X0), gmres_tol); 
+    // } else if (precond_mode == 1) {
+    //     // K no A11inv
+    //     solver(&sigma, BIO, -bg_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
+    // } else if (precond_mode == 2) {
+    //     // A11inv no K
+    //     solver(&sigma, BIO_precond, A11invF, gmres_tol);
+    // } else {
+    //     // A11inv and K
+    //     solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    // }
+    // solver(&sigma, BIO, -bg_flow(X0), gmres_tol);
+    solver(&sigma, BIO_precond, A11invF, gmres_tol);
     
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    sctl::Profile::reset();
-    comm.Barrier();
-    if (!comm.Rank()) {
-        std::cout << "------------------- DONE WITH SOLVE ======================" << std::endl;
-    }
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    // sctl::Profile::reset();
+    // comm.Barrier();
+    // if (!comm.Rank()) {
+    //     std::cout << "------------------- DONE WITH SOLVE ======================" << std::endl;
+    // }
 
+    X0.ReInit(6);
+    X0[0] = 0.2;
+    X0[1] = 0.5;
+    X0[2] = 0.52;
+    X0[3] = 0.75;
+    X0[4] = 0.5;
+    X0[5] = 0.602; 
+    LayerPotenOp0.SetTargetCoord(X0);
+    sctl::Vector<Real> U_Xtrg;
+    BIO(&U_Xtrg, sigma);
+    U_Xtrg += bg_flow(X0);
+    std::cout << std::setprecision(12) << "U at (0.2,0,0.02) is (" << U_Xtrg[0] << ", "<< U_Xtrg[1] << ", "<< U_Xtrg[2] << "), U at (0.75,0,0.102) is (" << U_Xtrg[3] << ", "<< U_Xtrg[4] << ", "<< U_Xtrg[5] << std::endl;
+
+    // /*
+    
     { // Evaluate in interior, and write visualization
         // std::cout << "Rank " << comm.Rank()<< " calculating target points." << std::endl;
         PeriodicGeom<Real> trg;
@@ -426,7 +443,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
         sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
         if (!ptcls.Dim()) {
             X0 = X0_all;
-            filtered_inds = 1;
+            filtered_inds = 0; // all targets valid fi no particles inside.
         } else {
             std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
             X0 = std::get<0>(trg_tuple);
@@ -476,7 +493,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
         std::cout << "rank " << comm.Rank() << " size loc = " << size_loc[0] << ", size all is " << size_all[0] << std::endl;
         // std::string filename = "ConvDiv_U_exact_"+std::to_string(comm.Rank());
         // std::string filename = "Trefoil";
-        std::string filename = "Channel_precond";
+        std::string filename = "Sphere_in_Straight";
         std::string filename_out = "out/"+filename+".txt";
         std::string filename_vis = "vis/"+filename;
         
@@ -521,6 +538,9 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
         }
         
     }
+
+    // */
+
 }
 
 int main(int argc, char** argv) {

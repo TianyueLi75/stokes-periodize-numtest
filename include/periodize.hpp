@@ -17,7 +17,7 @@ template <class Real> class Periodize1D {
    */
   static const sctl::Vector<Real>& GetProxySurf();
 
-  static const sctl::Vector<Real>& GetProxySurf(const sctl::Long level_in, const sctl::Long m0_in);
+  static sctl::Vector<Real> GetProxySurf(const sctl::Long level_in, const sctl::Long m0_in);
 
   /**
    * Return the far-field requires to periodize the flow.
@@ -46,8 +46,8 @@ template <class Real> class Periodize1D {
   static const sctl::Matrix<Real>& GetMat_UC2DE0();
   static const sctl::Matrix<Real>& GetMat_UC2DE1();
 
-  static const sctl::Matrix<Real>& GetMat_UC2DE0(const sctl::Long level_in, const sctl::Long m0_in);
-  static const sctl::Matrix<Real>& GetMat_UC2DE1(const sctl::Long level_in, const sctl::Long m0_in);
+  static sctl::Matrix<Real> GetMat_UC2DE0(const sctl::Long level_in, const sctl::Long m0_in);
+  static sctl::Matrix<Real> GetMat_UC2DE1(const sctl::Long level_in, const sctl::Long m0_in);
 
 };
 

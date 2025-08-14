@@ -89,21 +89,35 @@ TEST_BIN = \
 # Test target: build all test binaries
 test: $(TEST_BIN)
 
-# Test ptcl: build only test1
-test_ptcl: $(BINDIR)/test1
+# Periodic channel code with or without particles.
+test1: $(BINDIR)/test1
 
-# Test self_conv without particle:
-test_multi_periodic: $(BINDIR)/test2
+# Preconditioned channel flow [without particle for now.]
+test1_precond: $(BINDIR)/test1_precond
+test1_dispersion: $(BINDIR)/test1_dispersion
 
-test_free: $(BINDIR)/test3
+# Particle only, periodicity
+test2: $(BINDIR)/test2
 
-test_free_copies: $(BINDIR)/test3_copies
+# Test accuracy of particle periodic code by manufactured solutions
+test2_ptcl_conv: $(BINDIR)/test2_ptcl_conv
+test2_ptcl_precond_left: $(BINDIR)/test2_ptcl_precond_left
 
-test_dense: $(BINDIR)/test4
+# Aarticle in free space no periodicity
+test3: $(BINDIR)/test3
 
+# Aarticle in free space, direct sum periodicity
+test3_copies: $(BINDIR)/test3_copies
+
+# # Dense suspension of particles in periodic geom, can be replaced by test2_ptcl_conv
+# test4: $(BINDIR)/test4
+
+# Test self convergence of channel with or without particles
 test_selfconv: $(BINDIR)/test_convergence
 
-test_ptcl_conv: $(BINDIR)/test2_ptcl_conv
+# Create proxy files for different order parameters
+test_proxy_mats: $(BINDIR)/test2_ptcl_periodize_mats
+test_proxy_order: $(BINDIR)/test2_ptcl_periodize_order
 
 # Rules for building binaries
 $(BINDIR)/%: $(OBJDIR)/%.o
