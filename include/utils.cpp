@@ -851,8 +851,6 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
 
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_ptcls2(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const sctl::Integer peri_mode, const sctl::Comm& comm, const sctl::Long Nptcl, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
   comm_ = comm;
-  // sctl::Long Nptcl = 25;
-  // SCTL_ASSERT((Nptcl==25) || (Nptcl == 100) || (Nptcl == 500));
   sctl::Long Nelem_ptcl_tot = 0;
   if (nbr_range == 0) {
     // std::cout << "create matrix" << std::endl;
@@ -860,7 +858,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
     std::string data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_larger.txt";
     std::ifstream infile(data_filename);
     if (!infile) {
-        std::cerr << "Error opening file!" << std::endl;
+        std::cerr << "Error opening file " << data_filename << std::endl;
         SCTL_ASSERT(false);
     }
     for (sctl::Long row=0; row < Nptcl; row++) {
