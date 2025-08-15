@@ -715,7 +715,7 @@ int main(int argc, char** argv) {
     for (int i=6; i<=6; i+=2) {
         // Nelem_ptcl = i
         // for (int j=4; j<=64; j+=4) {
-        for (int j=36; j<=44; j+= 4){
+        for (int j=48; j<=64; j+= 4){
             // FourierOrder = j
             test_NpNf_grid<Real>(i, j, peri_mode, comm, Nptcl, geom_mode, Ncopy);
         }

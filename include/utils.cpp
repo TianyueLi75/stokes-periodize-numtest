@@ -728,6 +728,49 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   return std::make_tuple(elem_lst,NormalOrient_);
 }
 
+// // Heuristically whether point (x,y,z) lands approximately inside or outside trefoil. If wanders off by more than 2x radius, must be outside.
+// template <class Real> bool PeriodicGeom<Real>::in_trefoil_approx(Real x, Real y, Real z, const Real r_min, const Real r_max) {
+//   auto get_r = [&r_min,&r_max](const Real& x) {
+//     Real angle = sctl::const_pi<Real>() * (16.*x - 28./3.); // =8*(t-pi/6), t = (x-0.5)*2pi
+//     return r_min + (r_max - r_min) * (0.5 * sctl::sin<Real>(angle) + 0.5);
+//   };
+
+//   auto get_xyz = [](const Real& x) {
+//     const Real xminus = x-0.5;
+//     const Real x4pi = 4.*sctl::const_pi<Real>()*xminus;
+//     const Real x8pi = 2.*x4pi;
+//     const Real xminus2 = xminus * xminus;
+//     const Real xminus5 = xminus2 * xminus2 * xminus;
+//     Real xcoeff = xminus2 * 4. - 1.;
+//     xcoeff = xcoeff / 5.;
+//     Real x_ = 0.5 * xminus * sctl::cos<Real>(x4pi) + 8. * xminus5 + 0.5;
+//     Real y_ = sctl::sin<Real>(x4pi) * xcoeff + 0.5;
+//     Real z_ = sctl::sin<Real>(x8pi) * xcoeff + 0.5;
+//     // std::cout << "inside getxyz, x = " << x_ << ", y = " << y_ << ", z = " << z_ << std::endl;
+
+//     return std::make_tuple(x_,y_,z_);
+//   };
+
+//   // TODO: from x value to arclen parameter
+//   Real t = 0.5;
+//   std::tuple<Real,Real,Real> xyz = get_xyz(t);
+//   //DEBUG
+//   Real xhere = std::get<0>(xyz);
+//   if (fabs(xhere-x)>1e-6) {
+//     std::cout << " starting with x value " << x << ", corresponding to t value " << t << ", but corresponding x became " << xhere << std::endl;
+//   }
+//   Real yhere = std::get<1>(xyz);
+//   Real zhere = std::get<2>(xyz);
+//   Real rhere = get_r(t);
+
+//   if ((y-yhere)*(y-yhere) + (z-zhere)*(z-zhere) < 2*rhere) {
+//     return true;
+//   } else {
+//     return false;
+//   }
+
+// }
+
 
 template <class Real> sctl::SlenderElemList<Real> PeriodicGeom<Real>::free_ptcls(const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs){
   comm_ = comm;
