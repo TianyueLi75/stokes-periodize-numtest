@@ -35,7 +35,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
 
-    Real tol = 1e-14;
+    Real tol = 1e-12;
     const Real gmres_tol = 1e-7; // tolerances set up to give 6 digts of accuracy.
     const sctl::Long ElemOrder = 10;
     
@@ -60,7 +60,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     }
     const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); 
     Nptcl = ptcls_rs.Dim(); 
-    std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
+    // std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
 
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
@@ -281,7 +281,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 
     if (write_ref) { 
         PeriodicGeom<Real> trg;    
-        CubeVolumeVisShifted<Real> vol_vis(200, 1.0, comm);
+        CubeVolumeVisShifted<Real> vol_vis(60, 1.0, comm);
         // VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
         // X0 = vol_vis.GetCoord();
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
@@ -289,6 +289,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         X0 = std::get<0>(trg_tuple);
         filtered_inds = std::get<1>(trg_tuple);
+        std::cout << "number of target points: " << X0.Dim() << std::endl;
 
         LayerPotenOp0.SetTargetCoord(X0);
         sctl::Vector<Real> U;
@@ -317,12 +318,13 @@ int main(int argc, char** argv) {
 
   {
     sctl::Comm comm = sctl::Comm::World();
+    sctl::Profile::Enable(true);
     long Nelem_ptcl = std::stol(argv[1]); // number of elements
     long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
     int write_ref = std::stol(argv[3]);
-    int peri_mode = std::stoi(argv[3]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
-    long Nptcl = std::stol(argv[4]); // number of particles inside
-    long geom_mode = std::stol(argv[5]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
+    int peri_mode = std::stoi(argv[4]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
+    long Nptcl = std::stol(argv[5]); // number of particles inside
+    long geom_mode = std::stol(argv[6]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
 
     test<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, comm, Nptcl, geom_mode);
   }
