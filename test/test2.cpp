@@ -35,7 +35,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
 
-    Real tol = 1e-12;
+    Real tol = 1e-14;
     const Real gmres_tol = 1e-7; // tolerances set up to give 6 digts of accuracy.
     const sctl::Long ElemOrder = 10;
     
@@ -249,6 +249,15 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Profile::reset();
     comm.Barrier();
 
+    //DEBUG GMRES with no slip
+    sctl::Vector<Real> residual;
+    BIO_precond(&residual,sigma_temp);
+    Real res_norm = 0.;
+    for (int i=0; i<residual.Dim(); i++) {
+        res_norm += fabs(residual[i] - A11invF[i]);
+    }
+    std::cout << " rank " << comm.Rank() << " has residual " << res_norm << " from gmres. normalized residual is " << res_norm / residual.Dim() << std::endl;
+
     sctl::Vector<Real> sigma;
     sctl::Profile::Tic("Solver: KrylovPrecond_setup");
     // PRECOND with Krylov
@@ -262,15 +271,6 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Profile::Tic("Solver1");
     // PRECOND with Krylov
     solver(&sigma1, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    sctl::Profile::reset();
-    comm.Barrier();
-
-    sctl::Vector<Real> sigma2;
-    sctl::Profile::Tic("Solver2");
-    // PRECOND with Krylov
-    solver(&sigma2, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
     sctl::Profile::Toc();
     sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
     sctl::Profile::reset();
