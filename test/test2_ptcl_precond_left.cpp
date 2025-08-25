@@ -138,7 +138,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     LayerPotenOp_proxy.SetAccuracy(tol);
 
     // =============== PRECONDITIONING =======================================
-    sctl::Profile::Tic("Preconditioning");
+    sctl::Profile::Tic("Preconditioner");
     sctl::Vector<sctl::Long> ptcls_pre;
     sctl::Vector<Real> ptcls_Xcs_pre, ptcls_rs_pre;
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, geom_mode);
@@ -271,7 +271,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Profile::print(&comm);
 
     sctl::Vector<Real> sigma;
-    sctl::Profile::Tic("Solver");
+    sctl::Profile::Tic("Solver1");
     if (precond_mode == 0) {
         // no precond
         solver(&sigma, BIO, field_on_surf, gmres_tol); 
@@ -285,7 +285,46 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         // A11inv and K
         solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
     }
-    
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    sctl::Profile::reset();
+    comm.Barrier();
+
+    sctl::Vector<Real> sigma2;
+    sctl::Profile::Tic("Solver2");
+    if (precond_mode == 0) {
+        // no precond
+        solver(&sigma2, BIO, field_on_surf, gmres_tol); 
+    } else if (precond_mode == 1) {
+        // K no A11inv
+        solver(&sigma2, BIO, field_on_surf, gmres_tol, -1, false, nullptr, &krylov_precond);
+    } else if (precond_mode == 2) {
+        // A11inv no K
+        solver(&sigma2, BIO_precond, A11invF, gmres_tol);
+    } else {
+        // A11inv and K
+        solver(&sigma2, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    }
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    sctl::Profile::reset();
+    comm.Barrier();
+
+    sctl::Vector<Real> sigma3;
+    sctl::Profile::Tic("Solver3");
+    if (precond_mode == 0) {
+        // no precond
+        solver(&sigma3, BIO, field_on_surf, gmres_tol); 
+    } else if (precond_mode == 1) {
+        // K no A11inv
+        solver(&sigma3, BIO, field_on_surf, gmres_tol, -1, false, nullptr, &krylov_precond);
+    } else if (precond_mode == 2) {
+        // A11inv no K
+        solver(&sigma3, BIO_precond, A11invF, gmres_tol);
+    } else {
+        // A11inv and K
+        solver(&sigma3, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    }
     sctl::Profile::Toc();
     sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
     sctl::Profile::reset();

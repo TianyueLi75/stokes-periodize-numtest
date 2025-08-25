@@ -9,6 +9,7 @@
 template <class Real> class Periodize1D {
   //using PrecompReal = long double;
   using PrecompReal = double;
+  // using PrecompReal = sctl::QuadReal;
 
   public:
 

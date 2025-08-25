@@ -4,7 +4,7 @@ template <class Real> class PeriodizeOp {
   static constexpr Real tol = sctl::machine_eps<Real>()*64; // tolerance for pseudo-inverse
   static constexpr sctl::Integer COORD_DIM = 3;
   static constexpr sctl::Long m0 = 20; // multipole order
-  static constexpr sctl::Long level = 30; // levels of tree expansion and evaluation
+  static constexpr sctl::Long level = 1; // levels of tree expansion and evaluation
 
   using KerM2M = sctl::Stokes3D_FxU;
   using KerM2L = sctl::Stokes3D_FxU;
@@ -106,10 +106,16 @@ template <class Real> class PeriodizeOp {
     static sctl::Matrix<Real> BC_UE2DC_helper() {
       sctl::Profile::Scoped prof(__FUNCTION__);
 
-      std::string data_file = "data/Mbc_ue2dc_1d_l"+std::to_string(level)+"_m"+std::to_string(m0)+".mat";
+      std::string data_file;
       sctl::Matrix<Real> M;
-      // M.template Read<sctl::QuadReal>("data/Mbc_ue2dc_1d_l30_m20.mat");
-      M.template Read<sctl::QuadReal>(data_file.c_str());
+      if (level==30 && m0 == 20) {
+        // already made float128 version of these parameters
+        data_file = "data/Mbc_ue2dc_1d_l"+std::to_string(level)+"_m"+std::to_string(m0)+".mat";
+        M.template Read<double>(data_file.c_str());
+      } else {
+        data_file = "data/Mbc_ue2dc_1d_l"+std::to_string(level)+"_m"+std::to_string(m0)+"_float128.mat";
+        M.template Read<sctl::QuadReal>(data_file.c_str());
+      }
       if (M.Dim(0) || M.Dim(1)) return M;
 
       const KerM2L ker_m2l;
@@ -147,7 +153,6 @@ template <class Real> class PeriodizeOp {
       //  }
       //}
 
-      // M.template Write<sctl::QuadReal>("data/Mbc_ue2dc_1d_l30_m20.mat");
       M.template Write<sctl::QuadReal>(data_file.c_str());
       return M;
     }
@@ -161,16 +166,25 @@ template <class Real> const sctl::Vector<Real>& Periodize1D<Real>::GetProxySurf(
 
 template <class Real> sctl::Vector<Real> Periodize1D<Real>::GetProxySurf(const sctl::Long level_in, const sctl::Long m0_in) {
   // sctl::Vector<Real> proxy_surf = [&level_in,&m0_in](){
-  std::string data_dn = "data/dn_equiv_surf_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
-  // std::string data_up = "data/up_check_surf_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+  // std::string data_dn = "data/dn_equiv_surf_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+"_float128.mat";
+  std::string data_dn;
   sctl::Vector<Real> X;
-  X.template Read<PrecompReal>(data_dn.c_str());
-  if (!X.Dim()) {
-    X = PeriodizeOp<Real>::uc_surf(1, sctl::Vector<Real>{0.5,0.5,0.5});
-    X.template Write<PrecompReal>(data_dn.c_str());
-    // X.template Write<PrecompReal>(data_up.c_str());
+  if (level_in ==30 && m0_in == 20) {
+    // already made float128 version of these parameters
+    data_dn = "data/dn_equiv_surf_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+    X.template Read<double>(data_dn.c_str());
+    if (!X.Dim()) {
+      X = PeriodizeOp<Real>::uc_surf(1, sctl::Vector<Real>{0.5,0.5,0.5});
+      X.template Write<double>(data_dn.c_str());
+    }
+  } else {
+    data_dn = "data/dn_equiv_surf_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+"_float128.mat";
+    X.template Read<sctl::QuadReal>(data_dn.c_str());
+    if (!X.Dim()) {
+      X = PeriodizeOp<Real>::uc_surf(1, sctl::Vector<Real>{0.5,0.5,0.5});
+      X.template Write<sctl::QuadReal>(data_dn.c_str());
+    }
   }
-  // std::cout << "size of proxy surf is " << X.Dim() << std::endl;
   return X;
   // }();
   // std::cout << "reading proxy surf or making it" << std::endl;
@@ -200,13 +214,11 @@ template <class Real> void Periodize1D<Real>::EvalFarField(sctl::Vector<Real>& U
   const auto Mbc0 = GetMat_UC2DE0(level_in, m0_in);
   const auto Mbc1 = GetMat_UC2DE1(level_in, m0_in);
   const sctl::Long N = Mbc0.Dim(0);
-  // std::cout << N << ", " << U_proxy.Dim() << ", l=" << level_in << ", m0=" << m0_in << std::endl;
   SCTL_ASSERT(U_proxy.Dim() == N);
 
   // Compute the equivalent density at proxy points
   auto proxy_density = (sctl::Matrix<Real>(1,N,(sctl::Iterator<Real>)U_proxy.begin(),false) * Mbc0) * Mbc1;
 
-  // std::cout << "evaluate potential from proxy to Xt" << std::endl;
   // Evaluate the potential from proxy points at the targets Xt
   U_far = 0;
   static const sctl::Stokes3D_FxU stokeslet;
@@ -225,33 +237,64 @@ template <class Real> const sctl::Matrix<Real>& Periodize1D<Real>::GetMat_UC2DE0
 
 template <class Real> sctl::Matrix<Real> Periodize1D<Real>::GetMat_UC2DE0(const sctl::Long level_in, const sctl::Long m0_in) {
   // sctl::Matrix<Real> Mbc = [&level_in,&m0_in](){
-  std::string data1 = "data/M_uc2ue0_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
-  std::string data2 = "data/M_uc2ue1_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
-  std::string data3 = "data/Mbc_ue2dc_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
-  std::string data4 = "data/M_dc2de0_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+  // std::string data1 = "data/M_uc2ue0_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+"_float128.mat";
+  // std::string data2 = "data/M_uc2ue1_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+"_float128.mat";
+  // std::string data3 = "data/Mbc_ue2dc_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+"_float128.mat";
+  // std::string data4 = "data/M_dc2de0_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+"_float128.mat";
+  std::string data1, data2, data3, data4;
   sctl::Matrix<Real> Mbc_ue2dc, M_dc2de0, M_uc2ue0, M_uc2ue1;
-  M_uc2ue0.template Read<PrecompReal>(data1.c_str());
+  if (level_in ==30 && m0_in == 20) {
+    data1 = "data/M_uc2ue0_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+    data2 = "data/M_uc2ue1_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+    data3 = "data/Mbc_ue2dc_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+    data4 = "data/M_dc2de0_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+    M_uc2ue0.template Read<double>(data1.c_str());
+    if (M_uc2ue0.Dim(0) || M_uc2ue0.Dim(1)) {
+      // std::cout << " successfully read file." << std::endl;
+      M_uc2ue1.template Read<double>(data2.c_str());
+      Mbc_ue2dc.template Read<double>(data3.c_str());
+      M_dc2de0.template Read<double>(data4.c_str());
+    } else {
+      // std::cout << " Didn't read file, making now." << std::endl;
+      std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl1 = PeriodizeOp<Real>::UC2UE();
+      M_uc2ue0 = std::get<0>(tpl1);
+      M_uc2ue1 = std::get<1>(tpl1);
+      std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl2 = PeriodizeOp<Real>::DC2DE();
+      M_dc2de0 = std::get<0>(tpl2);
+      Mbc_ue2dc = PeriodizeOp<Real>::BC_UE2DC();
+      M_uc2ue0.template Write<double>(data1.c_str());
+      M_uc2ue1.template Write<double>(data2.c_str());
+      Mbc_ue2dc.template Write<double>(data3.c_str());
+      M_dc2de0.template Write<double>(data4.c_str());
+    }
 
-  if (M_uc2ue0.Dim(0) || M_uc2ue0.Dim(1)) {
-    // std::cout << " successfully read file." << std::endl;
-    M_uc2ue1.template Read<PrecompReal>(data2.c_str());
-    Mbc_ue2dc.template Read<PrecompReal>(data3.c_str());
-    M_dc2de0.template Read<PrecompReal>(data4.c_str());
   } else {
-    // std::cout << " Didn't read file, making now." << std::endl;
-    std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl1 = PeriodizeOp<Real>::UC2UE();
-    M_uc2ue0 = std::get<0>(tpl1);
-    M_uc2ue1 = std::get<1>(tpl1);
-    std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl2 = PeriodizeOp<Real>::DC2DE();
-    M_dc2de0 = std::get<0>(tpl2);
-    Mbc_ue2dc = PeriodizeOp<Real>::BC_UE2DC();
-    M_uc2ue0.template Write<PrecompReal>(data1.c_str());
-    M_uc2ue1.template Write<PrecompReal>(data2.c_str());
-    Mbc_ue2dc.template Write<PrecompReal>(data3.c_str());
-    M_dc2de0.template Write<PrecompReal>(data4.c_str());
+    data1 = "data/M_uc2ue0_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+"_float128.mat";
+    data2 = "data/M_uc2ue1_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+"_float128.mat";
+    data3 = "data/Mbc_ue2dc_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+"_float128.mat";
+    data4 = "data/M_dc2de0_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+"_float128.mat";
+    M_uc2ue0.template Read<sctl::QuadReal>(data1.c_str());
+    if (M_uc2ue0.Dim(0) || M_uc2ue0.Dim(1)) {
+      // std::cout << " successfully read file." << std::endl;
+      M_uc2ue1.template Read<sctl::QuadReal>(data2.c_str());
+      Mbc_ue2dc.template Read<sctl::QuadReal>(data3.c_str());
+      M_dc2de0.template Read<sctl::QuadReal>(data4.c_str());
+    } else {
+      // std::cout << " Didn't read file, making now." << std::endl;
+      std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl1 = PeriodizeOp<Real>::UC2UE();
+      M_uc2ue0 = std::get<0>(tpl1);
+      M_uc2ue1 = std::get<1>(tpl1);
+      std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl2 = PeriodizeOp<Real>::DC2DE();
+      M_dc2de0 = std::get<0>(tpl2);
+      Mbc_ue2dc = PeriodizeOp<Real>::BC_UE2DC();
+      M_uc2ue0.template Write<sctl::QuadReal>(data1.c_str());
+      M_uc2ue1.template Write<sctl::QuadReal>(data2.c_str());
+      Mbc_ue2dc.template Write<sctl::QuadReal>(data3.c_str());
+      M_dc2de0.template Write<sctl::QuadReal>(data4.c_str());
+    }
   }
-  // std::cout << level_in << ", " << m0_in << std::endl;
-  // std::cout << M_uc2ue0.Dim(0)<< ", "  << M_uc2ue1.Dim(0)<< ", "  << Mbc_ue2dc.Dim(0)<< ", "  << M_dc2de0.Dim(0) << std::endl;
+  
+  
   return (M_uc2ue0 * (M_uc2ue1 * Mbc_ue2dc)) * M_dc2de0;
   // }();
   // return Mbc;
@@ -267,16 +310,30 @@ template <class Real> const sctl::Matrix<Real>& Periodize1D<Real>::GetMat_UC2DE1
 
 template <class Real> sctl::Matrix<Real> Periodize1D<Real>::GetMat_UC2DE1(const sctl::Long level_in, const sctl::Long m0_in) {
   // sctl::Matrix<Real> Mbc = [&level_in,&m0_in](){
-  std::string data_file = "data/M_dc2de1_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+  // std::string data_file = "data/M_dc2de1_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+"_float128.mat";
+  std::string data_file;
   sctl::Matrix<Real> M_dc2de1;
-  M_dc2de1.template Read<PrecompReal>(data_file.c_str());
-
-  if (M_dc2de1.Dim(0)==0 && M_dc2de1.Dim(1)==0) {
-    std::cout << "Writing data file" << std::endl;
-    std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl2 = PeriodizeOp<Real>::DC2DE();
-    M_dc2de1 = std::get<1>(tpl2);
-    M_dc2de1.template Write<PrecompReal>(data_file.c_str());
+  if (level_in ==30 && m0_in == 20) {
+    // already made float128 version of these parameters
+    data_file = "data/M_dc2de1_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
+    M_dc2de1.template Read<double>(data_file.c_str());
+    if (M_dc2de1.Dim(0)==0 && M_dc2de1.Dim(1)==0) {
+      // std::cout << "Writing data file" << std::endl;
+      std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl2 = PeriodizeOp<Real>::DC2DE();
+      M_dc2de1 = std::get<1>(tpl2);
+      M_dc2de1.template Write<double>(data_file.c_str());
+    }
+  } else {
+    data_file = "data/M_dc2de1_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+"_float128.mat";
+    M_dc2de1.template Read<sctl::QuadReal>(data_file.c_str());
+    if (M_dc2de1.Dim(0)==0 && M_dc2de1.Dim(1)==0) {
+      // std::cout << "Writing data file" << std::endl;
+      std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl2 = PeriodizeOp<Real>::DC2DE();
+      M_dc2de1 = std::get<1>(tpl2);
+      M_dc2de1.template Write<sctl::QuadReal>(data_file.c_str());
+    }
   }
+  
   return M_dc2de1;
   // }();
   // return Mbc;
