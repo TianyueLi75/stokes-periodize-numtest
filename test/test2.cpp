@@ -36,7 +36,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     const Real DL_scal = 1.0;
 
     Real tol = 1e-14;
-    const Real gmres_tol = 1e-7; // tolerances set up to give 6 digts of accuracy.
+    const Real gmres_tol = 1e-9; // tolerances set up to give 6 digts of accuracy.
     const sctl::Long ElemOrder = 10;
     
     PeriodicGeom<Real> obj;
@@ -243,20 +243,25 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Profile::reset();
 
     sctl::Profile::Tic("Solve without KrylovPrecond");
-    solver(&sigma_temp, BIO_precond, A11invF, gmres_tol);
+    // sctl::Profile::Tic("Solve debug high residual");
+    solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false);
     sctl::Profile::Toc();
     sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
     sctl::Profile::reset();
     comm.Barrier();
 
-    //DEBUG GMRES with no slip
-    sctl::Vector<Real> residual;
-    BIO_precond(&residual,sigma_temp);
-    Real res_norm = 0.;
-    for (int i=0; i<residual.Dim(); i++) {
-        res_norm += fabs(residual[i] - A11invF[i]);
-    }
-    std::cout << " rank " << comm.Rank() << " has residual " << res_norm << " from gmres. normalized residual is " << res_norm / residual.Dim() << std::endl;
+    // //DEBUG GMRES with no slip
+    // sctl::Vector<Real> residual;
+    // BIO_precond(&residual,sigma_temp);
+    // Real res_norm = 0.;
+    // Real b_norm = 0.;
+    // for (int i=0; i<residual.Dim(); i++) {
+    //     res_norm += (residual[i] - A11invF[i])*(residual[i] - A11invF[i]);
+    //     b_norm += A11invF[i]*A11invF[i];
+    // }
+    // b_norm = sctl::sqrt<Real>(b_norm);
+    // res_norm = sctl::sqrt<Real>(res_norm);
+    // std::cout <<"residual = " << res_norm << " from gmres. b_norm is " << b_norm << "; normalized residual by b_norm is " << res_norm / b_norm << std::endl;
 
     sctl::Vector<Real> sigma;
     sctl::Profile::Tic("Solver: KrylovPrecond_setup");
@@ -289,7 +294,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         X0 = std::get<0>(trg_tuple);
         filtered_inds = std::get<1>(trg_tuple);
-        std::cout << "number of target points: " << X0.Dim() << std::endl;
+        // std::cout << "number of target points: " << X0.Dim() << std::endl;
 
         LayerPotenOp0.SetTargetCoord(X0);
         sctl::Vector<Real> U;
@@ -313,22 +318,26 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 
 
 int main(int argc, char** argv) {
-  sctl::Comm::MPI_Init(&argc, &argv);
-  using Real = double;
 
-  {
-    sctl::Comm comm = sctl::Comm::World();
-    sctl::Profile::Enable(true);
-    long Nelem_ptcl = std::stol(argv[1]); // number of elements
-    long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
-    int write_ref = std::stol(argv[3]);
-    int peri_mode = std::stoi(argv[4]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
-    long Nptcl = std::stol(argv[5]); // number of particles inside
-    long geom_mode = std::stol(argv[6]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
+    // std::cout << "in main" << std::endl;
 
-    test<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, comm, Nptcl, geom_mode);
-  }
+    sctl::Comm::MPI_Init(&argc, &argv);
+    using Real = double;
 
-  sctl::Comm::MPI_Finalize();
-  return 0;
+    {
+        sctl::Comm comm = sctl::Comm::World();
+        sctl::Profile::Enable(true);
+        long Nelem_ptcl = std::stol(argv[1]); // number of elements
+        long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
+        int write_ref = std::stoi(argv[3]);
+        int peri_mode = std::stoi(argv[4]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
+        long Nptcl = std::stol(argv[5]); // number of particles inside
+        long geom_mode = std::stol(argv[6]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
+        // std::cout << "rank " << comm.Rank() << "before test." << std::endl;
+
+        test<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, comm, Nptcl, geom_mode);
+    }
+
+    sctl::Comm::MPI_Finalize();
+    return 0;
 }

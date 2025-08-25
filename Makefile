@@ -9,8 +9,8 @@ CSBQ_INCLUDE_DIR ?= ./extern/CSBQ/include
 SCTL_DATA_PATH ?= ./extern/CSBQ/data
 
 # Compiler settings
-# CXX = $(CXX_PVFMM) # Requires g++-9 or newer, icpc (with gcc compatibility 7.5 or newer), or clang++ with llvm-10 or newer
-CXX = mpicxx
+CXX = $(CXX_PVFMM) # Requires g++-9 or newer, icpc (with gcc compatibility 7.5 or newer), or clang++ with llvm-10 or newer
+# CXX = mpicxx
 CXXFLAGS = -std=c++17 -fopenmp # Need C++11 and OpenMP
 
 # Define the path for quadrature tables and enable quadruple precision (for reading quadrature tables)

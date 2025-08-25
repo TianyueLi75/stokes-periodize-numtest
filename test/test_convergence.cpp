@@ -26,8 +26,8 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
 
-    const Real tol = 1e-8;
-    const Real gmres_tol = 1e-10;
+    const Real tol = 1e-10;
+    const Real gmres_tol = 1e-13;
     const sctl::Long ElemOrder = 10;
 
     PeriodicGeom<Real> obj;
@@ -897,7 +897,7 @@ template <class Real> void trefoil_ptcl_self_conv(sctl::Long Nelem, sctl::Long F
     const Real DL_scal = 1.0;
 
     const Real tol = 1e-8;
-    const Real gmres_tol = 1e-10;
+    const Real gmres_tol = 1e-13;
     const sctl::Long ElemOrder = 10;
 
     PeriodicGeom<Real> obj;
@@ -910,6 +910,7 @@ template <class Real> void trefoil_ptcl_self_conv(sctl::Long Nelem, sctl::Long F
     sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
     sctl::Vector<Real> NormalOrient;
     sctl::Long peri_mode = 1;
+    // std::cout << "right before build trefoils" << std::endl;
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_trefoil(Nelem, ElemOrder, FourierOrder, 0, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, 0);
     elem_lst0 = std::get<0>(build0);
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_trefoil(Nelem, ElemOrder, FourierOrder, 1, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, 0);  
@@ -1220,13 +1221,13 @@ template <class Real> void trefoil_ptcl_self_conv(sctl::Long Nelem, sctl::Long F
                 std::cout<<"Max relative error = "<< std::setprecision(10) << err_all[0] / u_all[0] << std::endl;
             }
         }
-
-  }
+    }
 }
 
 int main(int argc, char** argv) {
   sctl::Comm::MPI_Init(&argc, &argv);
   using Real = double;
+//   std::cout << "In main" << std::endl;
 
   {
     // sctl::Profile::Enable(true);
@@ -1234,16 +1235,17 @@ int main(int argc, char** argv) {
     long test_mode = std::stol(argv[1]); // =0 for trefoil, =1 for 1-particle; =2 for conv div
     long peri_mode = std::stol(argv[2]); // 1- or 3- periodic
     long precond_mode = std::stol(argv[3]); // =0 for no precond, =1 for panel+particle precond.
+    // std::cout << "Test mode: " << test_mode << ", peri mode: " << peri_mode << ", precond_mode: " << precond_mode << std::endl;
 
     sctl::Vector<sctl::Long> Nelem_lst;
     if (test_mode==1) { // particle, doesn't need many panels -- but if using Nptcl = 25 will need more panels
         for (int i=1; i<10; i += 2) {
             Nelem_lst.PushBack(2*i);
         }
-    } else if (test_mode == 0) { // trefoil needs more panels
-        for (int i=200; i<601; i += 200) {
-            Nelem_lst.PushBack(i);
-        }
+    } else if (test_mode == 0 || test_mode == 3) { // trefoil needs more panels
+        Nelem_lst.PushBack(200);
+        Nelem_lst.PushBack(400);
+        Nelem_lst.PushBack(800);
     } else {
         // for conv div channel
         Nelem_lst.PushBack(6);
@@ -1257,14 +1259,14 @@ int main(int argc, char** argv) {
         FourierOrder_lst.PushBack(32);
         FourierOrder_lst.PushBack(64);
     } else {
-        FourierOrder_lst.PushBack(16);
+        // FourierOrder_lst.PushBack(16);
         FourierOrder_lst.PushBack(32);
         FourierOrder_lst.PushBack(64);
-        FourierOrder_lst.PushBack(84); 
+        FourierOrder_lst.PushBack(96); 
     }
 
     sctl::Profile::Enable(true);
-    // trefoil_self_conv<Real>(600, 84, true, comm);
+    // trefoil_self_conv<Real>(200, 32, false, comm, 0);
     // particle_self_conv<Real>(1, 16, 1, true, comm, 1);
     // channel_self_conv<Real>(4, 16, false, comm);
     // trefoil_ptcl_self_conv<Real>(200, 64, true, comm, 0);

@@ -290,7 +290,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
     if (!comm.Rank()) {
         std::cout << "------------------- DONE WITH SOLVE ======================" << std::endl;
     }
-    { 
+    if (peri_mode ==1) { 
         PeriodicGeom<Real> trg;    
         CubeVolumeVisShifted<Real> vol_vis(20, 1.0, comm);
         // VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
@@ -334,22 +334,22 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
 
 
 int main(int argc, char** argv) {
-  sctl::Comm::MPI_Init(&argc, &argv);
-  using Real = double;
+    sctl::Comm::MPI_Init(&argc, &argv);
+    using Real = double;
 
-  {
-    sctl::Profile::Enable(true);
-    sctl::Comm comm = sctl::Comm::World();
-    long Nelem_ptcl = std::stol(argv[1]); // number of elements
-    long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
-    int peri_mode = std::stoi(argv[3]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
-    long Nptcl = std::stol(argv[4]); // number of particles inside
-    long geom_mode = std::stol(argv[5]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
-    long Ncopy = std::stol(argv[6]);
+    {
+        sctl::Profile::Enable(true);
+        sctl::Comm comm = sctl::Comm::World();
+        long Nelem_ptcl = std::stol(argv[1]); // number of elements
+        long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
+        int peri_mode = std::stoi(argv[3]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
+        long Nptcl = std::stol(argv[4]); // number of particles inside
+        long geom_mode = std::stol(argv[5]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
+        long Ncopy = std::stol(argv[6]);
 
-    test<Real>(Nelem_ptcl, FourierOrder, peri_mode, comm, Nptcl, geom_mode, Ncopy);
-  }
+        test<Real>(Nelem_ptcl, FourierOrder, peri_mode, comm, Nptcl, geom_mode, Ncopy);
+    }
 
-  sctl::Comm::MPI_Finalize();
-  return 0;
+    sctl::Comm::MPI_Finalize();
+    return 0;
 }
