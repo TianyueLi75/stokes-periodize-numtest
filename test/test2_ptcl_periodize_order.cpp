@@ -329,18 +329,19 @@ int main(int argc, char** argv) {
     long geom_mode = std::stol(argv[5]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
     long Ncopy = std::stol(argv[6]); // Number of copies on each side to add to sources 
     sctl::Vector<sctl::Long> level_lst;
-    // for (int i=1; i<=10; i++) { // all params
-    //     level_lst.PushBack(i);
-    // }
-    level_lst.PushBack(10); // just for params that timed out
-    level_lst.PushBack(15);
-    // level_lst.PushBack(20);
-    // level_lst.PushBack(30);
-    sctl::Vector<sctl::Long> m0_lst;
-    for (int i=16; i<20; i*=2) {
-        m0_lst.PushBack(i);
+    for (int i=1; i<=10; i++) { // all params
+        level_lst.PushBack(i);
     }
+    // level_lst.PushBack(10); // just for params that timed out
+    level_lst.PushBack(15);
+    level_lst.PushBack(20);
+    level_lst.PushBack(30);
+    sctl::Vector<sctl::Long> m0_lst;
+    // for (int i=4; i<20; i*=2) {
+    //     m0_lst.PushBack(i);
+    // }
     // m0_lst.PushBack(20); // looks like same error as m0=16
+    m0_lst.PushBack(12);
 
     test<Real>(Nelem_ptcl, FourierOrder, peri_mode, comm, Nptcl, geom_mode, Ncopy, level_lst, m0_lst);
   }

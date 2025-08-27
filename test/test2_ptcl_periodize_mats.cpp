@@ -2,9 +2,9 @@
 #include "utils.hpp"
 
 int main(int argc, char** argv) {
-    sctl::Comm::MPI_Init(&argc, &argv);
-    // using Real = double;
-    using Real = sctl::QuadReal;
+  sctl::Comm::MPI_Init(&argc, &argv);
+  // using Real = double;
+  using Real = sctl::QuadReal;
 
     {
       sctl::Comm comm = sctl::Comm::World();

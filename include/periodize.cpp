@@ -35,7 +35,9 @@ template <class Real> class PeriodizeOp {
       const KerM2M ker_m2m;
 
       sctl::Matrix<Real> Me2c, U,S,Vt, Mc2e0, Mc2e1;
+      std::cout << "UC2UE: Making kernel matrix. " << std::endl;
       ker_m2m.KernelMatrix<Real,true>(Me2c, Xc, Xe, sctl::Vector<Real>());
+      std::cout << "UC2UE: Performing svd. " << std::endl;
       sctl::Matrix<Real>(Me2c).SVD(U,S,Vt);
 
       Real max_val = 0;
@@ -54,7 +56,9 @@ template <class Real> class PeriodizeOp {
       const KerL2L ker_l2l;
 
       sctl::Matrix<Real> Me2c, U,S,Vt, Mc2e0, Mc2e1;
+      std::cout << "DC2DE: Making kernel matrix. " << std::endl;
       ker_l2l.KernelMatrix<Real,true>(Me2c, Xc, Xe, sctl::Vector<Real>());
+      std::cout << "DC2DE: Performing svd. " << std::endl;
       sctl::Matrix<Real>(Me2c).SVD(U,S,Vt);
 
       Real max_val = 0;
