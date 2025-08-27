@@ -733,34 +733,34 @@ template <class Real> void test_NpNf_grid(sctl::Long Nelem, sctl::Long FourierOr
 }
 
 int main(int argc, char** argv) {
-  sctl::Comm::MPI_Init(&argc, &argv);
-  using Real = double;
+    sctl::Comm::MPI_Init(&argc, &argv);
+    using Real = double;
+    // using Real = sctl::QuadReal;
 
-  {
-    // sctl::Profile::Enable(true);
-    sctl::Comm comm = sctl::Comm::World();
-    // long Nelem_ptcl = std::stol(argv[1]); // number of elements
-    // long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
-    // int write_ref = std::stol(argv[3]);
-    int peri_mode = std::stoi(argv[4]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
-    long Nptcl = std::stol(argv[5]); // number of particles inside
-    long geom_mode = std::stol(argv[6]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
-    long Ncopy = std::stol(argv[7]); // Number of copies on each side to add to sources 
-    // long precond_mode = std::stol(argv[8]); // Which preconditioner to test.
+    {
+        // sctl::Profile::Enable(true);
+        sctl::Comm comm = sctl::Comm::World();
+        // long Nelem_ptcl = std::stol(argv[1]); // number of elements
+        // long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
+        // int write_ref = std::stol(argv[3]);
+        int peri_mode = std::stoi(argv[4]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
+        long Nptcl = std::stol(argv[5]); // number of particles inside
+        long geom_mode = std::stol(argv[6]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
+        long Ncopy = std::stol(argv[7]); // Number of copies on each side to add to sources 
+        // long precond_mode = std::stol(argv[8]); // Which preconditioner to test.
 
-    // test<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, comm, Nptcl, geom_mode, Ncopy, precond_mode);
+        // test<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, comm, Nptcl, geom_mode, Ncopy, precond_mode);
 
-    // for (int i=2; i<=10; i+=2) {
-    for (int i=6; i<=6; i+=2) {
-        // Nelem_ptcl = i
-        // for (int j=4; j<=64; j+=4) {
-        for (int j=48; j<=64; j+= 4){
-            // FourierOrder = j
-            test_NpNf_grid<Real>(i, j, peri_mode, comm, Nptcl, geom_mode, Ncopy);
-        }
+        test_NpNf_grid<Real>(10, 64, peri_mode, comm, Nptcl, geom_mode, Ncopy);
+        // for (int i=2; i<=10; i+=2) {
+        //     // Nelem_ptcl = i
+        //     for (int j=4; j<=64; j+=4) {
+        //         // FourierOrder = j
+        //         test_NpNf_grid<Real>(i, j, peri_mode, comm, Nptcl, geom_mode, Ncopy);
+        //     }
+        // }
     }
-  }
 
-  sctl::Comm::MPI_Finalize();
-  return 0;
+    sctl::Comm::MPI_Finalize();
+    return 0;
 }
