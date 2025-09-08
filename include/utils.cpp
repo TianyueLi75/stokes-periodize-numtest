@@ -139,7 +139,7 @@ template <class Real> XsectionVis<Real>::XsectionVis(const sctl::SlenderElemList
   }
   for (sctl::Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
     const Real t_order_inv = 1/(Real)t_order;
-    const Real r_order_inv = (1-1e-3)/(Real)(r_order-1);
+    const Real r_order_inv = (1-1e-2)/(Real)(r_order-1); // make points further from surface to avoid stagnate points for mixing visualization.
     sctl::Vector<Real> X_, Xc(COORD_DIM);
     elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
     for (sctl::Long i = 0; i < s_order; i++) {
@@ -856,6 +856,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
     // std::cout << "create matrix" << std::endl;
     sctl::Matrix<Real> Xc_from_file(Nptcl,4);
     std::string data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_larger.txt";
+    // TODO: For grid, make file with Xc and r for uniform grid, and change name to _grid.txt.
     std::ifstream infile(data_filename);
     if (!infile) {
         std::cerr << "Error opening file " << data_filename << std::endl;

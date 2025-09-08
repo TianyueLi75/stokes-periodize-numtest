@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<VTKFile type="PUnstructuredGrid">
+  <PUnstructuredGrid GhostLevel="0">
+      <PPoints>
+        <PDataArray type="Float32" NumberOfComponents="3" Name="Position"/>
+      </PPoints>
+      <PPointData>
+        <PDataArray type="Float32" NumberOfComponents="3" Name="value"/>
+        <PDataArray type="Int32" NumberOfComponents="1" Name="mpi_rank"/>
+      </PPointData>
+      <Piece Source="XsectionVis_t15000000.vtu"/>
+      <Piece Source="XsectionVis_t15000001.vtu"/>
+      <Piece Source="XsectionVis_t15000002.vtu"/>
+      <Piece Source="XsectionVis_t15000003.vtu"/>
+      <Piece Source="XsectionVis_t15000004.vtu"/>
+      <Piece Source="XsectionVis_t15000005.vtu"/>
+  </PUnstructuredGrid>
+</VTKFile>

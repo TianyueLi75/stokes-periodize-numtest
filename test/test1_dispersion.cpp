@@ -185,7 +185,7 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
 
     sctl::Vector<Real> X0;
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
-    sctl::Vector<Real> X_proxy = Periodize1D<Real>::GetProxySurf(30,20); // proxy points coordinates
+    sctl::Vector<Real> X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
 
     // elem_lst0.WriteVTK("vis/ConvDiv_streakline_structure",X0,comm);
 
@@ -220,7 +220,7 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
         { // Add far-field
         sctl::Vector<Real> U_proxy, U_far;
         LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
-        Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy, 30, 20);
+        Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
         (*U) += U_far;
         } 
     };
@@ -471,7 +471,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
 
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
-    sctl::Vector<Real> X_proxy = Periodize1D<Real>::GetProxySurf(30,20); // proxy points coordinates
+    sctl::Vector<Real> X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
 
     elem_lst0.WriteVTK("vis/ConvDiv_streakline_structure",X0,comm);
 
@@ -625,7 +625,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
         { // Add far-field
         sctl::Vector<Real> U_proxy, U_far;
         LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
-        Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy, 30, 20);
+        Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
         (*U) += U_far;
         } 
     };
@@ -759,8 +759,8 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
         U0 = 0.;
         XsectVis.WriteVTK("vis/XsectionVis_t0",U0);
 
-        Real T = 50.;
-        sctl::Long Nt = 100;
+        Real T = 100.;
+        sctl::Long Nt = 200;
         Real dt = T / Nt;
 
         // time loop
@@ -788,7 +788,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
                 X0[i*3+2] = X0[i*3+2] + (filtered_inds[i]==0 ? 1 : 0) * dt * U[i*3+2];
             }
             XsectVis.SetCoord(X0);
-            if (tind % 50 == 0) {
+            if (tind % 100 == 0) {
                 XsectVis.WriteVTK("vis/XsectionVis_t"+std::to_string(tind),U);
             }
         }

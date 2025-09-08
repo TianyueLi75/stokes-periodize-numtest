@@ -168,7 +168,8 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
             LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
             if (peri_mode==1) {
                 // 1-periodic
-                Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy,30,20);
+                // Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy,30,20);
+                Periodize1D<Real>::EvalFarField(U_far,X0,U_proxy);
             } else if (peri_mode==3) {
                 // 3-periodic
                 Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);

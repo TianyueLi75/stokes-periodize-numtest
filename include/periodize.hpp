@@ -18,7 +18,9 @@ template <class Real> class Periodize1D {
    */
   static const sctl::Vector<Real>& GetProxySurf();
 
-  static sctl::Vector<Real> GetProxySurf(const sctl::Long level_in, const sctl::Long m0_in);
+  static sctl::Vector<Real> GetProxySurf(const sctl::Long m0_in);
+
+  static sctl::Vector<Real> GetProxySurf_QuadReal(const sctl::Long m0_in);
 
   /**
    * Return the far-field requires to periodize the flow.
@@ -32,6 +34,8 @@ template <class Real> class Periodize1D {
   static void EvalFarField(sctl::Vector<Real>& U_far, const sctl::Vector<Real>& Xt, const sctl::Vector<Real>& U_proxy);
 
   static void EvalFarField(sctl::Vector<Real>& U_far, const sctl::Vector<Real>& Xt, const sctl::Vector<Real>& U_proxy, const sctl::Long level_in, const sctl::Long m0_in);
+
+  static void EvalFarField_QuadReal(sctl::Vector<Real>& U_far, const sctl::Vector<Real>& Xt, const sctl::Vector<Real>& U_proxy, const sctl::Long level_in, const sctl::Long m0_in);
 
   private:
 
@@ -49,6 +53,9 @@ template <class Real> class Periodize1D {
 
   static sctl::Matrix<Real> GetMat_UC2DE0(const sctl::Long level_in, const sctl::Long m0_in);
   static sctl::Matrix<Real> GetMat_UC2DE1(const sctl::Long level_in, const sctl::Long m0_in);
+
+  static sctl::Matrix<Real> GetMat_UC2DE0_QuadReal(const sctl::Long level_in, const sctl::Long m0_in);
+  static sctl::Matrix<Real> GetMat_UC2DE1_QuadReal(const sctl::Long level_in, const sctl::Long m0_in);
 
 };
 
