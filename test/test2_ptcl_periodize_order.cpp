@@ -44,8 +44,9 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
 
-    const Real tol = 1e-14;
-    Real gmres_tol = 1e-12;
+    // const Real tol = 1e-15;
+    const Real tol = 1e-10; // TESTER
+    Real gmres_tol = 1e-14;
     const sctl::Long ElemOrder = 10;
     
     PeriodicGeom<Real> obj;
@@ -198,10 +199,20 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
             sctl::Long m0 = m0_lst[m_ind];
             // if (!comm.Rank()) {
             std::cout << "level = " << level << ", m0 = " << m0 << std::endl;
+
+            // Making periodize matrices
+            sctl::Vector<sctl::QuadReal> X_proxy_temp;
+            X_proxy_temp = Periodize1D<sctl::QuadReal>::GetProxySurf_QuadReal(m0);
+            sctl::Vector<sctl::QuadReal> X0_temp(3);
+            X0_temp = 0.5;
+            sctl::Vector<sctl::QuadReal> U_periodize;
+            sctl::Vector<sctl::QuadReal> U_proxy(X_proxy_temp.Dim());
+            Periodize1D<sctl::QuadReal>::EvalFarField_QuadReal(U_periodize, X0_temp, U_proxy, level, m0); // To build matrices, not for computation.
+
             // }
             sctl::Vector<Real> X_proxy;
             if (peri_mode == 1) {
-                X_proxy = Periodize1D<Real>::GetProxySurf(level,m0); // proxy points coordinates
+                X_proxy = Periodize1D<Real>::GetProxySurf_QuadReal(m0); // proxy points coordinates
             } else if (peri_mode == 3) {
                 X_proxy = Periodize3D<Real>::GetProxySurf(); // proxy points coordinates
             } else {
@@ -230,12 +241,15 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
                 if (DL_scal && U->Dim() == N) {
                     (*U) -= sigma*0.5*NormalOrient * DL_scal;
                 }
+                // std::cout << "U first entry: " << (*U)[0] << std::endl;
                 { // Add far-field
                     sctl::Vector<Real> U_proxy, U_far;
                     LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
                     if (peri_mode==1) {
                         // 1-periodic
-                        Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy, level, m0);
+                        // Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy, level, m0);
+                        Periodize1D<Real>::EvalFarField_QuadReal(U_far, X0, U_proxy, level, m0);
+                        // std::cout << "U_far first entry; " << U_far[0] << std::endl;
                     } else if (peri_mode==3) {
                         // 3-periodic
                         Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
@@ -261,18 +275,21 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
             } else if (level<=9)
                 gmres_tol = 1e-8;
             else {
-                gmres_tol = 1e-12;
+                // gmres_tol = 1e-15;
+                gmres_tol = 1e-10; // TESTER
             }
 
             sctl::Vector<Real> sigma;
-            if (l_ind==0 && m_ind==0) {
-                // std::cout << "Set up Krylov preconditioner" << std::endl;
-                sctl::Vector<Real> sigma_temp;
-                solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond); 
-            }
+            // if (l_ind==0 && m_ind==0) {
+            //     std::cout << "Set up Krylov preconditioner" << std::endl;
+            //     sctl::Vector<Real> sigma_temp;
+            //     solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond); 
+            // }
             solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+            std::cout << "end of solve." << std::endl;
 
             { // Evaluate in interior, and write visualization
+                std::cout << comm.Rank() << std::endl;
                 X0 = X0_trg;
                 LayerPotenOp0.ClearSetup();
                 LayerPotenOp0.SetTargetCoord(X0);
@@ -289,7 +306,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
                 for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
                 for (const auto e : field_on_trg) max_u = std::max<Real>(max_u, sctl::fabs(e));
                 
-                // std::cout<< "Rank " << comm.Rank() << " Max error = "<< std::setprecision(10) << max_err << ", max u = " << max_u << std::endl;
+                std::cout<< "Rank " << comm.Rank() << " Max error = "<< std::setprecision(10) << max_err << ", max u = " << max_u << std::endl;
 
                 sctl::Vector<Real> err_loc(1);
                 err_loc[0] = max_err;
@@ -317,35 +334,35 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
 
 
 int main(int argc, char** argv) {
-  sctl::Comm::MPI_Init(&argc, &argv);
-  using Real = double;
+    sctl::Comm::MPI_Init(&argc, &argv);
+    using Real = double;
 
-  {
-    sctl::Comm comm = sctl::Comm::World();
-    long Nelem_ptcl = std::stol(argv[1]); // number of elements
-    long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
-    int peri_mode = std::stoi(argv[3]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
-    long Nptcl = std::stol(argv[4]); // number of particles inside
-    long geom_mode = std::stol(argv[5]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
-    long Ncopy = std::stol(argv[6]); // Number of copies on each side to add to sources 
-    sctl::Vector<sctl::Long> level_lst;
-    for (int i=1; i<=10; i++) { // all params
-        level_lst.PushBack(i);
+    {
+        sctl::Comm comm = sctl::Comm::World();
+        long Nelem_ptcl = std::stol(argv[1]); // number of elements
+        long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
+        int peri_mode = std::stoi(argv[3]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
+        long Nptcl = std::stol(argv[4]); // number of particles inside
+        long geom_mode = std::stol(argv[5]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
+        long Ncopy = std::stol(argv[6]); // Number of copies on each side to add to sources 
+        sctl::Vector<sctl::Long> level_lst;
+        // for (int i=1; i<=10; i++) { // all params
+        //     level_lst.PushBack(i);
+        // }
+        level_lst.PushBack(2); // just for params that timed out
+        // level_lst.PushBack(15);
+        // level_lst.PushBack(20);
+        // level_lst.PushBack(30);
+        sctl::Vector<sctl::Long> m0_lst;
+        // for (int i=4; i<20; i*=2) {
+        //     m0_lst.PushBack(i);
+        // }
+        m0_lst.PushBack(20); // looks like same error as m0=16
+        // m0_lst.PushBack(12);
+
+        test<Real>(Nelem_ptcl, FourierOrder, peri_mode, comm, Nptcl, geom_mode, Ncopy, level_lst, m0_lst);
     }
-    // level_lst.PushBack(10); // just for params that timed out
-    level_lst.PushBack(15);
-    level_lst.PushBack(20);
-    level_lst.PushBack(30);
-    sctl::Vector<sctl::Long> m0_lst;
-    // for (int i=4; i<20; i*=2) {
-    //     m0_lst.PushBack(i);
-    // }
-    // m0_lst.PushBack(20); // looks like same error as m0=16
-    m0_lst.PushBack(12);
 
-    test<Real>(Nelem_ptcl, FourierOrder, peri_mode, comm, Nptcl, geom_mode, Ncopy, level_lst, m0_lst);
-  }
-
-  sctl::Comm::MPI_Finalize();
-  return 0;
+    sctl::Comm::MPI_Finalize();
+    return 0;
 }

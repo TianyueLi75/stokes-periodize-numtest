@@ -22,21 +22,19 @@ template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
 template <class Real> sctl::Vector<Real> bg_unif_flow(const sctl::Vector<Real>& X) {
     sctl::Vector<Real> U = X;
     const sctl::Long N = X.Dim() /3;
-    U = 0.;
-    for (sctl::Long i = 0; i < N; i++) {
-        U[i*3+0] = 1.;
-    }
+    U = 1.; // background flow diagonal to avoid planes of unaffected flows between periods.
+    // for (sctl::Long i = 0; i < N; i++) {
+    //     U[i*3+0] = 1.;
+    // }
     return U;
 }
 
-template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Integer peri_mode, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode) {
+template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Integer peri_mode, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode, const Real gmres_tol, const Real tol) {
 
     // Combine single-layer and double-layer kernels in these proportions
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
 
-    Real tol = 1e-14;
-    const Real gmres_tol = 1e-9; // tolerances set up to give 6 digts of accuracy.
     const sctl::Long ElemOrder = 10;
     
     PeriodicGeom<Real> obj;
@@ -70,7 +68,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 
     sctl::Vector<Real> X_proxy;
     if (peri_mode == 1) {
-        X_proxy = Periodize1D<Real>::GetProxySurf(30, 20); // proxy points coordinates
+        X_proxy = Periodize1D<Real>::GetProxySurf();
     } else if (peri_mode == 3) {
         X_proxy = Periodize3D<Real>::GetProxySurf(); // proxy points coordinates
     } else {
@@ -168,7 +166,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
             LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
             if (peri_mode==1) {
                 // 1-periodic
-                Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy, 30, 20);
+                Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
             } else if (peri_mode==3) {
                 // 3-periodic
                 Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
@@ -181,22 +179,6 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         } 
         // comm.Barrier();
     };
-
-    // // Apply A11inv to each panel of vec.
-    // const auto AinvApply = [&Usvd,&Sinv,&VT,&A11size, &comm](const sctl::Vector<Real>& vec) {
-    //     sctl::Long N = vec.Dim();
-    //     sctl::Long Nptcl = N / A11size; 
-    //     sctl::Vector<Real> AinvVec(N);
-    //     for (sctl::Long i=0; i<Nptcl; i++) {
-    //         // for each particle, apply A11inv.
-    //         sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-    //         sctl::Matrix<Real> AinvVecMat = VT.Transpose() * (Sinv * (Usvd.Transpose() * vecMat));
-    //         for (sctl::Long j=0; j<A11size; j++) {
-    //             AinvVec[i*A11size + j] = AinvVecMat(j,0);
-    //         }
-    //     }
-    //     return AinvVec;
-    // };
 
     // Apply A11inv to each panel of vec.
     const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size, &comm](const sctl::Vector<Real>& vec) {
@@ -231,7 +213,6 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
     sctl::Vector<Real> A11invF = AinvApply(-bg_unif_flow(X0));
-    // PRECOND with Krylov
     solver(&sigma_temp, BIO_precond, A11invF, 1e0);
     sctl::Profile::reset();
 
@@ -243,30 +224,17 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Profile::reset();
 
     sctl::Profile::Tic("Solve without KrylovPrecond");
-    // sctl::Profile::Tic("Solve debug high residual");
+    sctl::Profile::Tic("Solve debug high residual");
     solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false);
     sctl::Profile::Toc();
     sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
     sctl::Profile::reset();
     comm.Barrier();
 
-    // //DEBUG GMRES with no slip
-    // sctl::Vector<Real> residual;
-    // BIO_precond(&residual,sigma_temp);
-    // Real res_norm = 0.;
-    // Real b_norm = 0.;
-    // for (int i=0; i<residual.Dim(); i++) {
-    //     res_norm += (residual[i] - A11invF[i])*(residual[i] - A11invF[i]);
-    //     b_norm += A11invF[i]*A11invF[i];
-    // }
-    // b_norm = sctl::sqrt<Real>(b_norm);
-    // res_norm = sctl::sqrt<Real>(res_norm);
-    // std::cout <<"residual = " << res_norm << " from gmres. b_norm is " << b_norm << "; normalized residual by b_norm is " << res_norm / b_norm << std::endl;
-
     sctl::Vector<Real> sigma;
     sctl::Profile::Tic("Solver: KrylovPrecond_setup");
-    // PRECOND with Krylov
     solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    // solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false);
     sctl::Profile::Toc();
     sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
     sctl::Profile::reset();
@@ -286,7 +254,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 
     if (write_ref) { 
         PeriodicGeom<Real> trg;    
-        CubeVolumeVisShifted<Real> vol_vis(60, 1.0, comm);
+        CubeVolumeVisShifted<Real> vol_vis(100, 1.0, comm);
         // VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
         // X0 = vol_vis.GetCoord();
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
@@ -319,8 +287,6 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 
 int main(int argc, char** argv) {
 
-    // std::cout << "in main" << std::endl;
-
     sctl::Comm::MPI_Init(&argc, &argv);
     using Real = double;
 
@@ -333,9 +299,10 @@ int main(int argc, char** argv) {
         int peri_mode = std::stoi(argv[4]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
         long Nptcl = std::stol(argv[5]); // number of particles inside
         long geom_mode = std::stol(argv[6]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
-        // std::cout << "rank " << comm.Rank() << "before test." << std::endl;
+        double gmres_tol = std::stod(argv[7]);
+        double tol = std::stod(argv[8]);
 
-        test<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, comm, Nptcl, geom_mode);
+        test<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, comm, Nptcl, geom_mode, gmres_tol, tol);
     }
 
     sctl::Comm::MPI_Finalize();
