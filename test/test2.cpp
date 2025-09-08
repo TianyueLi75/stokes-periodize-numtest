@@ -209,7 +209,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     // solver(&sigma, BIO_precond, A11invF, gmres_tol);
 
     // first gmres to remove timing for matrix loading, and set Krylov preconditioner.
-    sctl::Vector<Real> sigma_temp;
+    // sctl::Vector<Real> sigma_temp;
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
     sctl::Vector<Real> A11invF = AinvApply(-bg_unif_flow(X0));
@@ -223,7 +223,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Profile::print(&comm);
     sctl::Profile::reset();
 
-    sctl::Profile::Tic("Solve without KrylovPrecond");
+    // sctl::Profile::Tic("Solve without KrylovPrecond");
     sctl::Profile::Tic("Solve debug high residual");
     solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false);
     sctl::Profile::Toc();

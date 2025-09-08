@@ -37,7 +37,7 @@ template <class Real> sctl::Vector<Real> u_ref(const sctl::Vector<Real>& X) {
   return U;
 }
 
-template <class Real> bool in_trefoil(Real a, Real b, Real c) {
+template <class Real> std::tuple<bool, Real, Real, Real> in_trefoil(Real a, Real b, Real c) {
     Real r_min = 0.01;
     Real r_max = 0.04;
 
@@ -68,7 +68,7 @@ template <class Real> bool in_trefoil(Real a, Real b, Real c) {
 
     Real min_dist2 = 10.;
     Real closest_x = 0.;
-    const int N = 8000; // resolution of the sampling
+    const int N = 4000; // resolution of the sampling
     for (int i = 0; i <= N; i++) {
         Real x = (Real)i / N; // TODO: account for distributed memory for x \in (a,b) instead of (0,1).
         // TODO: maybe look further if close to another panel, or just look +- 5 panels...
@@ -90,66 +90,12 @@ template <class Real> bool in_trefoil(Real a, Real b, Real c) {
     }
 
     Real r = get_r(closest_x);
-    return (min_dist2 <= r*r);
-}
-
-template <class Real> bool in_trefoil_print(Real a, Real b, Real c) {
-    Real r_min = 0.01;
-    Real r_max = 0.04;
-
-    if (a>1+1e-5 || a < -1e-5) { // shift x to within [0,1].
-        a = a - std::floor(a);
-    }
-
-    auto get_r = [&r_min,&r_max](const Real& x) {
-        Real angle = sctl::const_pi<Real>() * (16.*x - 28./3.); // =8*(t-pi/6), t = (x-0.5)*2pi
-        return r_min + (r_max - r_min) * (0.5 * sctl::sin<Real>(angle) + 0.5);
-    };
-
-    auto get_xyz = [](const Real& x) {
-        const Real xminus = x-0.5;
-        const Real x4pi = 4.*sctl::const_pi<Real>()*xminus;
-        const Real x8pi = 2.*x4pi;
-        const Real xminus2 = xminus * xminus;
-        const Real xminus5 = xminus2 * xminus2 * xminus;
-        Real xcoeff = xminus2 * 4. - 1.;
-        xcoeff = xcoeff / 5.;
-        Real x_ = 0.5 * xminus * sctl::cos<Real>(x4pi) + 8. * xminus5 + 0.5;
-        Real y_ = sctl::sin<Real>(x4pi) * xcoeff + 0.5;
-        Real z_ = sctl::sin<Real>(x8pi) * xcoeff + 0.5;
-        // std::cout << "inside getxyz, x = " << x_ << ", y = " << y_ << ", z = " << z_ << std::endl;
-
-        return std::make_tuple(x_,y_,z_);
-    };
-
-    Real min_dist2 = 10.;
-    Real closest_x = 0.;
-    const int N = 1000; // resolution of the sampling
-    for (int i = 0; i <= N; i++) {
-        Real x = (Real)i / N; // TODO: account for distributed memory for x \in (a,b) instead of (0,1).
-        // TODO: maybe look further if close to another panel, or just look +- 5 panels...
-        std::tuple<Real,Real,Real> xchere = get_xyz(x);
-        Real cx = std::get<0>(xchere);
-        Real cy = std::get<1>(xchere);
-        Real cz = std::get<2>(xchere);
-
-        Real dx = cx - a;
-        Real dy = cy - b;
-        Real dz = cz - c;
-
-        Real dist2 = dx*dx + dy*dy + dz*dz;
-
-        if (dist2 < min_dist2) {
-            min_dist2 = dist2;
-            closest_x = x;
-        }
-    }
-
-    Real r = get_r(closest_x);
-
-    std::cout << "closest x is " << closest_x << ", distance = " << min_dist2 << "; r here is " << r << std::endl;
-
-    return (min_dist2 <= r*r);
+    bool is_in_trefoil = (min_dist2 <= r*r);
+    std::tuple<Real,Real,Real> closest_xyz = get_xyz(closest_x);
+    Real xc = std::get<0>(closest_xyz);
+    Real yc = std::get<1>(closest_xyz);
+    Real zc = std::get<2>(closest_xyz);
+    return std::make_tuple(is_in_trefoil, xc, yc, zc);
 }
 
 template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Long FourierOrder, sctl::Comm comm) {
@@ -319,7 +265,7 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
    
     { 
         PeriodicGeom<Real> trg;
-        sctl::Long Nelem_trg=200;  // DEBUGGING
+        sctl::Long Nelem_trg=200;  
         const sctl::Long FourierOrder_trg = 8; // not used
         sctl::SlenderElemList<Real> elem_lst_trg;
         sctl::Vector<sctl::Long> ptcls_trg;
@@ -336,12 +282,15 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
         U0 += bg_flow(X0);
         XsectVis.WriteVTK("vis/XsectionVis_t0",U0);
 
-        Real T = 200.;
-        sctl::Long Nt = 20;
+        Real T = 50000.;
+        sctl::Long Nt = 500;
         Real dt = T / Nt; 
 
         // time loop
         for (sctl::Long tind = 1; tind <= Nt; tind++) {
+            if (!comm.Rank()) {
+                std::cout << "time step " << tind << std::endl;
+            }
             // Calculate velocity at current location
             sctl::Vector<Real> U;
             if (tind > 1) {
@@ -351,43 +300,59 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
             } else {
                 U = U0;
             }
-
-            // Real min_time_step = 1e-5;
             for (sctl::Long xind=0; xind<X0.Dim()/3; xind++) {
                 const Real current_x = X0[xind*3+0]+dt*U[xind*3+0];
                 const Real current_y = X0[xind*3+1]+dt*U[xind*3+1];
                 const Real current_z = X0[xind*3+2]+dt*U[xind*3+2];
-                // Real dt_here = dt;
-                // while (!in_trefoil(current_x, current_y, current_z) && dt_here >= min_time_step) { 
-                //     // if U moves current point out of trefoil, reduce time step until succeeds
-                //     // TODO: then need to iterate until this time catches up.
-                // }
-                // if (dt_here >= min_time_step) { 
-                // if (xind == 50) {
-                //     std::cout << "rank " << comm.Rank() << " 50th point starts at (" << X0[xind*3+0] << ", " << X0[xind*3+1] << ", " << X0[xind*3+2] << "); moves to (" << current_x << ", "<< current_y << ", " << current_z << ")." << std::endl; 
-                //     std::cout << "in trefoil? " << in_trefoil_print(current_x,current_y,current_z) << std::endl;
-                // }
-                if (in_trefoil(current_x, current_y, current_z)) {
-                    // if (xind > 30 && xind < 100) {
-                    //     Real diff = dt*dt * (U[xind*3+0]*U[xind*3+0] + U[xind*3+1]*U[xind*3+1] + U[xind*3+2]*U[xind*3+2]);
-                    //     std::cout << "square of distance moved: " << std::setprecision(8) << diff << std::endl;
-                    // }
+                auto [is_in_trefoil, xc, yc, zc] = in_trefoil(current_x,current_y,current_z);
+                if (is_in_trefoil) {
                     if (current_x > 1+1e-5 || current_x < -1e-5) { 
                         X0[xind*3+0] = current_x - std::floor(current_x);
                         X0[xind*3+1] = current_y;
                         X0[xind*3+2] = current_z;
-                        // std::cout << "Shifting x back from " << current_x << " to " << X0[xind*3+0] << std::endl;
                     } else {
                         X0[xind*3+0] = current_x;
                         X0[xind*3+1] = current_y;
                         X0[xind*3+2] = current_z;
-                        // std::cout << "New point okay." << std::endl;
                     }
-                } 
+                } else {
+                    // if new point would be out of trefoil, negate normal vector for repulsive force
+                    Real nx = xc - current_x;
+                    Real ny = yc - current_y;
+                    Real nz = zc - current_z;
+                    Real n2 = nx*nx + ny*ny + nz*nz;
+                    Real udotn = U[xind*3+0] * nx + U[xind*3+1] * ny + U[xind*3+2] * nz;
+                    udotn = udotn / n2; // normalized n_vec
+                    // u_n = udotn * <nx, ny, nz> normal direction velocity
+                    // buffer by negating u_n: u_new = u - 2*u_n -- most still end up outside trefoil.
+                    // buffer 2: negating u_n but also shrink by 1/10: u_new = u-1.1*u_n
+                    Real U_x = U[xind*3+0] - 1.1*udotn*nx;
+                    Real U_y = U[xind*3+1] - 1.1*udotn*ny;
+                    Real U_z = U[xind*3+2] - 1.1*udotn*nz;
+                    Real new_x = X0[xind*3+0]+dt*U_x;
+                    Real new_y = X0[xind*3+1]+dt*U_y;
+                    Real new_z = X0[xind*3+2]+dt*U_z;
+                    auto [is_in_trefoil2, xc2, yc2, zc2] = in_trefoil(new_x, new_y, new_z);
+                    if (!is_in_trefoil2) {
+                        // TODO: better handling / distinguishing in this case.
+                        // std::cout << " even after buffer, still ends up outside trefoil. reverting back to origional spot." << std::endl;
+                    } else {
+                        // std::cout << "buffer 2 worked successfully." << std::endl;
+                        if (new_x > 1+1e-5 || new_x < -1e-5) { 
+                            X0[xind*3+0] = new_x - std::floor(new_x);
+                            X0[xind*3+1] = new_y;
+                            X0[xind*3+2] = new_z;
+                        } else {
+                            X0[xind*3+0] = new_x;
+                            X0[xind*3+1] = new_y;
+                            X0[xind*3+2] = new_z;
+                        }
+                    }
+                }
                 
             }
             XsectVis.SetCoord(X0);
-            if (tind % 5 == 0) {
+            if (tind % 250 == 0) {
                 XsectVis.WriteVTK("vis/XsectionVis_t"+std::to_string(tind),U);
             }
         }
