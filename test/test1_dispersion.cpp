@@ -176,6 +176,7 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
     sigma.Read(sigma_file.c_str());
 
     if (!sigma.Dim()) {
+        std::cout << "rank " << comm.Rank() << "couldn't read density, making new." << std::endl;
         // ======================= PRECONDITIONING : CYLINDER ====================================================
         sctl::Vector<Real> Xc_precond, eps_precond; 
         sctl::Vector<sctl::Long> ElemOrderVec_precond(1), FourierOrderVec_precond(1);
@@ -281,7 +282,7 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
         XsectVis.WriteVTK("vis/XsectionVis_t0",U0);
 
         Real T = 100000.;
-        sctl::Long Nt = 1000;
+        sctl::Long Nt = 10000;
         Real dt = T / Nt; 
 
         // time loop
@@ -350,7 +351,7 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
                 
             }
             XsectVis.SetCoord(X0);
-            if (tind % 500 == 0) {
+            if (tind % 1000 == 0) {
                 XsectVis.WriteVTK("vis/XsectionVis_t"+std::to_string(tind),U);
             }
         }
