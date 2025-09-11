@@ -855,8 +855,8 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   if (nbr_range == 0) {
     // std::cout << "create matrix" << std::endl;
     sctl::Matrix<Real> Xc_from_file(Nptcl,4);
-    std::string data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_larger.txt";
-    // TODO: For grid, make file with Xc and r for uniform grid, and change name to _grid.txt.
+    // std::string data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_larger.txt";
+    std::string data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_grid.txt";
     std::ifstream infile(data_filename);
     if (!infile) {
         std::cerr << "Error opening file " << data_filename << std::endl;

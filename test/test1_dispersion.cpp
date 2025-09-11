@@ -103,8 +103,8 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
 
-    const Real tol = 1e-13;
-    const Real gmres_tol = 1e-7;
+    const Real tol = 1e-14;
+    const Real gmres_tol = 1e-9;
     const sctl::Long ElemOrder = 10;
 
     PeriodicGeom<Real> obj;
@@ -164,103 +164,101 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
         }
 
         { // Add far-field
-        sctl::Vector<Real> U_proxy, U_far;
-        LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
-        Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
-        (*U) += U_far;
+            sctl::Vector<Real> U_proxy, U_far;
+            LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
+            Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
+            (*U) += U_far;
         } 
     };
 
-    // std::string sigma_file = "out/trefoil_density_"+std::to_string(Nelem_channel)+"_"+std::to_string(FourierOrder)+".txt";
+    std::string sigma_file = "out/trefoil_density_"+std::to_string(Nelem_channel)+"_"+std::to_string(FourierOrder)+"_"+std::to_string(comm.Rank())+".txt";
     sctl::Vector<Real> sigma;
-    // sigma.Read(sigma_file.c_str());
+    sigma.Read(sigma_file.c_str());
 
-    // if (!sigma.Dim()) {
-    // ======================= PRECONDITIONING : CYLINDER ====================================================
-    sctl::Vector<Real> Xc_precond, eps_precond; 
-    sctl::Vector<sctl::Long> ElemOrderVec_precond(1), FourierOrderVec_precond(1);
-    ElemOrderVec_precond[0] = ElemOrder;
-    FourierOrderVec_precond[0] = FourierOrder;
-    // Determine approximate radius of channel based on channel_mode
-    Real channel_radius = 0.035;
+    if (!sigma.Dim()) {
+        // ======================= PRECONDITIONING : CYLINDER ====================================================
+        sctl::Vector<Real> Xc_precond, eps_precond; 
+        sctl::Vector<sctl::Long> ElemOrderVec_precond(1), FourierOrderVec_precond(1);
+        ElemOrderVec_precond[0] = ElemOrder;
+        FourierOrderVec_precond[0] = FourierOrder;
+        // Determine approximate radius of channel based on channel_mode
+        Real channel_radius = 0.035;
 
-    // ALTERNATIVE: smaller panel matching channel panel length and radius.
-    const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrder);
-    for (sctl::Long j = 0; j < ElemOrder; j++) { // loop over panel nodes
-        const Real x = (nodes[j]) / Nelem_channel; // size of precond panel should be same as one panel on pipe
-        Xc_precond.PushBack(x+0.5); //  shift panel to center of unit box, arbitrary.
-        Xc_precond.PushBack(0.5); 
-        Xc_precond.PushBack(0.5); 
-        eps_precond.PushBack(channel_radius); 
-    }
-    sctl::SlenderElemList<Real> elem_lst_precond(ElemOrderVec_precond, FourierOrderVec_precond, Xc_precond, eps_precond);
-
-    sctl::Vector<Real> X0_precond; // target coordinates
-    elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
-
-    StokesBIO Precond_bio(SL_scal, DL_scal, comm.Self());
-    Precond_bio.SetAccuracy(tol); // set quadrature accuracy
-    Precond_bio.AddElemList(elem_lst_precond);
-    Precond_bio.SetTargetCoord(X0_precond);
-
-    const auto BIO_1panel = [&DL_scal,&Precond_bio](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        U->SetZero();
-        Precond_bio.ComputePotential(*U, sigma);
-        (*U) -= sigma * 0.5 * DL_scal; // for preconditioner, will always be self-to-self so always add. For panels (on channel), normal orient = 1.
-    };
-
-    sctl::Long A11size = 3*ElemOrder*FourierOrder;
-    sctl::Vector<sctl::Vector<Real>> PrecondMat(A11size);
-    sctl::Vector<Real> SigmaCol_precond(A11size);
-    for (sctl::Long col=0; col < A11size; col ++) {
-        SigmaCol_precond = 0.;
-        SigmaCol_precond[col] = 1.;
-        BIO_1panel(PrecondMat.begin()+col,SigmaCol_precond);
-    }
-    sctl::Matrix<Real> A11(A11size,A11size);
-    for (sctl::Long col=0; col < A11size; col++) {
-        for (sctl::Long row = 0; row < A11size; row++) {
-            A11(row,col) = PrecondMat[col][row];
+        // ALTERNATIVE: smaller panel matching channel panel length and radius.
+        const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrder);
+        for (sctl::Long j = 0; j < ElemOrder; j++) { // loop over panel nodes
+            const Real x = (nodes[j]) / Nelem_channel; // size of precond panel should be same as one panel on pipe
+            Xc_precond.PushBack(x+0.5); //  shift panel to center of unit box, arbitrary.
+            Xc_precond.PushBack(0.5); 
+            Xc_precond.PushBack(0.5); 
+            eps_precond.PushBack(channel_radius); 
         }
-    }
+        sctl::SlenderElemList<Real> elem_lst_precond(ElemOrderVec_precond, FourierOrderVec_precond, Xc_precond, eps_precond);
 
-    sctl::Matrix<Real> Usvd, VT, S, SforInv;
-    sctl::Matrix<Real> A11forSVD = sctl::Matrix<Real>(A11);
-    A11forSVD.SVD(Usvd, S, VT);
-    SforInv = sctl::Matrix<Real>(S);
-    sctl::Matrix<Real> Sinv = SforInv.pinv(1e-16);
+        sctl::Vector<Real> X0_precond; // target coordinates
+        elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
 
-    // Apply A11inv to each panel of a vector.
-    const auto AinvApply = [&Usvd,&Sinv,&VT,&A11size](const sctl::Vector<Real>& vec) {
-        sctl::Vector<Real> AinvVec(vec.Dim());
-        sctl::Long N = vec.Dim();
-        sctl::Long Npanels = N / A11size; 
-        for (sctl::Long i=0; i<Npanels; i++) {
-            sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-            sctl::Matrix<Real> AinvVecMat = VT.Transpose() * (Sinv * (Usvd.Transpose() * vecMat));
-            for (sctl::Long j=0; j<A11size; j++) {
-                AinvVec[i*A11size + j] = AinvVecMat(j,0);
+        StokesBIO Precond_bio(SL_scal, DL_scal, comm.Self());
+        Precond_bio.SetAccuracy(tol); // set quadrature accuracy
+        Precond_bio.AddElemList(elem_lst_precond);
+        Precond_bio.SetTargetCoord(X0_precond);
+
+        const auto BIO_1panel = [&DL_scal,&Precond_bio](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+            U->SetZero();
+            Precond_bio.ComputePotential(*U, sigma);
+            (*U) -= sigma * 0.5 * DL_scal; // for preconditioner, will always be self-to-self so always add. For panels (on channel), normal orient = 1.
+        };
+
+        sctl::Long A11size = 3*ElemOrder*FourierOrder;
+        sctl::Vector<sctl::Vector<Real>> PrecondMat(A11size);
+        sctl::Vector<Real> SigmaCol_precond(A11size);
+        for (sctl::Long col=0; col < A11size; col ++) {
+            SigmaCol_precond = 0.;
+            SigmaCol_precond[col] = 1.;
+            BIO_1panel(PrecondMat.begin()+col,SigmaCol_precond);
+        }
+        sctl::Matrix<Real> A11(A11size,A11size);
+        for (sctl::Long col=0; col < A11size; col++) {
+            for (sctl::Long row = 0; row < A11size; row++) {
+                A11(row,col) = PrecondMat[col][row];
             }
         }
-        return AinvVec;
-    };
 
-    const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        sctl::Vector<Real> Uloc;
-        BIO(&Uloc,sigma);
-        // LEFT PRECONDITIONER: u -> A11inv*u
-        (*U) = AinvApply(Uloc);
-    };
+        sctl::Matrix<Real> Usvd, VT, S, SforInv;
+        sctl::Matrix<Real> A11forSVD = sctl::Matrix<Real>(A11);
+        A11forSVD.SVD(Usvd, S, VT);
+        SforInv = sctl::Matrix<Real>(S);
+        sctl::Matrix<Real> Sinv = SforInv.pinv(1e-16);
 
-    sctl::GMRES<Real> solver(comm);
-    sctl::Vector<Real> A11invF = AinvApply(-bg_flow(X0));
-    solver(&sigma, BIO_precond, A11invF, gmres_tol);
+        // Apply A11inv to each panel of a vector.
+        const auto AinvApply = [&Usvd,&Sinv,&VT,&A11size](const sctl::Vector<Real>& vec) {
+            sctl::Vector<Real> AinvVec(vec.Dim());
+            sctl::Long N = vec.Dim();
+            sctl::Long Npanels = N / A11size; 
+            for (sctl::Long i=0; i<Npanels; i++) {
+                sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
+                sctl::Matrix<Real> AinvVecMat = VT.Transpose() * (Sinv * (Usvd.Transpose() * vecMat));
+                for (sctl::Long j=0; j<A11size; j++) {
+                    AinvVec[i*A11size + j] = AinvVecMat(j,0);
+                }
+            }
+            return AinvVec;
+        };
 
-    //     if (!comm.Rank()) {
-    //         sigma.Write(sigma_file.c_str());
-    //     }
-        
-    // }
+        const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+            sctl::Vector<Real> Uloc;
+            BIO(&Uloc,sigma);
+            // LEFT PRECONDITIONER: u -> A11inv*u
+            (*U) = AinvApply(Uloc);
+        };
+
+        sctl::GMRES<Real> solver(comm);
+        sctl::Vector<Real> A11invF = AinvApply(-bg_flow(X0));
+        solver(&sigma, BIO_precond, A11invF, gmres_tol);
+
+        std::cout << "rank " << comm.Rank() << "done with solve, writing sigma to file named " << sigma_file << std::endl;
+        sigma.Write(sigma_file.c_str());
+    } 
 
    
     { 
@@ -282,8 +280,8 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
         U0 += bg_flow(X0);
         XsectVis.WriteVTK("vis/XsectionVis_t0",U0);
 
-        Real T = 50000.;
-        sctl::Long Nt = 500;
+        Real T = 100000.;
+        sctl::Long Nt = 1000;
         Real dt = T / Nt; 
 
         // time loop
@@ -325,10 +323,10 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
                     udotn = udotn / n2; // normalized n_vec
                     // u_n = udotn * <nx, ny, nz> normal direction velocity
                     // buffer by negating u_n: u_new = u - 2*u_n -- most still end up outside trefoil.
-                    // buffer 2: negating u_n but also shrink by 1/10: u_new = u-1.1*u_n
-                    Real U_x = U[xind*3+0] - 1.1*udotn*nx;
-                    Real U_y = U[xind*3+1] - 1.1*udotn*ny;
-                    Real U_z = U[xind*3+2] - 1.1*udotn*nz;
+                    // buffer 2: negating u_n but also shrink by 1/100: u_new = u-1.01*u_n
+                    Real U_x = U[xind*3+0] - 1.01*udotn*nx;
+                    Real U_y = U[xind*3+1] - 1.01*udotn*ny;
+                    Real U_z = U[xind*3+2] - 1.01*udotn*nz;
                     Real new_x = X0[xind*3+0]+dt*U_x;
                     Real new_y = X0[xind*3+1]+dt*U_y;
                     Real new_z = X0[xind*3+2]+dt*U_z;
@@ -352,7 +350,7 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
                 
             }
             XsectVis.SetCoord(X0);
-            if (tind % 250 == 0) {
+            if (tind % 500 == 0) {
                 XsectVis.WriteVTK("vis/XsectionVis_t"+std::to_string(tind),U);
             }
         }
@@ -730,6 +728,9 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
 
         // time loop
         for (sctl::Long tind = 1; tind <= Nt; tind++) {
+            if (!comm.Rank()) {
+                std::cout << tind << std::endl;
+            }
             // Calculate velocity at current location
             LayerPotenOp0.SetTargetCoord(X0);
             sctl::Vector<Real> U;
