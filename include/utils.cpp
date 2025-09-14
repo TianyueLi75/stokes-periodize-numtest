@@ -854,9 +854,13 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   sctl::Long Nelem_ptcl_tot = 0;
   if (nbr_range == 0) {
     // std::cout << "create matrix" << std::endl;
+    std::string data_filename;
     sctl::Matrix<Real> Xc_from_file(Nptcl,4);
-    // std::string data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_larger.txt";
-    std::string data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_grid.txt";
+    if (Nptcl==25 || Nptcl==50 ||Nptcl==100|| Nptcl==200 ||Nptcl==400 ||Nptcl==800||Nptcl==1600||Nptcl==2000) {
+      data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_larger.txt";
+    } else {
+      data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_grid.txt";
+    }
     std::ifstream infile(data_filename);
     if (!infile) {
         std::cerr << "Error opening file " << data_filename << std::endl;

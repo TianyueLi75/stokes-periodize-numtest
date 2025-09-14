@@ -218,20 +218,21 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Profile::reset();
 
     LayerPotenOp0.ClearSetup();
+    LayerPotenOp_proxy.ClearSetup();
     sctl::Profile::Tic("Setup");
     LayerPotenOp0.Setup();
+    LayerPotenOp_proxy.Setup();
     sctl::Profile::Toc();
     sctl::Profile::print(&comm);
     sctl::Profile::reset();
 
     // sctl::Profile::Tic("Solve without KrylovPrecond");
-    sctl::Profile::Tic("Solve debug high residual");
-    // solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false);
-    solver(&sigma_temp,BIO,-bg_unif_flow(X0), gmres_tol, -1, false);
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    sctl::Profile::reset();
-    comm.Barrier();
+    // // solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false);
+    // solver(&sigma_temp,BIO,-bg_unif_flow(X0), gmres_tol, -1, false);
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    // sctl::Profile::reset();
+    // comm.Barrier();
 
     sctl::Vector<Real> sigma;
     sctl::Profile::Tic("Solver: KrylovPrecond_setup");
@@ -266,7 +267,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         X0 = std::get<0>(trg_tuple);
         filtered_inds = std::get<1>(trg_tuple);
-        // std::cout << "number of target points: " << X0.Dim() << std::endl;
+        std::cout << "number of target points: " << X0.Dim() << std::endl;
 
         LayerPotenOp0.SetTargetCoord(X0);
         sctl::Vector<Real> U;
