@@ -22,10 +22,10 @@ template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
 template <class Real> sctl::Vector<Real> bg_unif_flow(const sctl::Vector<Real>& X) {
     sctl::Vector<Real> U = X;
     const sctl::Long N = X.Dim() /3;
-    U = 1.; // background flow diagonal to avoid planes of unaffected flows between periods.
-    // for (sctl::Long i = 0; i < N; i++) {
-    //     U[i*3+0] = 1.;
-    // }
+    // U = 1.; // background flow diagonal to avoid planes of unaffected flows between periods.
+    for (sctl::Long i = 0; i < N; i++) {
+        U[i*3+0] = 1.; // background flow in only x direction for timing runs.
+    }
     return U;
 }
 
@@ -96,10 +96,12 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 
     // comm.Barrier();
     // if (PrecondMat0.Dim(0) || PrecondMat0.Dim(1)) {
-    //     // std::cout << " successfully read file." << std::endl;
+    //     // std::cout << " successfully read file. size of precond Mat is " <<  PrecondMat0.Dim(0) << ", " << PrecondMat0.Dim(1)<< std::endl;
     //     PrecondMat1.template Read<Real>(precond1_file.c_str());
     //     A11size = PrecondMat0.Dim(1);
+    //     // std::cout << "Number of panels on process " << comm.Rank() << " is " << elem_lst0.Size() << ", size of LayerPotenOp is " << LayerPotenOp0.Dim(0) << ", size of precond mat is " << A11size << ", divide to get " << (LayerPotenOp0.Dim(0)*1.0) / (1.0*A11size) << std::endl;
     // } else {
+    // // {
     //     sctl::Vector<sctl::Long> ptcls_pre;
     //     sctl::Vector<Real> ptcls_Xcs_pre, ptcls_rs_pre;
     //     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, geom_mode);
@@ -142,6 +144,8 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     //         PrecondMat1.template Write<Real>(precond1_file.c_str());
     //     }
     // }
+
+    
 
     // periodized layer potential operator
     const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&peri_mode, &comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
@@ -213,22 +217,34 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
     // sctl::Vector<Real> A11invF = AinvApply(-bg_unif_flow(X0));
-    // solver(&sigma_temp, BIO_precond, A11invF, 1e0);
+
+     sctl::Profile::Tic("Solve without KrylovPrecond");
+    // solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false);
     solver(&sigma_temp, BIO, -bg_unif_flow(X0), 1e0);
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    sctl::Profile::reset();
+    comm.Barrier();
     sctl::Profile::reset();
 
     LayerPotenOp0.ClearSetup();
-    LayerPotenOp_proxy.ClearSetup();
-    sctl::Profile::Tic("Setup");
+    sctl::Profile::Tic("Setup SurfOP");
     LayerPotenOp0.Setup();
-    LayerPotenOp_proxy.Setup();
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm);
+    sctl::Profile::reset();
+
+    // Weak scaling data did not include this.
+    sctl::Profile::Tic("Setup ProxyOP");
+    LayerPotenOp_proxy.ClearSetup();
+    LayerPotenOp_proxy.Setup(); 
     sctl::Profile::Toc();
     sctl::Profile::print(&comm);
     sctl::Profile::reset();
 
     // sctl::Profile::Tic("Solve without KrylovPrecond");
-    // // solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false);
-    // solver(&sigma_temp,BIO,-bg_unif_flow(X0), gmres_tol, -1, false);
+    // solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false);
+    // // solver(&sigma_temp,BIO,-bg_unif_flow(X0), gmres_tol, -1, false);
     // sctl::Profile::Toc();
     // sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
     // sctl::Profile::reset();
