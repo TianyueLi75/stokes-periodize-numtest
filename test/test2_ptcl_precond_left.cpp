@@ -76,7 +76,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
     sctl::Vector<Real> X_proxy;
     if (peri_mode == 1) {
-        X_proxy = Periodize1D<Real>::GetProxySurf(30,20); // proxy points coordinates
+        X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
     } else if (peri_mode == 3) {
         X_proxy = Periodize3D<Real>::GetProxySurf(); // proxy points coordinates
     } else {
@@ -180,7 +180,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
             LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
             if (peri_mode==1) {
                 // 1-periodic
-                Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy,30,20);
+                Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
             } else if (peri_mode==3) {
                 // 3-periodic
                 Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
@@ -284,46 +284,6 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     } else {
         // A11inv and K
         solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    }
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    sctl::Profile::reset();
-    comm.Barrier();
-
-    sctl::Vector<Real> sigma2;
-    sctl::Profile::Tic("Solver2");
-    if (precond_mode == 0) {
-        // no precond
-        solver(&sigma2, BIO, field_on_surf, gmres_tol); 
-    } else if (precond_mode == 1) {
-        // K no A11inv
-        solver(&sigma2, BIO, field_on_surf, gmres_tol, -1, false, nullptr, &krylov_precond);
-    } else if (precond_mode == 2) {
-        // A11inv no K
-        solver(&sigma2, BIO_precond, A11invF, gmres_tol);
-    } else {
-        // A11inv and K
-        solver(&sigma2, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    }
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    sctl::Profile::reset();
-    comm.Barrier();
-
-    sctl::Vector<Real> sigma3;
-    sctl::Profile::Tic("Solver3");
-    if (precond_mode == 0) {
-        // no precond
-        solver(&sigma3, BIO, field_on_surf, gmres_tol); 
-    } else if (precond_mode == 1) {
-        // K no A11inv
-        solver(&sigma3, BIO, field_on_surf, gmres_tol, -1, false, nullptr, &krylov_precond);
-    } else if (precond_mode == 2) {
-        // A11inv no K
-        solver(&sigma3, BIO_precond, A11invF, gmres_tol);
-    } else {
-        // A11inv and K
-        solver(&sigma3, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
     }
     sctl::Profile::Toc();
     sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
@@ -740,18 +700,18 @@ int main(int argc, char** argv) {
     {
         // sctl::Profile::Enable(true);
         sctl::Comm comm = sctl::Comm::World();
-        // long Nelem_ptcl = std::stol(argv[1]); // number of elements
-        // long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
-        // int write_ref = std::stol(argv[3]);
+        long Nelem_ptcl = std::stol(argv[1]); // number of elements
+        long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
+        int write_ref = std::stol(argv[3]);
         int peri_mode = std::stoi(argv[4]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
         long Nptcl = std::stol(argv[5]); // number of particles inside
         long geom_mode = std::stol(argv[6]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
         long Ncopy = std::stol(argv[7]); // Number of copies on each side to add to sources 
-        // long precond_mode = std::stol(argv[8]); // Which preconditioner to test.
+        long precond_mode = std::stol(argv[8]); // Which preconditioner to test.
 
-        // test<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, comm, Nptcl, geom_mode, Ncopy, precond_mode);
+        test<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, comm, Nptcl, geom_mode, Ncopy, precond_mode);
 
-        test_NpNf_grid<Real>(10, 64, peri_mode, comm, Nptcl, geom_mode, Ncopy);
+        // test_NpNf_grid<Real>(10, 64, peri_mode, comm, Nptcl, geom_mode, Ncopy);
         // for (int i=2; i<=10; i+=2) {
         //     // Nelem_ptcl = i
         //     for (int j=4; j<=64; j+=4) {

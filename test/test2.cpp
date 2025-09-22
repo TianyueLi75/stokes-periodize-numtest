@@ -29,6 +29,45 @@ template <class Real> sctl::Vector<Real> bg_unif_flow(const sctl::Vector<Real>& 
     return U;
 }
 
+template <class Real> void plot_setup(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Integer peri_mode, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode, const Real gmres_tol, const Real tol) {
+
+    // Combine single-layer and double-layer kernels in these proportions
+    const Real SL_scal = 1.0;
+    const Real DL_scal = 1.0;
+
+    const sctl::Long ElemOrder = 10;
+    
+    PeriodicGeom<Real> obj;
+    sctl::Vector<sctl::Long> ptcls;
+    sctl::Vector<Real> ptcls_Xcs;
+    sctl::Vector<Real> ptcls_rs;
+    sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
+    sctl::Vector<Real> NormalOrient;
+    if (Nptcl == 1) {
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst0 = std::get<0>(build0);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 1, peri_mode, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst_nbr = std::get<0>(build_nbr);
+        NormalOrient = std::get<1>(build_nbr);
+    } else { 
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 0, 1, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst0 = std::get<0>(build0);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 1, peri_mode, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst_nbr = std::get<0>(build_nbr);
+        NormalOrient = std::get<1>(build_nbr);
+    }
+    const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); 
+    Nptcl = ptcls_rs.Dim(); 
+    // std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
+
+    sctl::Vector<Real> X0; // target coordinates
+    elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
+    if (write_ref) {
+        elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres",X0,comm);
+    }  
+}
+
+
 template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Integer peri_mode, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode, const Real gmres_tol, const Real tol) {
 
     // Combine single-layer and double-layer kernels in these proportions
@@ -85,72 +124,69 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     LayerPotenOp_proxy.SetTargetCoord(X_proxy);
     LayerPotenOp_proxy.SetAccuracy(tol);
 
-    // // =============== PRECONDITIONING =======================================
-    // // Store preconditioner matrix, or make new if not present.
-    // std::string precond0_file = "data/precond0_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
-    // std::string precond1_file = "data/precond1_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
-    // sctl::Matrix<Real> PrecondMat0, PrecondMat1;
-    // PrecondMat0.template Read<Real>(precond0_file.c_str());
+    // =============== PRECONDITIONING =======================================
+    // Store preconditioner matrix, or make new if not present.
+    std::string precond0_file = "data/precond0_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
+    std::string precond1_file = "data/precond1_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
+    sctl::Matrix<Real> PrecondMat0, PrecondMat1;
+    PrecondMat0.template Read<Real>(precond0_file.c_str());
 
-    // sctl::Long A11size;
+    sctl::Long A11size;
 
-    // comm.Barrier();
-    // if (PrecondMat0.Dim(0) || PrecondMat0.Dim(1)) {
-    //     // std::cout << " successfully read file. size of precond Mat is " <<  PrecondMat0.Dim(0) << ", " << PrecondMat0.Dim(1)<< std::endl;
-    //     PrecondMat1.template Read<Real>(precond1_file.c_str());
-    //     A11size = PrecondMat0.Dim(1);
-    //     // std::cout << "Number of panels on process " << comm.Rank() << " is " << elem_lst0.Size() << ", size of LayerPotenOp is " << LayerPotenOp0.Dim(0) << ", size of precond mat is " << A11size << ", divide to get " << (LayerPotenOp0.Dim(0)*1.0) / (1.0*A11size) << std::endl;
-    // } else {
-    // // {
-    //     sctl::Vector<sctl::Long> ptcls_pre;
-    //     sctl::Vector<Real> ptcls_Xcs_pre, ptcls_rs_pre;
-    //     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, geom_mode);
-    //     sctl::SlenderElemList<Real> elem_lst_precond = std::get<0>(build_precond);
-    //     sctl::Vector<Real> X0_precond; // target coordinates
-    //     elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
-    //     StokesBIO Precond_bio(SL_scal, DL_scal, comm.Self());
-    //     Precond_bio.SetAccuracy(tol); // set quadrature accuracy
-    //     Precond_bio.AddElemList(elem_lst_precond);
-    //     Precond_bio.SetTargetCoord(X0_precond);
-    //     const auto BIO_1ptcl = [&DL_scal,&Precond_bio](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //         U->SetZero();
-    //         Precond_bio.ComputePotential(*U, sigma);
-    //         (*U) += sigma * 0.5 * DL_scal;
-    //     };
-    //     A11size = 3*ElemOrder*FourierOrder*Nelem;
-    //     sctl::Vector<sctl::Vector<Real>> PrecondMat(A11size);
-    //     sctl::Vector<Real> SigmaCol_precond(A11size);
-    //     for (sctl::Long col=0; col < A11size; col ++) {
-    //         SigmaCol_precond = 0.;
-    //         SigmaCol_precond[col] = 1.;
-    //         BIO_1ptcl(PrecondMat.begin() + col,SigmaCol_precond);
-    //     }
-    //     sctl::Matrix<Real> A11(A11size,A11size);
-    //     for (long col=0; col < A11size; col++) {
-    //         for (long row = 0; row < A11size; row++) {
-    //             A11(row,col) = PrecondMat[col][row];
-    //         }
-    //     }      
-    //     sctl::Matrix<Real> Usvd, VT, S, SforInv;
-    //     sctl::Matrix<Real> A11forSVD = sctl::Matrix<Real>(A11);
-    //     A11forSVD.SVD(Usvd, S, VT);
-    //     SforInv = sctl::Matrix<Real>(S);
-    //     sctl::Matrix<Real> Sinv = SforInv.pinv(1e-16);
+    comm.Barrier();
+    if (PrecondMat0.Dim(0) || PrecondMat0.Dim(1)) {
+        std::cout << " successfully read file." << std::endl;
+        PrecondMat1.template Read<Real>(precond1_file.c_str());
+        A11size = PrecondMat0.Dim(1);
+    } else {
+        std::cout << "making precond matrices" << std::endl;
+        sctl::Vector<sctl::Long> ptcls_pre;
+        sctl::Vector<Real> ptcls_Xcs_pre, ptcls_rs_pre;
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, geom_mode);
+        sctl::SlenderElemList<Real> elem_lst_precond = std::get<0>(build_precond);
+        sctl::Vector<Real> X0_precond; // target coordinates
+        elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
+        StokesBIO Precond_bio(SL_scal, DL_scal, comm.Self());
+        Precond_bio.SetAccuracy(tol); // set quadrature accuracy
+        Precond_bio.AddElemList(elem_lst_precond);
+        Precond_bio.SetTargetCoord(X0_precond);
+        const auto BIO_1ptcl = [&DL_scal,&Precond_bio](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+            U->SetZero();
+            Precond_bio.ComputePotential(*U, sigma);
+            (*U) += sigma * 0.5 * DL_scal;
+        };
+        A11size = 3*ElemOrder*FourierOrder*Nelem;
+        sctl::Vector<sctl::Vector<Real>> PrecondMat(A11size);
+        sctl::Vector<Real> SigmaCol_precond(A11size);
+        for (sctl::Long col=0; col < A11size; col ++) {
+            SigmaCol_precond = 0.;
+            SigmaCol_precond[col] = 1.;
+            BIO_1ptcl(PrecondMat.begin() + col,SigmaCol_precond);
+        }
+        sctl::Matrix<Real> A11(A11size,A11size);
+        for (long col=0; col < A11size; col++) {
+            for (long row = 0; row < A11size; row++) {
+                A11(row,col) = PrecondMat[col][row];
+            }
+        }      
+        sctl::Matrix<Real> Usvd, VT, S, SforInv;
+        sctl::Matrix<Real> A11forSVD = sctl::Matrix<Real>(A11);
+        A11forSVD.SVD(Usvd, S, VT);
+        SforInv = sctl::Matrix<Real>(S);
+        sctl::Matrix<Real> Sinv = SforInv.pinv(1e-16);
 
-    //     PrecondMat0 = VT.Transpose();
-    //     PrecondMat1 = Sinv * Usvd.Transpose();
-    //     if (!comm.Rank()) {
-    //         PrecondMat0.template Write<Real>(precond0_file.c_str());
-    //         PrecondMat1.template Write<Real>(precond1_file.c_str());
-    //     }
-    // }
-
-    
+        PrecondMat0 = VT.Transpose();
+        PrecondMat1 = Sinv * Usvd.Transpose();
+        if (!comm.Rank()) {
+            PrecondMat0.template Write<Real>(precond0_file.c_str());
+            PrecondMat1.template Write<Real>(precond1_file.c_str());
+        }
+    }
 
     // periodized layer potential operator
     const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&peri_mode, &comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         const sctl::Long N = sigma.Dim();
-        // std::cout << "in BIO, dim of sigma is " << N << std::endl;
+        // std::cout << "in BIO, dim of sigma is " << N << ", size of targ is " << LayerPotenOp0.Dim(1) << ". Check other dimension: " << LayerPotenOp0.Dim(0) << std::endl;
 
         sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
         for (sctl::Long k = 0; k < Nrepeat; k++) {
@@ -184,28 +220,28 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         // comm.Barrier();
     };
 
-    // // Apply A11inv to each panel of vec.
-    // const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size, &comm](const sctl::Vector<Real>& vec) {
-    //     sctl::Long N = vec.Dim();
-    //     sctl::Long Nptcl = N / A11size; 
-    //     sctl::Vector<Real> AinvVec(N);
-    //     for (sctl::Long i=0; i<Nptcl; i++) {
-    //         // for each particle, apply A11inv.
-    //         sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-    //         sctl::Matrix<Real> AinvVecMat = PrecondMat1 * (PrecondMat0 * vecMat);
-    //         for (sctl::Long j=0; j<A11size; j++) {
-    //             AinvVec[i*A11size + j] = AinvVecMat(j,0);
-    //         }
-    //     }
-    //     return AinvVec;
-    // };
+    // Apply A11inv to each panel of vec.
+    const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size, &comm](const sctl::Vector<Real>& vec) {
+        sctl::Long N = vec.Dim();
+        sctl::Long Nptcl = N / A11size; 
+        sctl::Vector<Real> AinvVec(N);
+        for (sctl::Long i=0; i<Nptcl; i++) {
+            // for each particle, apply A11inv.
+            sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
+            sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
+            for (sctl::Long j=0; j<A11size; j++) {
+                AinvVec[i*A11size + j] = AinvVecMat(j,0);
+            }
+        }
+        return AinvVec;
+    };
 
-    // const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //     sctl::Vector<Real> Uloc;
-    //     BIO(&Uloc,sigma);
-    //     // LEFT PRECONDITIONER: u -> A11inv*u
-    //     (*U) = AinvApply(Uloc);
-    // };
+    const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        sctl::Vector<Real> Uloc;
+        BIO(&Uloc,sigma);
+        // LEFT PRECONDITIONER: u -> A11inv*u
+        (*U) = AinvApply(Uloc);
+    };
 
     // sctl::Vector<Real> A11invF = AinvApply( -bg_unif_flow(X0));
     // sctl::GMRES<Real> solver(comm);
@@ -216,15 +252,9 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Vector<Real> sigma_temp;
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
-    // sctl::Vector<Real> A11invF = AinvApply(-bg_unif_flow(X0));
-
-     sctl::Profile::Tic("Solve without KrylovPrecond");
-    // solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false);
-    solver(&sigma_temp, BIO, -bg_unif_flow(X0), 1e0);
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    sctl::Profile::reset();
-    comm.Barrier();
+    sctl::Vector<Real> A11invF = AinvApply(-bg_unif_flow(X0));
+    solver(&sigma_temp, BIO_precond, A11invF, 1e0);
+    // solver(&sigma_temp, BIO, -bg_flow(X0), 1e0);
     sctl::Profile::reset();
 
     LayerPotenOp0.ClearSetup();
@@ -242,18 +272,17 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Profile::print(&comm);
     sctl::Profile::reset();
 
-    // sctl::Profile::Tic("Solve without KrylovPrecond");
-    // solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false);
-    // // solver(&sigma_temp,BIO,-bg_unif_flow(X0), gmres_tol, -1, false);
-    // sctl::Profile::Toc();
-    // sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    // sctl::Profile::reset();
-    // comm.Barrier();
+    sctl::Profile::Tic("Solve without Precond");
+    solver(&sigma_temp, BIO, -bg_unif_flow(X0), gmres_tol, -1, false);
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    sctl::Profile::reset();
+    comm.Barrier();
 
     sctl::Vector<Real> sigma;
     sctl::Profile::Tic("Solver: KrylovPrecond_setup");
-    // solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    solver(&sigma,BIO,-bg_unif_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
+    solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    // solver(&sigma,BIO,-bg_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
     // solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false);
     sctl::Profile::Toc();
     sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
@@ -263,8 +292,8 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Vector<Real> sigma1;
     sctl::Profile::Tic("Solver1");
     // PRECOND with Krylov
-    // solver(&sigma1, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    solver(&sigma1,BIO,-bg_unif_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
+    solver(&sigma1, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    // solver(&sigma1,BIO,-bg_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
     sctl::Profile::Toc();
     sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
     sctl::Profile::reset();
@@ -324,6 +353,7 @@ int main(int argc, char** argv) {
         double tol = std::stod(argv[8]);
 
         test<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, comm, Nptcl, geom_mode, gmres_tol, tol);
+        // plot_setup<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, comm, Nptcl, geom_mode, gmres_tol, tol);
     }
 
     sctl::Comm::MPI_Finalize();

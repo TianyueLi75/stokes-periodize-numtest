@@ -18,6 +18,17 @@ template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
     return U;
 }
 
+// Uniform background flow in x direction.
+template <class Real> sctl::Vector<Real> bg_unif_flow(const sctl::Vector<Real>& X) {
+    sctl::Vector<Real> U = X;
+    const sctl::Long N = X.Dim() /3;
+    U = 1.; // background flow diagonal to avoid planes of unaffected flows between periods.
+    // for (sctl::Long i = 0; i < N; i++) {
+    //     U[i*3+0] = 1.;
+    // }
+    return U;
+}
+
 /**
  * Reference solution for checking error.
  */
@@ -104,7 +115,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     // const auto X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
     sctl::Vector<Real> X_proxy;
     if (peri_mode == 1) {
-        X_proxy = Periodize1D<Real>::GetProxySurf(30,20); // proxy points coordinates
+        X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
     } else if (peri_mode == 3) {
         X_proxy = Periodize3D<Real>::GetProxySurf(); // proxy points coordinates
     } else {
@@ -264,7 +275,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
         LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
         if (peri_mode==1) {
             // 1-periodic
-            Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy, 30, 20);
+            Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
         } else if (peri_mode==3) {
             // 3-periodic
             Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
@@ -338,57 +349,57 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     };
 
     // first gmres to remove timing for matrix loading, and set Krylov preconditioner.
-    // sctl::Vector<Real> sigma_temp;
+    sctl::Vector<Real> sigma_temp;
     sctl::GMRES<Real> solver(comm);
-    // sctl::KrylovPrecond<Real> krylov_precond;
-    sctl::Vector<Real> A11invF = AinvApply(-bg_flow(X0));
+    sctl::KrylovPrecond<Real> krylov_precond;
+    sctl::Vector<Real> A11invF = AinvApply(-bg_unif_flow(X0));
 
-    // if (precond_mode == 0) {
-    //     // no precond
-    //     solver(&sigma_temp, BIO, -bg_flow(X0), 1e0); 
-    // } else if (precond_mode == 1) {
-    //     // K no A11inv
-    //     solver(&sigma_temp, BIO, -bg_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
-    // } else if (precond_mode == 2) {
-    //     // A11inv no K
-    //     solver(&sigma_temp, BIO_precond, A11invF, 1e0); 
-    // } else {
-    //     // A11inv and K
-    //     solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond); 
-    // }
-    // sctl::Profile::reset();
+    if (precond_mode == 0) {
+        // no precond
+        solver(&sigma_temp, BIO, -bg_unif_flow(X0), 1e0); 
+    } else if (precond_mode == 1) {
+        // K no A11inv
+        solver(&sigma_temp, BIO, -bg_unif_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
+    } else if (precond_mode == 2) {
+        // A11inv no K
+        solver(&sigma_temp, BIO_precond, A11invF, 1e0); 
+    } else {
+        // A11inv and K
+        solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond); 
+    }
+    sctl::Profile::reset();
 
-    // LayerPotenOp0.ClearSetup();
-    // sctl::Profile::Tic("Setup");
-    // LayerPotenOp0.Setup();
-    // sctl::Profile::Toc();
-    // sctl::Profile::print(&comm);
+    LayerPotenOp0.ClearSetup();
+    sctl::Profile::Tic("Setup");
+    LayerPotenOp0.Setup();
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm);
 
     sctl::Vector<Real> sigma;
-    // sctl::Profile::Tic("Solver");
-    // if (precond_mode == 0) {
-    //     // no precond
-    //     solver(&sigma, BIO, -bg_flow(X0), gmres_tol); 
-    // } else if (precond_mode == 1) {
-    //     // K no A11inv
-    //     solver(&sigma, BIO, -bg_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
-    // } else if (precond_mode == 2) {
-    //     // A11inv no K
-    //     solver(&sigma, BIO_precond, A11invF, gmres_tol);
-    // } else {
-    //     // A11inv and K
-    //     solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    // }
+    sctl::Profile::Tic("Solver");
+    if (precond_mode == 0) {
+        // no precond
+        solver(&sigma, BIO, -bg_unif_flow(X0), gmres_tol); 
+    } else if (precond_mode == 1) {
+        // K no A11inv
+        solver(&sigma, BIO, -bg_unif_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
+    } else if (precond_mode == 2) {
+        // A11inv no K
+        solver(&sigma, BIO_precond, A11invF, gmres_tol);
+    } else {
+        // A11inv and K
+        solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    }
     // solver(&sigma, BIO, -bg_flow(X0), gmres_tol);
-    solver(&sigma, BIO_precond, A11invF, gmres_tol);
+    // solver(&sigma, BIO_precond, A11invF, gmres_tol);
     
-    // sctl::Profile::Toc();
-    // sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    // sctl::Profile::reset();
-    // comm.Barrier();
-    // if (!comm.Rank()) {
-    //     std::cout << "------------------- DONE WITH SOLVE ======================" << std::endl;
-    // }
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    sctl::Profile::reset();
+    comm.Barrier();
+    if (!comm.Rank()) {
+        std::cout << "------------------- DONE WITH SOLVE ======================" << std::endl;
+    }
 
     X0.ReInit(6);
     X0[0] = 0.2;
@@ -400,7 +411,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
     LayerPotenOp0.SetTargetCoord(X0);
     sctl::Vector<Real> U_Xtrg;
     BIO(&U_Xtrg, sigma);
-    U_Xtrg += bg_flow(X0);
+    U_Xtrg += bg_unif_flow(X0);
     std::cout << std::setprecision(12) << "U at (0.2,0,0.02) is (" << U_Xtrg[0] << ", "<< U_Xtrg[1] << ", "<< U_Xtrg[2] << "), U at (0.75,0,0.102) is (" << U_Xtrg[3] << ", "<< U_Xtrg[4] << ", "<< U_Xtrg[5] << std::endl;
 
     // /*
@@ -453,7 +464,7 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
         LayerPotenOp0.SetTargetCoord(X0);
         sctl::Vector<Real> U;
         BIO(&U, sigma);
-        U += bg_flow(X0);
+        U += bg_unif_flow(X0);
         sctl::Vector<Real> U_vis(X0_all.Dim());
         if (!ptcls.Dim()) {
             U_vis = U;
@@ -508,34 +519,34 @@ template <class Real> void test(sctl::Long Nelem_channel, sctl::Long FourierOrde
             std::cout << "max u is " << std::setprecision(12) << u_all[0] << std::endl;
         }
         
-        if (write_ref) {
-            vol_vis.WriteVTK(filename_vis, U_vis);
-            // sctl::Vector<Real> U_vis_all(size_all[0]);
-            // comm.Allgather((sctl::Iterator<Real>) U_vis.begin(), size_loc[0], (sctl::Iterator<Real>) U_vis_all.begin(), size_all[0]);
-            // if (!comm.Rank()) {
-                // U_vis_all.Write(filename_out.c_str());
-                // std::cout << "Rank 0 finished writing." << std::endl;
-            // }
-            // U.Write(filename_out.c_str());
-        } else {
-            sctl::Vector<Real> U_ref;
-            // if (!comm.Rank()) {
-            //   U_ref.Read(filename_out.c_str());
-            // }
-            // comm.PartitionN(U_ref,size_loc[0]);
-            U_ref.Read(filename_out.c_str());
-            const auto err = U_vis - U_ref;
-            double max_err = 0;
-            for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
-            sctl::Vector<Real> err_loc(1);
-            err_loc[0] = max_err;
-            sctl::Vector<Real> err_all(1);
-            err_all[0] = 0;
-            comm.Allreduce((sctl::Iterator<sctl::Long>) err_loc.begin(), (sctl::Iterator<sctl::Long>) err_all.begin(), 1, sctl::CommOp::MAX);
-            if (!comm.Rank()) {
-                std::cout<<"Max error = "<< std::setprecision(10) << err_all[0] << std::endl;
-            }
-        }
+        // if (write_ref) {
+        //     vol_vis.WriteVTK(filename_vis, U_vis);
+        //     // sctl::Vector<Real> U_vis_all(size_all[0]);
+        //     // comm.Allgather((sctl::Iterator<Real>) U_vis.begin(), size_loc[0], (sctl::Iterator<Real>) U_vis_all.begin(), size_all[0]);
+        //     // if (!comm.Rank()) {
+        //         // U_vis_all.Write(filename_out.c_str());
+        //         // std::cout << "Rank 0 finished writing." << std::endl;
+        //     // }
+        //     // U.Write(filename_out.c_str());
+        // } else {
+        //     sctl::Vector<Real> U_ref;
+        //     // if (!comm.Rank()) {
+        //     //   U_ref.Read(filename_out.c_str());
+        //     // }
+        //     // comm.PartitionN(U_ref,size_loc[0]);
+        //     U_ref.Read(filename_out.c_str());
+        //     const auto err = U_vis - U_ref;
+        //     double max_err = 0;
+        //     for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
+        //     sctl::Vector<Real> err_loc(1);
+        //     err_loc[0] = max_err;
+        //     sctl::Vector<Real> err_all(1);
+        //     err_all[0] = 0;
+        //     comm.Allreduce((sctl::Iterator<sctl::Long>) err_loc.begin(), (sctl::Iterator<sctl::Long>) err_all.begin(), 1, sctl::CommOp::MAX);
+        //     if (!comm.Rank()) {
+        //         std::cout<<"Max error = "<< std::setprecision(10) << err_all[0] << std::endl;
+        //     }
+        // }
         
     }
 
