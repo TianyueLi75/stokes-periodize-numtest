@@ -22,10 +22,10 @@ template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
 template <class Real> sctl::Vector<Real> bg_unif_flow(const sctl::Vector<Real>& X) {
     sctl::Vector<Real> U = X;
     const sctl::Long N = X.Dim() /3;
-    // U = 1.; // background flow diagonal to avoid planes of unaffected flows between periods.
-    for (sctl::Long i = 0; i < N; i++) {
-        U[i*3+0] = 1.; // background flow in only x direction for timing runs.
-    }
+    U = 1.; // background flow diagonal to avoid planes of unaffected flows between periods.
+    // for (sctl::Long i = 0; i < N; i++) {
+    //     U[i*3+0] = 1.; // background flow in only x direction for timing runs.
+    // }
     return U;
 }
 
