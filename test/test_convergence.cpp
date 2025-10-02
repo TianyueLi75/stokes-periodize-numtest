@@ -27,7 +27,7 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
     const Real DL_scal = 1.0;
 
     const Real tol = 1e-10;
-    const Real gmres_tol = 1e-13;
+    const Real gmres_tol = 1e-10;
     const sctl::Long ElemOrder = 10;
 
     PeriodicGeom<Real> obj;
@@ -35,35 +35,38 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
     sctl::Vector<Real> ptcls_Xcs;
     sctl::Vector<Real> ptcls_rs;
     sctl::Long ptcl_ord = 1;
-    sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
+    sctl::SlenderElemList<Real> elem_lst0;
     sctl::Vector<Real> NormalOrient;
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_trefoil(Nelem, ElemOrder, FourierOrder, 0, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, 0);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_trefoil(Nelem, ElemOrder, FourierOrder, 1, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, 0);  
-    elem_lst_nbr = std::get<0>(build_nbr);
-    NormalOrient = std::get<1>(build_nbr);
+    NormalOrient = std::get<1>(build0);
+    // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_trefoil(Nelem, ElemOrder, FourierOrder, 1, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, 0);  
+    // elem_lst_nbr = std::get<0>(build_nbr);
+    
 
-    const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); // should be 3
+    // const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); // should be 3
     sctl::Long Nptcl = ptcls_rs.Dim();
+    std::cout << "Nptcl = "<<Nptcl << std::endl;
 
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
     sctl::Vector<Real> X_proxy;
-    X_proxy = Periodize1D<Real>::GetProxySurf(30,20); // proxy points coordinates
+    X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
 
     if (write_ref) {
         elem_lst0.WriteVTK("vis/trefoil",X0,comm);
     }   
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
-    LayerPotenOp0.AddElemList(elem_lst_nbr);
+    LayerPotenOp0.AddElemList(elem_lst0);
     LayerPotenOp0.SetTargetCoord(X0);
     LayerPotenOp0.SetAccuracy(tol);
+    LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, 1.0);
 
-    StokesBIO LayerPotenOp_proxy(SL_scal, DL_scal, comm); // potential from elem_lst0 to proxy points
-    LayerPotenOp_proxy.AddElemList(elem_lst0);
-    LayerPotenOp_proxy.SetTargetCoord(X_proxy);
-    LayerPotenOp_proxy.SetAccuracy(tol);
+    // StokesBIO LayerPotenOp_proxy(SL_scal, DL_scal, comm); // potential from elem_lst0 to proxy points
+    // LayerPotenOp_proxy.AddElemList(elem_lst0);
+    // LayerPotenOp_proxy.SetTargetCoord(X_proxy);
+    // LayerPotenOp_proxy.SetAccuracy(tol);
 
     sctl::Matrix<Real> Usvd_p, VT_p, S_p, SforInv_p, Usvd, VT, S, SforInv;
     sctl::Matrix<Real> Sinv_p, Sinv;
@@ -93,7 +96,7 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
         Precond_bio.SetAccuracy(tol); // set quadrature accuracy
         Precond_bio.AddElemList(elem_lst_precond);
         Precond_bio.SetTargetCoord(X0_precond);
-        const auto BIO_1panel = [&DL_scal,&Precond_bio,&Nrepeat](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        const auto BIO_1panel = [&DL_scal,&Precond_bio](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
             U->SetZero();
             Precond_bio.ComputePotential(*U, sigma);
             (*U) -= sigma*0.5 * DL_scal;
@@ -172,29 +175,34 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
     sctl::Long loc_elem_dsp = std::get<1>(indtpl);
 
         // periodized layer potential operator
-    const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        const sctl::Long N = sigma.Dim();
-        // std::cout << "in BIO, dim of sigma is " << N << ", output dim of LayerOp is " << LayerPotenOp0.Dim(1) << std::endl;
+    // const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+    //     const sctl::Long N = sigma.Dim();
+    //     // std::cout << "in BIO, dim of sigma is " << N << ", output dim of LayerOp is " << LayerPotenOp0.Dim(1) << std::endl;
 
-        sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
-        for (sctl::Long k = 0; k < Nrepeat; k++) {
-            for (sctl::Long i = 0; i < N; i++) {
-                sigma_nbr[k*N+i] = sigma[i];
-            }
-        }
+    //     sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
+    //     for (sctl::Long k = 0; k < Nrepeat; k++) {
+    //         for (sctl::Long i = 0; i < N; i++) {
+    //             sigma_nbr[k*N+i] = sigma[i];
+    //         }
+    //     }
 
+    //     U->SetZero();
+    //     LayerPotenOp0.ComputePotential(*U, sigma_nbr);
+    //     if (DL_scal && U->Dim() == N) {
+    //         (*U) -= sigma*0.5*NormalOrient * DL_scal;
+    //     }
+
+    //     { // Add far-field
+    //         sctl::Vector<Real> U_proxy, U_far;
+    //         LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
+    //         Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
+    //         (*U) += U_far;
+    //     } 
+    // };
+    const auto BIO = [&DL_scal,&LayerPotenOp0,&X0,NormalOrient](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         U->SetZero();
-        LayerPotenOp0.ComputePotential(*U, sigma_nbr);
-        if (DL_scal && U->Dim() == N) {
-            (*U) -= sigma*0.5*NormalOrient * DL_scal;
-        }
-
-        { // Add far-field
-            sctl::Vector<Real> U_proxy, U_far;
-            LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
-            Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy,30,20);
-            (*U) += U_far;
-        } 
+        LayerPotenOp0.ComputePotential(*U, sigma);
+        if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma*0.5*NormalOrient * DL_scal; // for double-layer
     };
 
     // Apply A11inv to each panel of a vector.
@@ -215,7 +223,7 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
             }
         } else {
             if (loc_elem_dsp >= Nelem) {
-                // std::cout << "All particles" << std::endl;
+                std::cout << "All particles" << std::endl;
                 // all panels here are ptcl
                 sctl::Long N = vec.Dim();
                 sctl::Long Nptcls = N / A11size_ptcl; 
@@ -230,7 +238,7 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
                 sctl::Long Npanels_here = Nelem - loc_elem_dsp;
                 sctl::Long Nptcls_here = loc_elem_cnt - Npanels_here;
                 // // DEBUG
-                // std::cout << "CHECK panel-ptcl split: Npanel = " << Npanels_here << ", Nptcl = " << Nptcls_here << std::endl;
+                std::cout << "CHECK panel-ptcl split: Npanel = " << Npanels_here << ", Nptcl = " << Nptcls_here << std::endl;
                 // ///////////////
                 for (sctl::Long i=0; i<Npanels_here; i++) {
                     sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
@@ -262,27 +270,27 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
 
     sctl::GMRES<Real> solver(comm);
 
-    sctl::Vector<Real> sigma_temp;
-    sctl::Profile::Tic("Setup");
-    if (precond_mode) {
-        solver(&sigma_temp, BIO_precond, X0, 1e0);
-    } else {
-        solver(&sigma_temp, BIO, X0, 1e0);
-    }
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm,{"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    sctl::Profile::reset();
+    // sctl::Vector<Real> sigma_temp;
+    // sctl::Profile::Tic("Setup");
+    // if (precond_mode) {
+    //     solver(&sigma_temp, BIO_precond, X0, 1e0);
+    // } else {
+    //     solver(&sigma_temp, BIO, X0, 1e0);
+    // }
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm,{"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    // sctl::Profile::reset();
 
     sctl::Vector<Real> sigma;
-    sctl::Profile::Tic("Solve");
+    // sctl::Profile::Tic("Solve");
     if (precond_mode) {
         sctl::Vector<Real> A11invF = AinvApply(-bg_flow(X0));
         solver(&sigma, BIO_precond, A11invF, gmres_tol);
     } else {
         solver(&sigma,BIO,-bg_flow(X0),gmres_tol);
     }
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm,{"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm,{"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
     
 
     { // Evaluate in interior, and write visualization
@@ -295,9 +303,9 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
         sctl::Vector<Real> ptcls_Xcs_trg;
         sctl::Vector<Real> ptcls_rs_trg;
         std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_trefoil(Nelem_trg, ElemOrder, FourierOrder_trg, 0, 1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, 1, 0);
-        elem_lst_trg = std::get<0>(build_trg);
+elem_lst_trg = std::get<0>(build_trg);
 
-        VolumeVis<Real> vol_vis(elem_lst_trg, comm, true); 
+        VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
         X0 = vol_vis.GetCoord(); // set new target coordinates
         LayerPotenOp0.SetTargetCoord(X0);
         sctl::Vector<Real> U;
@@ -385,7 +393,7 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
     sctl::Vector<sctl::Long> ptcls;
     sctl::Vector<Real> ptcls_Xcs;
     sctl::Vector<Real> ptcls_rs;
-    sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
+    sctl::SlenderElemList<Real> elem_lst0;
     sctl::Vector<Real> NormalOrient;
     // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 0, 1, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, 0);
     // elem_lst0 = std::get<0>(build0);
@@ -394,15 +402,16 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
     // NormalOrient = std::get<1>(build_nbr);
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, 0);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 1, peri_mode, comm, ptcls, ptcls_rs, ptcls_Xcs, 0);
-    elem_lst_nbr = std::get<0>(build_nbr);
-    NormalOrient = std::get<1>(build_nbr);
+    NormalOrient = std::get<1>(build0);
+    // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 1, peri_mode, comm, ptcls, ptcls_rs, ptcls_Xcs, 0);
+    // elem_lst_nbr = std::get<0>(build_nbr);
+    // NormalOrient = std::get<1>(build_nbr);
 
-    const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); // should be 3
-    if (!comm.Rank()) {
-        std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
-        std::cout << "total number of particles is " << ptcls.Dim() << ", number of elements per processor is " << elem_lst0.Size() << std::endl;
-    }
+    // const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); // should be 3
+    // if (!comm.Rank()) {
+    //     std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
+    //     std::cout << "total number of particles is " << ptcls.Dim() << ", number of elements per processor is " << elem_lst0.Size() << std::endl;
+    // }
     
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
@@ -421,50 +430,66 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
     // elem_lst_nbr.WriteVTK(nbr_vis,Xnbr,comm);
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
-    LayerPotenOp0.AddElemList(elem_lst_nbr);
+    LayerPotenOp0.AddElemList(elem_lst0);
     LayerPotenOp0.SetTargetCoord(X0);
     LayerPotenOp0.SetAccuracy(tol);
+    
+    if (peri_mode == 1) {
+        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, 1.0);
+    } else if (peri_mode == 3) {
+        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XYZ, 1.0);
+    } else if (peri_mode == 2) {
+        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XY, 1.0);
+    } else {
+        SCTL_ASSERT(false);
+    }
 
-    StokesBIO LayerPotenOp_proxy(SL_scal, DL_scal, comm); // potential from elem_lst0 to proxy points
-    LayerPotenOp_proxy.AddElemList(elem_lst0);
-    LayerPotenOp_proxy.SetTargetCoord(X_proxy);
-    LayerPotenOp_proxy.SetAccuracy(tol);
+    // StokesBIO LayerPotenOp_proxy(SL_scal, DL_scal, comm); // potential from elem_lst0 to proxy points
+    // LayerPotenOp_proxy.AddElemList(elem_lst0);
+    // LayerPotenOp_proxy.SetTargetCoord(X_proxy);
+    // LayerPotenOp_proxy.SetAccuracy(tol);
 
-    // periodized layer potential operator
-    const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,&peri_mode,NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        const sctl::Long N = sigma.Dim();
-        std::cout << "in BIO, dim of sigma is " << N << ", output dim of LayerOp is " << LayerPotenOp0.Dim(1) << std::endl;
+    // // periodized layer potential operator
+    // const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,&peri_mode,NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+    //     const sctl::Long N = sigma.Dim();
+    //     std::cout << "in BIO, dim of sigma is " << N << ", output dim of LayerOp is " << LayerPotenOp0.Dim(1) << std::endl;
 
-        sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
-        for (sctl::Long k = 0; k < Nrepeat; k++) {
-            for (sctl::Long i = 0; i < N; i++) {
-                sigma_nbr[k*N+i] = sigma[i];
-            }
-        }
+    //     sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
+    //     for (sctl::Long k = 0; k < Nrepeat; k++) {
+    //         for (sctl::Long i = 0; i < N; i++) {
+    //             sigma_nbr[k*N+i] = sigma[i];
+    //         }
+    //     }
 
+    //     U->SetZero();
+    //     LayerPotenOp0.ComputePotential(*U, sigma_nbr);
+    //     if (DL_scal && U->Dim() == N) {
+    //         (*U) -= sigma*0.5*NormalOrient * DL_scal;
+    //     }
+
+    //     { // Add far-field
+    //         sctl::Vector<Real> U_proxy, U_far;
+    //         LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
+    //         // Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
+    //         if (peri_mode==1) {
+    //             // 1-periodic
+    //             Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
+    //         } else if (peri_mode==3) {
+    //             // 3-periodic
+    //             Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
+    //         } else {
+    //             std::cout << "2-periodic not yet implemented." << std::endl;
+    //             SCTL_ASSERT(false);
+    //         }
+    //         // std::cout << "U far size is " << U_far.Dim() << std::endl;
+    //         (*U) += U_far;
+    //     } 
+    // };
+
+    const auto BIO = [&DL_scal,&LayerPotenOp0,&X0](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         U->SetZero();
-        LayerPotenOp0.ComputePotential(*U, sigma_nbr);
-        if (DL_scal && U->Dim() == N) {
-            (*U) -= sigma*0.5*NormalOrient * DL_scal;
-        }
-
-        { // Add far-field
-            sctl::Vector<Real> U_proxy, U_far;
-            LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
-            // Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
-            if (peri_mode==1) {
-                // 1-periodic
-                Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
-            } else if (peri_mode==3) {
-                // 3-periodic
-                Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
-            } else {
-                std::cout << "2-periodic not yet implemented." << std::endl;
-                SCTL_ASSERT(false);
-            }
-            // std::cout << "U far size is " << U_far.Dim() << std::endl;
-            (*U) += U_far;
-        } 
+        LayerPotenOp0.ComputePotential(*U, sigma);
+        if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma*0.5 * DL_scal; // for double-layer
     };
 
     // Solve for sigma to satisfy no-slip boundary conditions: BIO(sigma) + bg_flow = 0
@@ -552,8 +577,8 @@ template <class Real> void channel_self_conv(sctl::Long Nelem, sctl::Long Fourie
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
 
-    const Real tol = 1e-8;
-    const Real gmres_tol = 1e-10;
+    const Real tol = 1e-10;
+    const Real gmres_tol = 1e-8;
     const sctl::Long ElemOrder = 10;
 
     PeriodicGeom<Real> obj;
@@ -561,45 +586,54 @@ template <class Real> void channel_self_conv(sctl::Long Nelem, sctl::Long Fourie
     sctl::Long ptcl_ord = 1;
     sctl::Vector<sctl::Long> ptcls(Nptcl);
     ptcls = ptcl_ord;
+    // /////// DEBUG no particle in conv div, shoudl converge
+    // sctl::Long Nptcl = 0;
+    // sctl::Long ptcl_ord = 1;
+    // sctl::Vector<sctl::Long> ptcls;
+    // ////////////
     sctl::Vector<Real> ptcls_Xcs;
     sctl::Vector<Real> ptcls_rs;
-    sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
+    sctl::SlenderElemList<Real> elem_lst0;
     sctl::Vector<Real> NormalOrient;
     sctl::Long peri_mode = 1;
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem, ElemOrder, FourierOrder, 0, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, 0);
     elem_lst0 = std::get<0>(build0);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_conv_div(Nelem, ElemOrder, FourierOrder, 1, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, 0);  
-    elem_lst_nbr = std::get<0>(build_nbr);
-    NormalOrient = std::get<1>(build_nbr);
+    NormalOrient = std::get<1>(build0);
+    // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.build_conv_div(Nelem, ElemOrder, FourierOrder, 1, peri_mode, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, 0);  
+    // elem_lst_nbr = std::get<0>(build_nbr);
+    // NormalOrient = std::get<1>(build_nbr);
   
     // std::cout << "Size of elem_lst_nbr is " << elem_lst_nbr.Size() << ", Size of elem_lst0 is " << elem_lst0.Size() <<std::endl;
-    const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); // should be 3
+    // const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); // should be 3
     Nptcl = ptcls_rs.Dim(); // Number of particles could have changed after initializing.
-    if (!comm.Rank()) {
-        std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
-        std::cout << "total number of particles is " << Nptcl << ", number of elements per processor is " << elem_lst0.Size() << std::endl;
-    }
+    // if (!comm.Rank()) {
+    //     std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
+    //     std::cout << "total number of particles is " << Nptcl << ", number of elements per processor is " << elem_lst0.Size() << std::endl;
+    // }
 
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
-    sctl::Vector<Real> X_proxy = Periodize1D<Real>::GetProxySurf(30,20); // proxy points coordinates
+    sctl::Vector<Real> X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
+
+    // elem_lst0.WriteVTK("vis/channel", X0, comm);
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
-    LayerPotenOp0.AddElemList(elem_lst_nbr);
+    LayerPotenOp0.AddElemList(elem_lst0);
     LayerPotenOp0.SetTargetCoord(X0);
     LayerPotenOp0.SetAccuracy(tol);
+    LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, 1.0);
 
-    StokesBIO LayerPotenOp_proxy(SL_scal, DL_scal, comm); // potential from elem_lst0 to proxy points
-    LayerPotenOp_proxy.AddElemList(elem_lst0);
-    LayerPotenOp_proxy.SetTargetCoord(X_proxy);
-    LayerPotenOp_proxy.SetAccuracy(tol);
+    // StokesBIO LayerPotenOp_proxy(SL_scal, DL_scal, comm); // potential from elem_lst0 to proxy points
+    // LayerPotenOp_proxy.AddElemList(elem_lst0);
+    // LayerPotenOp_proxy.SetTargetCoord(X_proxy);
+    // LayerPotenOp_proxy.SetAccuracy(tol);
 
     sctl::Matrix<Real> Usvd_p, VT_p, S_p, SforInv_p, Usvd, VT, S, SforInv;
     sctl::Matrix<Real> Sinv_p, Sinv;
     sctl::Long A11size_ptcl, A11size;
 
     if (precond_mode) {
-        sctl::Profile::Tic("Preconditioners");
+        // sctl::Profile::Tic("Preconditioners");
         // PRECONDITIONING PANEL: CYLINDER
         sctl::Vector<Real> Xc_precond, eps_precond; 
         sctl::Vector<sctl::Long> ElemOrderVec_precond(1), FourierOrderVec_precond(1);
@@ -609,11 +643,11 @@ template <class Real> void channel_self_conv(sctl::Long Nelem, sctl::Long Fourie
         Real channel_radius = 0.035;
         const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrder);
         for (sctl::Long j = 0; j < ElemOrder; j++) { // loop over panel nodes
-        const Real x = (nodes[j]) / Nelem; // size of precond panel should be same as one panel on pipe
-        Xc_precond.PushBack(x+0.5); //  shift panel to center of unit box, arbitrary.
-        Xc_precond.PushBack(0.5); 
-        Xc_precond.PushBack(0.5); 
-        eps_precond.PushBack(channel_radius); 
+            const Real x = (nodes[j]) / Nelem; // size of precond panel should be same as one panel on pipe
+            Xc_precond.PushBack(x+0.5); //  shift panel to center of unit box, arbitrary.
+            Xc_precond.PushBack(0.5); 
+            Xc_precond.PushBack(0.5); 
+            eps_precond.PushBack(channel_radius); 
         }
         sctl::SlenderElemList<Real> elem_lst_precond(ElemOrderVec_precond, FourierOrderVec_precond, Xc_precond, eps_precond);
         sctl::Vector<Real> X0_precond; // target coordinates
@@ -622,7 +656,7 @@ template <class Real> void channel_self_conv(sctl::Long Nelem, sctl::Long Fourie
         Precond_bio.SetAccuracy(tol); // set quadrature accuracy
         Precond_bio.AddElemList(elem_lst_precond);
         Precond_bio.SetTargetCoord(X0_precond);
-        const auto BIO_1panel = [&DL_scal,&Precond_bio,&Nrepeat](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        const auto BIO_1panel = [&DL_scal,&Precond_bio](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
             U->SetZero();
             Precond_bio.ComputePotential(*U, sigma);
             (*U) -= sigma*0.5 * DL_scal;
@@ -685,9 +719,9 @@ template <class Real> void channel_self_conv(sctl::Long Nelem, sctl::Long Fourie
         SforInv_p = sctl::Matrix<Real>(S_p);
         Sinv_p = SforInv_p.pinv(1e-16);
 
-        sctl::Profile::Toc();
-        sctl::Profile::print(&comm);
-        sctl::Profile::reset();
+        // sctl::Profile::Toc();
+        // sctl::Profile::print(&comm);
+        // sctl::Profile::reset();
 
     }
 
@@ -700,29 +734,34 @@ template <class Real> void channel_self_conv(sctl::Long Nelem, sctl::Long Fourie
     sctl::Long loc_elem_cnt = std::get<0>(indtpl);
     sctl::Long loc_elem_dsp = std::get<1>(indtpl);
 
-    // periodized layer potential operator
-    const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&peri_mode, &comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        const sctl::Long N = sigma.Dim();
+    // // periodized layer potential operator
+    // const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&peri_mode, &comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+    //     const sctl::Long N = sigma.Dim();
 
-        sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
-        for (sctl::Long k = 0; k < Nrepeat; k++) {
-            for (sctl::Long i = 0; i < N; i++) {
-                sigma_nbr[k*N+i] = sigma[i];
-            }
-        }
+    //     sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
+    //     for (sctl::Long k = 0; k < Nrepeat; k++) {
+    //         for (sctl::Long i = 0; i < N; i++) {
+    //             sigma_nbr[k*N+i] = sigma[i];
+    //         }
+    //     }
 
+    //     U->SetZero();
+    //     LayerPotenOp0.ComputePotential(*U, sigma_nbr);
+    //     if (DL_scal && U->Dim() == N) {
+    //         (*U) -= sigma*0.5*NormalOrient * DL_scal;
+    //     }
+
+    //     { // Add far-field
+    //         sctl::Vector<Real> U_proxy, U_far;
+    //         LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
+    //         Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy, 30, 20);
+    //         (*U) += U_far;
+    //     } 
+    // };
+    const auto BIO = [&DL_scal,&LayerPotenOp0,&X0,NormalOrient](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         U->SetZero();
-        LayerPotenOp0.ComputePotential(*U, sigma_nbr);
-        if (DL_scal && U->Dim() == N) {
-            (*U) -= sigma*0.5*NormalOrient * DL_scal;
-        }
-
-        { // Add far-field
-            sctl::Vector<Real> U_proxy, U_far;
-            LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
-            Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy, 30, 20);
-            (*U) += U_far;
-        } 
+        LayerPotenOp0.ComputePotential(*U, sigma);
+        if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma*0.5*NormalOrient * DL_scal; // for double-layer
     };
 
     // Apply A11inv to each panel of a vector.
@@ -787,28 +826,34 @@ template <class Real> void channel_self_conv(sctl::Long Nelem, sctl::Long Fourie
     };
 
     sctl::GMRES<Real> solver(comm);
-
-    sctl::Vector<Real> sigma_temp;
-    sctl::Profile::Tic("Setup");
-    if (precond_mode) {
-        solver(&sigma_temp, BIO_precond, X0, 1e0);
-    } else {
-        solver(&sigma_temp, BIO, X0, 1e0);
-    }
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm,{"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    sctl::Profile::reset();
+    // std::cout << "rank " << comm.Rank() << "before solving sigma" << std::endl;
+    // sctl::Vector<Real> sigma_temp;
+    // sctl::Profile::Tic("Setup");
+    // if (precond_mode) {
+    //     solver(&sigma_temp, BIO_precond, X0, 1e0);
+    // } else {
+    //     solver(&sigma_temp, BIO, X0, 1e0);
+    // }
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm,{"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    // sctl::Profile::reset();
 
     sctl::Vector<Real> sigma;
-    sctl::Profile::Tic("Solve");
+    // sctl::Profile::Tic("Solve");
+    // if (precond_mode) {
+    //     solver(&sigma, BIO_precond, A11invF, gmres_tol);
+    // } else {
+    //     solver(&sigma,BIO,-bg_flow(X0),gmres_tol);
+    // }
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm,{"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
     if (precond_mode) {
         sctl::Vector<Real> A11invF = AinvApply(-bg_flow(X0));
         solver(&sigma, BIO_precond, A11invF, gmres_tol);
     } else {
-        solver(&sigma,BIO,-bg_flow(X0),gmres_tol);
+        solver(&sigma, BIO, -bg_flow(X0), gmres_tol);
     }
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm,{"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    
 
     { // Evaluate in interior, and write visualization
         // std::cout << "Rank " << comm.Rank()<< " calculating target points." << std::endl;
@@ -927,7 +972,7 @@ template <class Real> void trefoil_ptcl_self_conv(sctl::Long Nelem, sctl::Long F
 
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
-    sctl::Vector<Real> X_proxy = Periodize1D<Real>::GetProxySurf(30,20); // proxy points coordinates
+    sctl::Vector<Real> X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
     LayerPotenOp0.AddElemList(elem_lst_nbr);
@@ -967,7 +1012,7 @@ template <class Real> void trefoil_ptcl_self_conv(sctl::Long Nelem, sctl::Long F
         Precond_bio.SetAccuracy(tol); // set quadrature accuracy
         Precond_bio.AddElemList(elem_lst_precond);
         Precond_bio.SetTargetCoord(X0_precond);
-        const auto BIO_1panel = [&DL_scal,&Precond_bio,&Nrepeat](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        const auto BIO_1panel = [&DL_scal,&Precond_bio](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
             U->SetZero();
             Precond_bio.ComputePotential(*U, sigma);
             (*U) -= sigma*0.5 * DL_scal;
@@ -1065,7 +1110,7 @@ template <class Real> void trefoil_ptcl_self_conv(sctl::Long Nelem, sctl::Long F
         { // Add far-field
             sctl::Vector<Real> U_proxy, U_far;
             LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
-            Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy, 30, 20);
+            Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
             (*U) += U_far;
         } 
     };
@@ -1265,10 +1310,10 @@ int main(int argc, char** argv) {
         FourierOrder_lst.PushBack(96); 
     }
 
-    sctl::Profile::Enable(true);
+    // sctl::Profile::Enable(true);
     // trefoil_self_conv<Real>(200, 32, false, comm, 0);
     // particle_self_conv<Real>(1, 16, 1, true, comm, 1);
-    // channel_self_conv<Real>(4, 16, false, comm);
+    // channel_self_conv<Real>(4, 16, true, comm, precond_mode);
     // trefoil_ptcl_self_conv<Real>(200, 64, true, comm, 0);
     // trefoil_ptcl_self_conv<Real>(200, 64, true, comm, 1);
     

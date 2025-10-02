@@ -51,9 +51,9 @@ template <class Real> class PeriodizeOp {
       const KerM2M ker_m2m;
 
       sctl::Matrix<Real> Me2c, U,S,Vt, Mc2e0, Mc2e1;
-      std::cout << "UC2UE: Making kernel matrix. " << std::endl;
+      // std::cout << "UC2UE: Making kernel matrix. " << std::endl;
       ker_m2m.KernelMatrix<Real,true>(Me2c, Xc, Xe, sctl::Vector<Real>());
-      std::cout << "UC2UE: Performing svd. " << std::endl;
+      // std::cout << "UC2UE: Performing svd. " << std::endl;
       sctl::Matrix<Real>(Me2c).SVD(U,S,Vt);
 
       Real max_val = 0;
@@ -387,40 +387,31 @@ template <class Real> void Periodize1D<Real>::EvalFarField_QuadReal(sctl::Vector
 
 template <class Real> const sctl::Matrix<Real>& Periodize1D<Real>::GetMat_UC2DE0() {
   static sctl::Matrix<Real> Mbc = [](){
+    sctl::Matrix<Real> M;
+    // M.template Read<sctl::QuadReal>("data/Mbc_uc2de0_1d.mat");
+    std::string data_file = "data/Mbc_uc2de0_1d_l30_m20.mat";
+    M.template Read<Real>(data_file.c_str());
+    if (M.Dim(0) || M.Dim(1)) return M;
+
     const auto [M_uc2ue0, M_uc2ue1] = PeriodizeOp<Real>::UC2UE();
     const auto [M_dc2de0, M_dc2de1] = PeriodizeOp<Real>::DC2DE();
     const auto Mbc_ue2dc = PeriodizeOp<Real>::BC_UE2DC();
-    return (M_uc2ue0 * (M_uc2ue1 * Mbc_ue2dc)) * M_dc2de0;
+    M = (M_uc2ue0 * (M_uc2ue1 * Mbc_ue2dc)) * M_dc2de0;
+    M.template Write<sctl::QuadReal>(data_file.c_str());
+    return M;
   }();
   return Mbc;
+
+  // static sctl::Matrix<Real> Mbc = [](){
+  //   const auto [M_uc2ue0, M_uc2ue1] = PeriodizeOp<Real>::UC2UE();
+  //   const auto [M_dc2de0, M_dc2de1] = PeriodizeOp<Real>::DC2DE();
+  //   const auto Mbc_ue2dc = PeriodizeOp<Real>::BC_UE2DC();
+  //   return (M_uc2ue0 * (M_uc2ue1 * Mbc_ue2dc)) * M_dc2de0;
+  // }();
+  // return Mbc;
 }
 
 template <class Real> sctl::Matrix<Real> Periodize1D<Real>::GetMat_UC2DE0(const sctl::Long level_in, const sctl::Long m0_in) {
-  // sctl::Matrix<Real> Mbc = [&level_in,&m0_in](){
-  // std::string data1 = "data/M_uc2ue0_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
-  // std::string data2 = "data/M_uc2ue1_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
-  // std::string data3 = "data/Mbc_ue2dc_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
-  // std::string data4 = "data/M_dc2de0_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
-  // M_uc2ue0.template Read<Real>(data1.c_str());
-  // if (M_uc2ue0.Dim(0) || M_uc2ue0.Dim(1)) {
-  //   M_uc2ue1.template Read<Real>(data2.c_str()); 
-  //   Mbc_ue2dc.template Read<Real>(data3.c_str());
-  //   M_dc2de0.template Read<Real>(data4.c_str());
-  // } else {
-  //   std::cout << " read file unsuccessful, making UC2DE0 mats now." << std::endl;
-  //   std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl1 = PeriodizeOp<Real>::UC2UE();
-  //   M_uc2ue0 = std::get<0>(tpl1);
-  //   M_uc2ue1 = std::get<1>(tpl1);
-  //   std::tuple<sctl::Matrix<Real>, sctl::Matrix<Real>> tpl2 = PeriodizeOp<Real>::DC2DE();
-  //   M_dc2de0 = std::get<0>(tpl2);
-  //   Mbc_ue2dc = PeriodizeOp<Real>::BC_UE2DC();
-  //   M_uc2ue0.template Write<sctl::QuadReal>(data1.c_str());
-  //   M_uc2ue1.template Write<sctl::QuadReal>(data2.c_str());
-  //   Mbc_ue2dc.template Write<sctl::QuadReal>(data3.c_str());
-  //   M_dc2de0.template Write<sctl::QuadReal>(data4.c_str());
-  // }
-  // return (M_uc2ue0 * (M_uc2ue1 * Mbc_ue2dc)) * M_dc2de0;
-
   sctl::Matrix<Real> M;
   std::string data_file = "data/Mbc_uc2de0_1d_l"+std::to_string(level_in)+"_m"+std::to_string(m0_in)+".mat";
   M.template Read<Real>(data_file.c_str());
@@ -434,9 +425,6 @@ template <class Real> sctl::Matrix<Real> Periodize1D<Real>::GetMat_UC2DE0(const 
   M.template Write<Real>(data_file.c_str());
 
   return M;
-
-  // }();
-  // return Mbc;
 }
 
 template <class Real> sctl::Matrix<Real> Periodize1D<Real>::GetMat_UC2DE0_QuadReal(const sctl::Long level_in, const sctl::Long m0_in) {
@@ -460,10 +448,22 @@ template <class Real> sctl::Matrix<Real> Periodize1D<Real>::GetMat_UC2DE0_QuadRe
 
 template <class Real> const sctl::Matrix<Real>& Periodize1D<Real>::GetMat_UC2DE1() {
   static sctl::Matrix<Real> Mbc = [](){
+    sctl::Matrix<Real> M;
+    std::string data_file = "data/Mbc_uc2de0_1d_l30_m20.mat";
+    M.template Read<sctl::QuadReal>(data_file.c_str());
+    if (M.Dim(0) || M.Dim(1)) return M;
+
     const auto [M_dc2de0, M_dc2de1] = PeriodizeOp<Real>::DC2DE();
+    M_dc2de1.template Write<sctl::QuadReal>(data_file.c_str());
     return M_dc2de1;
   }();
   return Mbc;
+
+  // static sctl::Matrix<Real> Mbc = [](){
+  //   const auto [M_dc2de0, M_dc2de1] = PeriodizeOp<Real>::DC2DE();
+  //   return M_dc2de1;
+  // }();
+  // return Mbc;
 }
 
 template <class Real> sctl::Matrix<Real> Periodize1D<Real>::GetMat_UC2DE1(const sctl::Long level_in, const sctl::Long m0_in) {
