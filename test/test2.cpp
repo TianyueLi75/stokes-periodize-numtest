@@ -21,7 +21,7 @@ template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
 // Uniform background flow in x direction.
 template <class Real> sctl::Vector<Real> bg_unif_flow(const sctl::Vector<Real>& X) {
     sctl::Vector<Real> U = X;
-    const sctl::Long N = X.Dim() /3;
+    // const sctl::Long N = X.Dim() /3;
     U = 1.; // background flow diagonal to avoid planes of unaffected flows between periods.
     // for (sctl::Long i = 0; i < N; i++) {
     //     U[i*3+0] = 1.; // background flow in only x direction for timing runs.
@@ -41,22 +41,18 @@ template <class Real> void plot_setup(sctl::Long Nelem, sctl::Long FourierOrder,
     sctl::Vector<sctl::Long> ptcls;
     sctl::Vector<Real> ptcls_Xcs;
     sctl::Vector<Real> ptcls_rs;
-    sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
+    sctl::SlenderElemList<Real> elem_lst0;
     sctl::Vector<Real> NormalOrient;
     if (Nptcl == 1) {
         std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 1, peri_mode, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-        elem_lst_nbr = std::get<0>(build_nbr);
-        NormalOrient = std::get<1>(build_nbr);
+        NormalOrient = std::get<1>(build0);
     } else { 
         std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 0, 1, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 1, peri_mode, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-        elem_lst_nbr = std::get<0>(build_nbr);
-        NormalOrient = std::get<1>(build_nbr);
+        NormalOrient = std::get<1>(build0);
     }
-    const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); 
+    // const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); 
     Nptcl = ptcls_rs.Dim(); 
     // std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
 
@@ -85,17 +81,13 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     if (Nptcl == 1) {
         std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 1, peri_mode, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-        elem_lst_nbr = std::get<0>(build_nbr);
-        NormalOrient = std::get<1>(build_nbr);
+        NormalOrient = std::get<1>(build0);
     } else { 
         std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 0, 1, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 1, peri_mode, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-        elem_lst_nbr = std::get<0>(build_nbr);
-        NormalOrient = std::get<1>(build_nbr);
+        NormalOrient = std::get<1>(build0);
     }
-    const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); 
+    // const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); 
     Nptcl = ptcls_rs.Dim(); 
     // std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
 
@@ -115,14 +107,18 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     }
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
-    LayerPotenOp0.AddElemList(elem_lst_nbr);
+    LayerPotenOp0.AddElemList(elem_lst0);
     LayerPotenOp0.SetTargetCoord(X0);
     LayerPotenOp0.SetAccuracy(tol);
-
-    StokesBIO LayerPotenOp_proxy(SL_scal, DL_scal, comm); // potential from elem_lst0 to proxy points
-    LayerPotenOp_proxy.AddElemList(elem_lst0);
-    LayerPotenOp_proxy.SetTargetCoord(X_proxy);
-    LayerPotenOp_proxy.SetAccuracy(tol);
+    if (peri_mode==1) {
+        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, 1.0);
+    } else if (peri_mode==3) {
+        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XYZ, 1.0);
+    } else if (peri_mode==2) {
+        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XY, 1.0);
+    } else {
+        SCTL_ASSERT(false);
+    }
 
     // =============== PRECONDITIONING =======================================
     // Store preconditioner matrix, or make new if not present.
@@ -184,40 +180,10 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     }
 
     // periodized layer potential operator
-    const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&peri_mode, &comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        const sctl::Long N = sigma.Dim();
-        // std::cout << "in BIO, dim of sigma is " << N << ", size of targ is " << LayerPotenOp0.Dim(1) << ". Check other dimension: " << LayerPotenOp0.Dim(0) << std::endl;
-
-        sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
-        for (sctl::Long k = 0; k < Nrepeat; k++) {
-            for (sctl::Long i = 0; i < N; i++) {
-                sigma_nbr[k*N+i] = sigma[i];
-            }
-        }
-
+    const auto BIO = [&DL_scal,&LayerPotenOp0,&X0,NormalOrient](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         U->SetZero();
-        LayerPotenOp0.ComputePotential(*U, sigma_nbr);
-        if (DL_scal && U->Dim() == N) {
-            (*U) -= sigma*0.5*NormalOrient * DL_scal;
-        }
-
-        { // Add far-field
-            sctl::Vector<Real> U_proxy, U_far;
-            LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
-            if (peri_mode==1) {
-                // 1-periodic
-                Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy);
-            } else if (peri_mode==3) {
-                // 3-periodic
-                Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
-            } else {
-                std::cout << "2-periodic not yet implemented." << std::endl;
-                SCTL_ASSERT(false);
-            }
-            
-            (*U) += U_far;
-        } 
-        // comm.Barrier();
+        LayerPotenOp0.ComputePotential(*U, sigma);
+        if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma*0.5*NormalOrient * DL_scal; // for double-layer
     };
 
     // Apply A11inv to each panel of vec.
@@ -243,41 +209,38 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         (*U) = AinvApply(Uloc);
     };
 
-    // sctl::Vector<Real> A11invF = AinvApply( -bg_unif_flow(X0));
-    // sctl::GMRES<Real> solver(comm);
-    // sctl::Vector<Real> sigma;
-    // solver(&sigma, BIO_precond, A11invF, gmres_tol);
-
     // first gmres to remove timing for matrix loading, and set Krylov preconditioner.
-    sctl::Vector<Real> sigma_temp;
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
     sctl::Vector<Real> A11invF = AinvApply(-bg_unif_flow(X0));
-    solver(&sigma_temp, BIO_precond, A11invF, 1e0);
-    // solver(&sigma_temp, BIO, -bg_flow(X0), 1e0);
-    sctl::Profile::reset();
 
-    LayerPotenOp0.ClearSetup();
-    sctl::Profile::Tic("Setup SurfOP");
-    LayerPotenOp0.Setup();
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm);
-    sctl::Profile::reset();
+    // sctl::Vector<Real> sigma_temp;
+    // solver(&sigma_temp, BIO_precond, A11invF, 1e-2);
+    // // solver(&sigma_temp, BIO, -bg_flow(X0), 1e0);
+    // sctl::Profile::reset();
 
-    // Weak scaling data did not include this.
-    sctl::Profile::Tic("Setup ProxyOP");
-    LayerPotenOp_proxy.ClearSetup();
-    LayerPotenOp_proxy.Setup(); 
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm);
-    sctl::Profile::reset();
+    // LayerPotenOp0.ClearSetup();
+    // sctl::Profile::Tic("Setup SurfOP");
+    // LayerPotenOp0.Setup();
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm);
+    // sctl::Profile::reset();
 
-    sctl::Profile::Tic("Solve without Precond");
-    solver(&sigma_temp, BIO, -bg_unif_flow(X0), gmres_tol, -1, false);
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    sctl::Profile::reset();
-    comm.Barrier();
+    // // // Weak scaling data did not include this.
+    // // sctl::Profile::Tic("Setup ProxyOP");
+    // // LayerPotenOp_proxy.ClearSetup();
+    // // LayerPotenOp_proxy.Setup(); 
+    // // sctl::Profile::Toc();
+    // // sctl::Profile::print(&comm);
+    // // sctl::Profile::reset();
+
+    // sctl::Profile::Tic("Solve without Precond");
+    // sctl::Vector<Real> sigma_temp2;
+    // solver(&sigma_temp2, BIO, -bg_unif_flow(X0), gmres_tol, -1, false);
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    // sctl::Profile::reset();
+    // comm.Barrier();
 
     sctl::Vector<Real> sigma;
     sctl::Profile::Tic("Solver: KrylovPrecond_setup");
@@ -289,22 +252,22 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Profile::reset();
     comm.Barrier();
 
-    sctl::Vector<Real> sigma1;
-    sctl::Profile::Tic("Solver1");
-    // PRECOND with Krylov
-    solver(&sigma1, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    // solver(&sigma1,BIO,-bg_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    sctl::Profile::reset();
-    comm.Barrier();
+    // sctl::Vector<Real> sigma1;
+    // sctl::Profile::Tic("Solver1");
+    // // PRECOND with Krylov
+    // solver(&sigma1, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    // // solver(&sigma1,BIO,-bg_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    // sctl::Profile::reset();
+    // comm.Barrier();
     if (!comm.Rank()) {
         std::cout << "------------------- DONE WITH SOLVE ======================" << std::endl;
     }
 
     if (write_ref) { 
         PeriodicGeom<Real> trg;    
-        CubeVolumeVisShifted<Real> vol_vis(100, 1.0, comm);
+        CubeVolumeVisShifted<Real> vol_vis(60, 0.9, comm);
         // VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
         // X0 = vol_vis.GetCoord();
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
@@ -319,10 +282,15 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         BIO(&U, sigma);
         U += bg_unif_flow(X0);
 
+        if (!comm.Rank()) {
+            std::cout << "U calculated." << std::endl;
+        }
+
         sctl::Vector<Real> U_vis(X0_all.Dim());
         U_vis = 0.;
         sctl::Long X1_ptr = 0;
         for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+            std::cout << "Target point " << i << ", filtered out? " << filtered_inds[i] << std::endl;
             if (filtered_inds[i] == 0) {
                 U_vis[i*3] = U[X1_ptr*3];
                 U_vis[i*3+1] = U[X1_ptr*3+1];
@@ -330,6 +298,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
                 X1_ptr += 1;
             }
         }
+        std::cout << "Right before writing to vis." << std::endl;
         vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"streamlines", U_vis); 
     } 
 }

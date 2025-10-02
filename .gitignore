@@ -1,6 +1,7 @@
 *.out
 vis/*
 past_runs/*
+past_data/*
 *.txt
 bin/*
 *.data

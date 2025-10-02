@@ -68,6 +68,16 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
     } else {
         gmres_tol = 1e-12;
     }
+
+    if (FourierOrder < 20) {
+        gmres_tol = 1e-6;
+    } else if (Nelem < 4) {
+        gmres_tol = 1e-8;
+    } else if (FourierOrder < 36) {
+        gmres_tol = 1e-10;
+    } else {
+        gmres_tol = 1e-12;
+    }
     
     PeriodicGeom<Real> obj;
     sctl::Vector<sctl::Long> ptcls;
@@ -79,16 +89,10 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
         std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
         NormalOrient = std::get<1>(build0);
-        // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 1, peri_mode, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-        // elem_lst_nbr = std::get<0>(build_nbr);
-        // NormalOrient = std::get<1>(build_nbr);
     } else { 
         std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 0, 1, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
         NormalOrient = std::get<1>(build0);
-        // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_nbr = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 1, peri_mode, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-        // elem_lst_nbr = std::get<0>(build_nbr);
-        // NormalOrient = std::get<1>(build_nbr);
     }
     // const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); 
     Nptcl = ptcls_rs.Dim(); 
@@ -161,49 +165,6 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
     } else {
         SCTL_ASSERT(false);
     }
-
-    // StokesBIO LayerPotenOp_proxy(SL_scal, DL_scal, comm); // potential from elem_lst0 to proxy points
-    // LayerPotenOp_proxy.AddElemList(elem_lst0);
-    // LayerPotenOp_proxy.SetTargetCoord(X_proxy);
-    // LayerPotenOp_proxy.SetAccuracy(tol);
-
-            // periodized layer potential operator
-    // const auto BIO = [&DL_scal,&LayerPotenOp0,&LayerPotenOp_proxy,&X0,&Nrepeat,NormalOrient,&peri_mode](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //     const sctl::Long N = sigma.Dim();
-    //     // std::cout << "in BIO, dim of sigma is " << N << std::endl;
-
-    //     sctl::Vector<Real> sigma_nbr(Nrepeat*N); // repeat sigma Nrepeat times
-    //     for (sctl::Long k = 0; k < Nrepeat; k++) {
-    //         for (sctl::Long i = 0; i < N; i++) {
-    //             sigma_nbr[k*N+i] = sigma[i];
-    //         }
-    //     }
-
-    //     U->SetZero();
-    //     LayerPotenOp0.ComputePotential(*U, sigma_nbr);
-    //     if (DL_scal && U->Dim() == N) {
-    //         (*U) -= sigma*0.5*NormalOrient * DL_scal;
-    //     }
-
-    //     { // Add far-field
-    //         sctl::Vector<Real> U_proxy, U_far;
-    //         LayerPotenOp_proxy.ComputePotential(U_proxy, sigma);
-    //         if (peri_mode==1) {
-    //             // 1-periodic
-    //             // Periodize1D<Real>::EvalFarField(U_far, X0, U_proxy,30,20);
-    //             Periodize1D<Real>::EvalFarField(U_far,X0,U_proxy);
-    //         } else if (peri_mode==3) {
-    //             // 3-periodic
-    //             Periodize3D<Real>::EvalFarField(U_far, X0, U_proxy);
-    //         } else {
-    //             std::cout << "2-periodic not yet implemented." << std::endl;
-    //             SCTL_ASSERT(false);
-    //         }
-            
-    //         (*U) += U_far;
-    //     } 
-    //     // comm.Barrier();
-    // };
 
     // periodized layer potential operator
     const auto BIO = [&DL_scal,&LayerPotenOp0,&X0,NormalOrient](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
@@ -303,6 +264,11 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
     // solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
     // sctl::Profile::reset();
 
+    // LayerPotenOp0.ClearSetup();
+    // sctl::Profile::Tic("Setup");
+    // LayerPotenOp0.Setup();
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm);
     // LayerPotenOp0.ClearSetup();
     // sctl::Profile::Tic("Setup");
     // LayerPotenOp0.Setup();
