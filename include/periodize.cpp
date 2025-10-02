@@ -502,7 +502,7 @@ template <class Real> sctl::Matrix<Real> Periodize1D<Real>::GetMat_UC2DE1_QuadRe
 template <class Real> const sctl::Vector<Real>& Periodize3D<Real>::GetProxySurf() {
   static const sctl::Vector<Real> proxy_surf = [](){
     sctl::Vector<Real> X;
-    X.template Read<PrecompReal>("data/dn_equiv_surf_l30_m20.mat");
+    X.template Read<PrecompReal>("data/dn_equiv_surf.mat");
     return X;
   }();
   return proxy_surf;
@@ -526,10 +526,10 @@ template <class Real> void Periodize3D<Real>::EvalFarField(sctl::Vector<Real>& U
 template <class Real> const sctl::Matrix<Real>& Periodize3D<Real>::GetMat_UC2DE0() {
   static sctl::Matrix<Real> Mbc = [](){
     sctl::Matrix<Real> Mbc_ue2dc, M_dc2de0, M_uc2ue0, M_uc2ue1;
-    M_uc2ue0.template Read<PrecompReal>("data/M_uc2ue0_l30_m20.mat");
-    M_uc2ue1.template Read<PrecompReal>("data/M_uc2ue1_l30_m20.mat");
-    Mbc_ue2dc.template Read<PrecompReal>("data/Mbc_ue2dc_l30_m20.mat");
-    M_dc2de0.template Read<PrecompReal>("data/M_dc2de0_l30_m20.mat");
+    M_uc2ue0.template Read<PrecompReal>("data/M_uc2ue0.mat");
+    M_uc2ue1.template Read<PrecompReal>("data/M_uc2ue1.mat");
+    Mbc_ue2dc.template Read<PrecompReal>("data/Mbc_ue2dc.mat");
+    M_dc2de0.template Read<PrecompReal>("data/M_dc2de0.mat");
     return (M_uc2ue0 * (M_uc2ue1 * Mbc_ue2dc)) * M_dc2de0;
   }();
   return Mbc;
@@ -538,7 +538,7 @@ template <class Real> const sctl::Matrix<Real>& Periodize3D<Real>::GetMat_UC2DE0
 template <class Real> const sctl::Matrix<Real>& Periodize3D<Real>::GetMat_UC2DE1() {
   static sctl::Matrix<Real> Mbc = [](){
     sctl::Matrix<Real> M_dc2de1;
-    M_dc2de1.template Read<PrecompReal>("data/M_dc2de1_l30_m20.mat");
+    M_dc2de1.template Read<PrecompReal>("data/M_dc2de1.mat");
     return M_dc2de1;
   }();
   return Mbc;

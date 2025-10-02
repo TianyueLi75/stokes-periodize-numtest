@@ -44,6 +44,7 @@ template <class Real> void test(sctl::Comm comm) {
   const sctl::Long FourierOrder = 28;
 
   const auto build_elem_lst = [](const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder){
+  const auto build_elem_lst = [](const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder){
     sctl::Vector<Real> Xc, eps, orient;
     sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
     for (sctl::Long i = 0; i < Nelem; i++) {
@@ -56,7 +57,20 @@ template <class Real> void test(sctl::Comm comm) {
         Xc.PushBack(0.4);
         Xc.PushBack(0.3);
         eps.PushBack(0.2);
+    for (sctl::Long i = 0; i < Nelem; i++) {
+      ElemOrderVec.PushBack(ElemOrder);
+      FourierOrderVec.PushBack(FourierOrder);
+      const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrderVec[i]);
+      for (sctl::Long j = 0; j < ElemOrderVec[i]; j++) {
+        const Real x = (i+nodes[j])/Nelem;
+        Xc.PushBack(x);
+        Xc.PushBack(0.4);
+        Xc.PushBack(0.3);
+        eps.PushBack(0.2);
 
+        orient.PushBack(0);
+        orient.PushBack(0);
+        orient.PushBack(1);
         orient.PushBack(0);
         orient.PushBack(0);
         orient.PushBack(1);
@@ -82,13 +96,19 @@ template <class Real> void test(sctl::Comm comm) {
 
   StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst to X0
   LayerPotenOp0.AddElemList(elem_lst0);
+  StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst to X0
+  LayerPotenOp0.AddElemList(elem_lst0);
   LayerPotenOp0.SetTargetCoord(X0);
   LayerPotenOp0.SetAccuracy(tol);
+  LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, 1.0);
   LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, 1.0);
 
   // periodized layer potential operator
   const auto BIO = [&DL_scal,&LayerPotenOp0,&X0](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+  const auto BIO = [&DL_scal,&LayerPotenOp0,&X0](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
     U->SetZero();
+    LayerPotenOp0.ComputePotential(*U, sigma);
+    if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma*0.5 * DL_scal; // for double-layer
     LayerPotenOp0.ComputePotential(*U, sigma);
     if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma*0.5 * DL_scal; // for double-layer
   };
