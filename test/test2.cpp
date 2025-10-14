@@ -29,11 +29,199 @@ template <class Real> sctl::Vector<Real> bg_unif_flow(const sctl::Vector<Real>& 
     return U;
 }
 
+template <class Real> sctl::Vector<sctl::Vector<Real>> get_rot_mat(const sctl::Vector<Real> Xc) {
+    sctl::Vector<Real> center;
+    center = {0.5,0.5,0.5};
+    sctl::Vector<Real> r1 = Xc - center;
+    // std::cout << "Xc - center = r1 = " << r1[0] << ", " << r1[1] << ", " << r1[2] << std::endl;
+    Real r1norm = r1[0]*r1[0] + r1[1]*r1[1] + r1[2]*r1[2];
+    sctl::Vector<Real> r2, r3;
+    if (r1norm > 1e-5) {
+        // std::cout << "center not at (0.5,0.5,0.5)." << std::endl;
+        r2 = {r1[1], -r1[0], 0.};
+        Real r2norm = r2[0]*r2[0] + r2[1]*r2[1] + r2[2]*r2[2];
+        r2 = r2 / sctl::sqrt<Real>(r2norm);
+        r1 = r1 / sctl::sqrt<Real>(r1norm);
+        // std::cout << "new r1 = "<< r1[0] << ", " << r1[1] << ", " << r1[2] << std::endl;
+        r3 = { \
+            r1[1]*r2[2] - r1[2]*r2[1], \
+            -r1[0]*r2[2] + r1[2]*r2[0], \
+            r1[0]*r2[1] - r1[1]*r2[0]
+        };
+        r3 = -r3;
+        // std::cout << "r2 = "<< r2[0] << ", " << r2[1] << ", " << r2[2] << std::endl;
+        // std::cout << "r3 = "<< r3[0] << ", " << r3[1] << ", " << r3[2] << std::endl;
+    } else {
+        r1 = {1.,0.,0.};
+        r2 = {0.,1.,0.};
+        r3 = {0.,0.,1.};
+    }
+    
+    sctl::Vector<sctl::Vector<Real>> R;
+    // R = {r1,r2,r3}; // NOTE: R = [ -r1T- ; -r2T- ; -r3T- ], actually the COB from standard to new basis.
+    R = {r1, r3, r2}; // Same order as x-y-z.
+    return R;
+}
+
+template <class Real> Real get_rot_mat_direction(const sctl::Vector<Real> Ftot, sctl::Vector<sctl::Vector<Real>>* R) {
+    Real utilde = Ftot[0]*Ftot[0] + Ftot[1]*Ftot[1] + Ftot[2]*Ftot[2]; // technically radius * translational_velocity.
+    sctl::Vector<Real> r1, r2, r3; // unit vectors for rotation matrix
+    r1 = {-Ftot[1], Ftot[0], 0.}; // normal to Ftot, but rotated cw instead of ccw.
+    Real r1norm = r1[0]*r1[0] + r1[1]*r1[1] + r1[2]*r1[2];
+    r2 = Ftot / sctl::sqrt<Real>(utilde);
+    r1 = r1 / sctl::sqrt<Real>(r1norm);
+    // std::cout << "new r1 = "<< r1[0] << ", " << r1[1] << ", " << r1[2] << std::endl;
+    r3 = { \
+        r1[1]*r2[2] - r1[2]*r2[1], \
+        -r1[0]*r2[2] + r1[2]*r2[0], \
+        r1[0]*r2[1] - r1[1]*r2[0]
+    };
+    r3 = -r3;
+    // std::cout << "r2 = "<< r2[0] << ", " << r2[1] << ", " << r2[2] <<"); norm of Ftot = " << utilde << std::endl;
+    // std::cout << "r3 = "<< r3[0] << ", " << r3[1] << ", " << r3[2] << std::endl;
+    
+    // R = {r1,r2,r3}; // NOTE: R = [ -r1T- ; -r2T- ; -r3T- ], actually the COB from standard to new basis.
+    (*R) = {r1, r3, r2}; // Same order as x-y-z.
+    return utilde;
+}
+
+template <class Real> sctl::Vector<Real> vslip(const sctl::Vector<Real> Xtrg, const sctl::Vector<Real> Xc, const Real r) {
+    sctl::Long Ntrg = Xtrg.Dim()/3;
+    sctl::Vector<Real> Utrg(Xtrg.Dim());
+    sctl::Vector<sctl::Vector<Real>> R = get_rot_mat(Xc);
+    auto COB = [&R](sctl::Vector<Real> v, bool RT) {
+        sctl::Vector<Real> vr(3);
+        if (RT) { // If using R transposed
+            vr[0] = R[0][0] * v[0] + R[1][0] * v[1] + R[2][0] * v[2];
+            vr[1] = R[0][1] * v[0] + R[1][1] * v[1] + R[2][1] * v[2];
+            vr[2] = R[0][2] * v[0] + R[1][2] * v[1] + R[2][2] * v[2];
+        } else {
+            vr[0] = R[0][0] * v[0] + R[0][1] * v[1] + R[0][2] * v[2];
+            vr[1] = R[1][0] * v[0] + R[1][1] * v[1] + R[1][2] * v[2];
+            vr[2] = R[2][0] * v[0] + R[2][1] * v[1] + R[2][2] * v[2];
+        }
+        return vr;
+    };
+    for (sctl::Long i=0; i < Ntrg; i++) {
+        sctl::Vector<Real> Xtrg_here(3,(sctl::Iterator<Real>)Xtrg.begin()+i*3,true);
+        sctl::Vector<Real> XtoXc_here = Xtrg_here - Xc;
+        sctl::Vector<Real> Xtrg_rot = COB(XtoXc_here, false);
+        // std::cout << "Xtrg before rot: (" << Xtrg_here[0]<<","<<Xtrg_here[1]<<","<<Xtrg_here[2] <<"), vector from center: (" << XtoXc_here[0]<<","<<XtoXc_here[1]<<","<<XtoXc_here[2] << "); after rot = ("<< Xtrg_rot[0]<<","<<Xtrg_rot[1]<<","<<Xtrg_rot[2]<<")." <<std::endl;
+        Real phi = sctl::atan2<Real>(Xtrg_rot[1],Xtrg_rot[0]);
+        Real theta = sctl::acos<Real>((Xtrg_rot[2])/r);
+        // std::cout << "angles in body frame: phi = " << phi << ", theta = " << theta << std::endl;
+        sctl::Vector<Real> vslip_here;
+        vslip_here = { \
+            - sctl::sin<Real>(theta) * sctl::cos<Real>(theta) * sctl::cos<Real>(phi), \
+            - sctl::sin<Real>(theta) * sctl::cos<Real>(theta) * sctl::sin<Real>(phi), \
+            sctl::sin<Real>(theta) * sctl::sin<Real>(theta) 
+        };
+        sctl::Vector<Real> Utrg_here = COB(vslip_here,true);
+        // std::cout << "vslip in body frame: (" << vslip_here[0]<<","<<vslip_here[1]<<","<<vslip_here[2] <<"), in lab frame = ("<< Utrg_here[0]<<","<<Utrg_here[1]<<","<<Utrg_here[2]<<")." <<std::endl;
+        Utrg[i*3+0] = Utrg_here[0];
+        Utrg[i*3+1] = Utrg_here[1];
+        Utrg[i*3+2] = Utrg_here[2];
+    }
+    return Utrg;
+}
+
+template <class Real> sctl::Vector<Real> vslip_direction(const sctl::Vector<Real> Xtrg, const sctl::Vector<Real> Xc, const Real r, const sctl::Vector<Real> Ftot) {
+    sctl::Long Ntrg = Xtrg.Dim()/3;
+    sctl::Vector<Real> Utrg(Xtrg.Dim());
+    sctl::Vector<sctl::Vector<Real>> R;
+    Real utilde = get_rot_mat_direction(-Ftot, &R); 
+    auto COB = [&R](sctl::Vector<Real> v, bool RT) {
+        sctl::Vector<Real> vr(3);
+        if (RT) { // If using R transposed
+            vr[0] = R[0][0] * v[0] + R[1][0] * v[1] + R[2][0] * v[2];
+            vr[1] = R[0][1] * v[0] + R[1][1] * v[1] + R[2][1] * v[2];
+            vr[2] = R[0][2] * v[0] + R[1][2] * v[1] + R[2][2] * v[2];
+        } else {
+            vr[0] = R[0][0] * v[0] + R[0][1] * v[1] + R[0][2] * v[2];
+            vr[1] = R[1][0] * v[0] + R[1][1] * v[1] + R[1][2] * v[2];
+            vr[2] = R[2][0] * v[0] + R[2][1] * v[1] + R[2][2] * v[2];
+        }
+        return vr;
+    };
+    for (sctl::Long i=0; i < Ntrg; i++) {
+        sctl::Vector<Real> Xtrg_here(3,(sctl::Iterator<Real>)Xtrg.begin()+i*3,true);
+        sctl::Vector<Real> XtoXc_here = Xtrg_here - Xc;
+        sctl::Vector<Real> Xtrg_rot = COB(XtoXc_here, false);
+        // std::cout << "Xtrg before rot: (" << Xtrg_here[0]<<","<<Xtrg_here[1]<<","<<Xtrg_here[2] <<"), vector from center: (" << XtoXc_here[0]<<","<<XtoXc_here[1]<<","<<XtoXc_here[2] << "); after rot = ("<< Xtrg_rot[0]<<","<<Xtrg_rot[1]<<","<<Xtrg_rot[2]<<")." <<std::endl;
+        Real phi = sctl::atan2<Real>(Xtrg_rot[1],Xtrg_rot[0]);
+        Real theta = sctl::acos<Real>((Xtrg_rot[2])/r);
+        // std::cout << "angles in body frame: phi = " << phi << ", theta = " << theta << std::endl;
+        sctl::Vector<Real> vslip_here;
+        vslip_here = { \
+            - sctl::sin<Real>(theta) * sctl::cos<Real>(theta) * sctl::cos<Real>(phi), \
+            - sctl::sin<Real>(theta) * sctl::cos<Real>(theta) * sctl::sin<Real>(phi), \
+            sctl::sin<Real>(theta) * sctl::sin<Real>(theta) 
+        };
+        vslip_here = sctl::sqrt<Real>(utilde) / r * vslip_here; // rescaled by required translational velocity
+        sctl::Vector<Real> Utrg_here = COB(vslip_here,true);
+        // std::cout << "vslip in body frame: (" << vslip_here[0]<<","<<vslip_here[1]<<","<<vslip_here[2] <<"), in lab frame = ("<< Utrg_here[0]<<","<<Utrg_here[1]<<","<<Utrg_here[2]<<")." <<std::endl;
+        Utrg[i*3+0] = Utrg_here[0];
+        Utrg[i*3+1] = Utrg_here[1];
+        Utrg[i*3+2] = Utrg_here[2];
+    }
+    return Utrg;
+}
+
+
+template <class Real> sctl::Vector<Real> total_vslip(const sctl::Vector<Real> X0, const sctl::Long ptcl_gridsize, const sctl::Long Nptcl, const sctl::Vector<Real> ptcls_Xcs, const sctl::Vector<Real> ptcls_rs) {
+    sctl::Vector<Real> Uslip(X0.Dim());
+    // Set up for total force calculation
+    sctl::Vector<Real> Ftot(3);
+    Ftot = 0.;
+    sctl::Vector<Real> center;
+    center = {0.5,0.5,0.5};
+    sctl::Vector<Real> r1, r2;
+    /////////////////////////
+    for (int ptcl_ind = 0; ptcl_ind < Nptcl-1; ptcl_ind++) {
+        sctl::Vector<Real> Xtrg_here(ptcl_gridsize, (sctl::Iterator<Real>) X0.begin()+ptcl_ind * ptcl_gridsize,true);
+        sctl::Vector<Real> Xc_here(3, (sctl::Iterator<Real>) ptcls_Xcs.begin()+ptcl_ind * 3,true);
+        Real r_here = ptcls_rs[ptcl_ind];
+        sctl::Vector<Real> Uslip_here = vslip(Xtrg_here, Xc_here, r_here);
+        for (int i=0; i<ptcl_gridsize; i++) {
+            Uslip[ptcl_ind*ptcl_gridsize + i] = Uslip_here[i];
+        }
+        // Sum up total force by Stokes drag law from this particle going U=1 velocity in angular direction
+        r1 = Xc_here - center;
+        Real r1norm = r1[0]*r1[0] + r1[1]*r1[1] + r1[2]*r1[2];
+        if (r1norm > 1e-5) {
+            r2 = {r1[1], -r1[0], 0.};
+            Real r2norm = r2[0]*r2[0] + r2[1]*r2[1] + r2[2]*r2[2];
+            r2 = r2 / sctl::sqrt<Real>(r2norm);
+        } else {
+            r2 = {0.,0.,1.}; // TODO: check this.
+        }
+        // std::cout << "Ftot r2 = (" << r2[0] << ", " << r2[1] << ", " << r2[2] << ")." << std::endl;
+        Ftot += r_here * r2;
+    }
+    // Set vslip on last sphere such that total force is zero in a periodic box.
+    sctl::Vector<Real> Xtrg_here(ptcl_gridsize, (sctl::Iterator<Real>) X0.begin()+(Nptcl-1) * ptcl_gridsize,true);
+    sctl::Vector<Real> Xc_here(3, (sctl::Iterator<Real>) ptcls_Xcs.begin()+(Nptcl-1) * 3,true);
+    Real r_here = ptcls_rs[Nptcl-1];
+    sctl::Vector<Real> Uslip_here = vslip_direction(Xtrg_here, Xc_here, r_here, Ftot);
+    for (int i=0; i<ptcl_gridsize; i++) {
+        Uslip[(Nptcl-1)*ptcl_gridsize + i] = Uslip_here[i];
+    }
+    // // CHECK that total F adds up to (0,0,0).
+    // sctl::Vector<sctl::Vector<Real>> Rtemp;
+    // Real utilde = get_rot_mat_direction(-Ftot, &Rtemp); 
+    // std::cout << "F before last particle: (" << Ftot[0] << ", " << Ftot[1] << ", " << Ftot[2] <<");" <<std::endl;
+    // std::cout << "r2 from inside get_rot_mat is (" << Rtemp[2][0] << ", " << Rtemp[2][1] << ", " << Rtemp[2][2] << ")" << std::endl;
+    // Ftot = Ftot + sctl::sqrt<Real>(utilde)*Rtemp[2];
+    // std::cout << "F after adding Uslip of last particle: (" << Ftot[0] << ", " << Ftot[1] << ", " << Ftot[2] <<");" <<std::endl;
+    
+    return Uslip;
+}
+
 template <class Real> void plot_setup(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Integer peri_mode, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode, const Real gmres_tol, const Real tol) {
 
-    // Combine single-layer and double-layer kernels in these proportions
-    const Real SL_scal = 1.0;
-    const Real DL_scal = 1.0;
+    // // Combine single-layer and double-layer kernels in these proportions
+    // const Real SL_scal = 1.0;
+    // const Real DL_scal = 1.0;
 
     const sctl::Long ElemOrder = 10;
     
@@ -58,8 +246,10 @@ template <class Real> void plot_setup(sctl::Long Nelem, sctl::Long FourierOrder,
 
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
+    sctl::Long ptcl_gridsize = Nelem * ElemOrder * FourierOrder * 3; 
+    sctl::Vector<Real> Uslip = total_vslip(X0, ptcl_gridsize, Nptcl, ptcls_Xcs, ptcls_rs);
     if (write_ref) {
-        elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres",X0,comm);
+        elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres",Uslip,comm);
     }  
 }
 
@@ -93,18 +283,14 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
+    // if (write_ref) {
+    //     elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres",X0,comm);
+    // }  
+    sctl::Long ptcl_gridsize = Nelem * ElemOrder * FourierOrder * 3; 
+    sctl::Vector<Real> Uslip = total_vslip(X0, ptcl_gridsize, Nptcl, ptcls_Xcs, ptcls_rs);
     if (write_ref) {
-        elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres",X0,comm);
+        elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres",Uslip,comm);
     }  
-
-    sctl::Vector<Real> X_proxy;
-    if (peri_mode == 1) {
-        X_proxy = Periodize1D<Real>::GetProxySurf();
-    } else if (peri_mode == 3) {
-        X_proxy = Periodize3D<Real>::GetProxySurf(); // proxy points coordinates
-    } else {
-        SCTL_ASSERT(false);
-    }
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
     LayerPotenOp0.AddElemList(elem_lst0);
@@ -212,7 +398,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     // first gmres to remove timing for matrix loading, and set Krylov preconditioner.
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
-    sctl::Vector<Real> A11invF = AinvApply(-bg_unif_flow(X0));
+    sctl::Vector<Real> A11invF = AinvApply(Uslip);
 
     // sctl::Vector<Real> sigma_temp;
     // solver(&sigma_temp, BIO_precond, A11invF, 1e-2);
@@ -267,7 +453,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 
     if (write_ref) { 
         PeriodicGeom<Real> trg;    
-        CubeVolumeVisShifted<Real> vol_vis(60, 0.9, comm);
+        CubeVolumeVisShifted<Real> vol_vis(80, 0.9, comm);
         // VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
         // X0 = vol_vis.GetCoord();
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
@@ -280,7 +466,6 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         LayerPotenOp0.SetTargetCoord(X0);
         sctl::Vector<Real> U;
         BIO(&U, sigma);
-        U += bg_unif_flow(X0);
 
         sctl::Vector<Real> U_vis(X0_all.Dim());
         U_vis = 0.;
