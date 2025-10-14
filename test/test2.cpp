@@ -129,6 +129,7 @@ template <class Real> sctl::Vector<Real> vslip_direction(const sctl::Vector<Real
     sctl::Long Ntrg = Xtrg.Dim()/3;
     sctl::Vector<Real> Utrg(Xtrg.Dim());
     sctl::Vector<sctl::Vector<Real>> R;
+    // std::cout << "Ftot in vslip direction: " << Ftot[0] << ", " << Ftot[1] << ", " << Ftot[2] << std::endl;
     Real utilde = get_rot_mat_direction(-Ftot, &R); 
     auto COB = [&R](sctl::Vector<Real> v, bool RT) {
         sctl::Vector<Real> vr(3);
@@ -195,7 +196,7 @@ template <class Real> sctl::Vector<Real> total_vslip(const sctl::Vector<Real> X0
         } else {
             r2 = {0.,0.,1.}; // TODO: check this.
         }
-        // std::cout << "Ftot r2 = (" << r2[0] << ", " << r2[1] << ", " << r2[2] << ")." << std::endl;
+        // std::cout << "ptcl ind = " << ptcl_ind << ", Ftot r2 = (" << r2[0] << ", " << r2[1] << ", " << r2[2] << ")." << std::endl;
         Ftot += r_here * r2;
     }
     // Set vslip on last sphere such that total force is zero in a periodic box.
@@ -247,7 +248,10 @@ template <class Real> void plot_setup(sctl::Long Nelem, sctl::Long FourierOrder,
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
     sctl::Long ptcl_gridsize = Nelem * ElemOrder * FourierOrder * 3; 
-    sctl::Vector<Real> Uslip = total_vslip(X0, ptcl_gridsize, Nptcl, ptcls_Xcs, ptcls_rs);
+    sctl::Long Nptcl_slip = elem_lst0.Size() / Nelem; 
+    sctl::Vector<Real> ptcls_Xcs_slip(Nptcl_slip * 3, (sctl::Iterator<Real>)ptcls_Xcs.begin() + comm.Rank()*Nptcl_slip*3, true);
+    sctl::Vector<Real> ptcls_rs_slip(Nptcl_slip,  (sctl::Iterator<Real>)ptcls_rs.begin()+comm.Rank()*Nptcl_slip, true);
+    sctl::Vector<Real> Uslip = total_vslip(X0, ptcl_gridsize, Nptcl_slip, ptcls_Xcs_slip, ptcls_rs_slip);
     if (write_ref) {
         elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres",Uslip,comm);
     }  
@@ -287,9 +291,12 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     //     elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres",X0,comm);
     // }  
     sctl::Long ptcl_gridsize = Nelem * ElemOrder * FourierOrder * 3; 
-    sctl::Vector<Real> Uslip = total_vslip(X0, ptcl_gridsize, Nptcl, ptcls_Xcs, ptcls_rs);
+    sctl::Long Nptcl_slip = elem_lst0.Size() / Nelem; 
+    sctl::Vector<Real> ptcls_Xcs_slip(Nptcl_slip * 3, (sctl::Iterator<Real>)ptcls_Xcs.begin() + comm.Rank()*Nptcl_slip*3, true);
+    sctl::Vector<Real> ptcls_rs_slip(Nptcl_slip,  (sctl::Iterator<Real>)ptcls_rs.begin()+comm.Rank()*Nptcl_slip, true);
+    sctl::Vector<Real> Uslip = total_vslip(X0, ptcl_gridsize, Nptcl_slip, ptcls_Xcs_slip, ptcls_rs_slip);
     if (write_ref) {
-        elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres",Uslip,comm);
+        elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_streamline/"+std::to_string(Nptcl)+"spheres",Uslip,comm);
     }  
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
@@ -431,7 +438,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Vector<Real> sigma;
     sctl::Profile::Tic("Solver: KrylovPrecond_setup");
     solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    // solver(&sigma,BIO,-bg_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
+    // solver(&sigma,BIO,Uslip, gmres_tol, -1, false, nullptr, &krylov_precond);
     // solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false);
     sctl::Profile::Toc();
     sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
@@ -453,7 +460,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 
     if (write_ref) { 
         PeriodicGeom<Real> trg;    
-        CubeVolumeVisShifted<Real> vol_vis(80, 0.9, comm);
+        CubeVolumeVisShifted<Real> vol_vis(80, 0.95, comm);
         // VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
         // X0 = vol_vis.GetCoord();
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
@@ -478,7 +485,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
                 X1_ptr += 1;
             }
         }
-        vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"streamlines", U_vis); 
+        vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_streamline/"+std::to_string(Nptcl)+"streamlines", U_vis); 
     } 
 }
 
