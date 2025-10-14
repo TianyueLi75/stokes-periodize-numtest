@@ -861,10 +861,10 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
     // std::cout << "create matrix" << std::endl;
     std::string data_filename;
     sctl::Matrix<Real> Xc_from_file(Nptcl,4);
-    if (Nptcl==25 || Nptcl==50 ||Nptcl==100|| Nptcl==200 ||Nptcl==400 ||Nptcl==800||Nptcl==1600||Nptcl==2000) {
-      data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_larger.txt";
-    } else {
+    if (Nptcl==27 || Nptcl==64||Nptcl==343|| Nptcl==512 ||Nptcl==729 ||Nptcl==1331||Nptcl==1728||Nptcl==2197) { // Nptcl = 125 and Nptcl = 1000 are ignored because they overlap with _larger files, which are used for actual scaling data.
       data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_grid.txt";
+    } else {
+      data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_larger.txt";
     }
     std::ifstream infile(data_filename);
     if (!infile) {

@@ -282,15 +282,10 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         BIO(&U, sigma);
         U += bg_unif_flow(X0);
 
-        if (!comm.Rank()) {
-            std::cout << "U calculated." << std::endl;
-        }
-
         sctl::Vector<Real> U_vis(X0_all.Dim());
         U_vis = 0.;
         sctl::Long X1_ptr = 0;
         for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
-            std::cout << "Target point " << i << ", filtered out? " << filtered_inds[i] << std::endl;
             if (filtered_inds[i] == 0) {
                 U_vis[i*3] = U[X1_ptr*3];
                 U_vis[i*3+1] = U[X1_ptr*3+1];
@@ -298,7 +293,6 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
                 X1_ptr += 1;
             }
         }
-        std::cout << "Right before writing to vis." << std::endl;
         vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"streamlines", U_vis); 
     } 
 }
