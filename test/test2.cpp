@@ -296,7 +296,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
     sctl::Vector<Real> ptcls_rs_slip(Nptcl_slip,  (sctl::Iterator<Real>)ptcls_rs.begin()+comm.Rank()*Nptcl_slip, true);
     sctl::Vector<Real> Uslip = total_vslip(X0, ptcl_gridsize, Nptcl_slip, ptcls_Xcs_slip, ptcls_rs_slip);
     if (write_ref) {
-        elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_streamline/"+std::to_string(Nptcl)+"spheres",Uslip,comm);
+        elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_streamline_vslip/"+std::to_string(Nptcl)+"spheres",Uslip,comm);
     }  
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
@@ -460,7 +460,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
 
     if (write_ref) { 
         PeriodicGeom<Real> trg;    
-        CubeVolumeVisShifted<Real> vol_vis(80, 0.95, comm);
+        CubeVolumeVisShifted<Real> vol_vis(100, 0.9, comm);
         // VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
         // X0 = vol_vis.GetCoord();
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
@@ -485,7 +485,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
                 X1_ptr += 1;
             }
         }
-        vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_streamline/"+std::to_string(Nptcl)+"streamlines", U_vis); 
+        vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_streamline_vslip/"+std::to_string(Nptcl)+"streamlines", U_vis); 
     } 
 }
 

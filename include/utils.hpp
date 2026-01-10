@@ -3,6 +3,7 @@
 
 #include <csbq.hpp>
 #include <tuple>
+#include "sctl/fmm-wrapper.hpp"  // for ParticleFMM
 
 /**
  * Visualize volume inside SlenderElemList.
@@ -172,8 +173,10 @@ template <class Real> class StokesBIO {
      * elements.
      *
      * @param[in] name a string name for this element list.
+     * 
+     * @param[in] sl, dl booleans for whether the element list object will be added to the SL and/or DL operator.
      */
-    template <class ElemLstType> void AddElemList(const ElemLstType& elem_lst, const std::string& name = std::to_string(typeid(ElemLstType).hash_code()));
+    template <class ElemLstType> void AddElemList(const ElemLstType& elem_lst, const std::string& name = std::to_string(typeid(ElemLstType).hash_code()), const bool sl = true, const bool dl = true);
 
     /**
      * Get const reference to an element-list.
@@ -240,6 +243,29 @@ template <class Real> class StokesBIO {
     void ComputePotential(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const;
 
     /**
+     * Evaluate only the single-layer potential.
+     *
+     * @param[out] U the potential computed at each target point in
+     * array-of-struct order.
+     *
+     * @param[in] F the charge density at each surface discretization node in
+     * array-of-struct order.
+     */
+    void ComputeSL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const;
+
+    /**
+     * Evaluate only the double-layer potential.
+     *
+     * @param[out] U the potential computed at each target point in
+     * array-of-struct order.
+     *
+     * @param[in] F the charge density at each surface discretization node in
+     * array-of-struct order.
+     */
+    void ComputeDL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const;
+
+
+    /**
      * Scale input vector by sqrt of the area of the element.
      * TODO: replace by sqrt of surface quadrature weights (not sure if it makes a difference though)
      */
@@ -253,6 +279,9 @@ template <class Real> class StokesBIO {
 
 
   private:
+
+    // In 3-periodic, this allows adding a uniform volume potential to balance the total force density on the surface.
+    static void stokes_sl_volpot(sctl::Matrix<Real>& U, const sctl::Vector<Real>& X);
 
     const sctl::Stokes3D_FxU ker_FxU;
     const sctl::Stokes3D_DxU ker_DxU;
@@ -385,11 +414,14 @@ template <class Real> class PeriodicGeom {
     bool outside_loop(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real pr);
     // void GetDistribution(sctl::Long& elem_cnt_, sctl::Long& elem_dsp_, sctl::Vector<sctl::Long> node_dsp_);
 
+    sctl::Vector<Real> exact_field_fmm(const sctl::Vector<Real>& Xtrg, const sctl::Vector<Real>& Xsrc, const sctl::Vector<Real>& sigma, const sctl::Long Ncopy, const sctl::Integer peri_mode);
+
   private:
     sctl::Comm comm_;
   //   sctl::Long loc_elem_cnt;
   //   sctl::Long loc_elem_dsp;
   //   sctl::Vector<sctl::Long> node_dsp;
+    mutable sctl::ParticleFMM<Real,COORD_DIM> fmm;
 
   };
 
