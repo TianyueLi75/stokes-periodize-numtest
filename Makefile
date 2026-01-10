@@ -112,6 +112,14 @@ test3_copies: $(BINDIR)/test3_copies
 # # Dense suspension of particles in periodic geom, can be replaced by test2_ptcl_conv
 # test4: $(BINDIR)/test4
 
+# Debug plane discretization
+test_plane: $(BINDIR)/test_plane
+# Debug periodicity
+test_peri: $(BINDIR)/test_periodicity
+test_fmm: $(BINDIR)/test_fmm_exact
+test_peri_channel: $(BINDIR)/test_periodicity_channel
+test_peri_netzero: $(BINDIR)/test_netzero
+
 # Test self convergence of channel with or without particles
 test_selfconv: $(BINDIR)/test_convergence
 

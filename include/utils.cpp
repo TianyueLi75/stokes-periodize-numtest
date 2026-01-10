@@ -263,12 +263,28 @@ template <class Real> void XsectionVis<Real>::GetVTUData(sctl::VTUData& vtu_data
 //   vtu_data.WriteVTK(fname, comm);
 // }
 
+template <class Real> void StokesBIO<Real>::stokes_sl_volpot(sctl::Matrix<Real>& U, const sctl::Vector<Real>& X) {
+  const sctl::Long N = X.Dim() / 3;
+  SCTL_ASSERT(X.Dim() == N * 3);
+  if (U.Dim(0)!=3 || U.Dim(1)!=N*3) U.ReInit(3, N*3);
+  for (sctl::Long i = 0; i < N; i++) {
+    const auto x = X.begin() + i*3;
+    const Real rx_2 = x[1]*x[1] + x[2]*x[2];
+    const Real ry_2 = x[0]*x[0] + x[2]*x[2];
+    const Real rz_2 = x[0]*x[0] + x[1]*x[1];
+    U[0][i*3+0] = -rx_2/4; U[0][i*3+1] =       0; U[0][i*3+2] =       0;
+    U[1][i*3+0] =       0; U[1][i*3+1] = -ry_2/4; U[1][i*3+2] =       0;
+    U[2][i*3+0] =       0; U[2][i*3+1] =       0; U[2][i*3+2] = -rz_2/4;
+  }
+}
+
 
 template <class Real> StokesBIO<Real>::StokesBIO(const Real SL_scal, const Real DL_scal, const sctl::Comm comm)
   : comm_(comm), SL_scal_(SL_scal), DL_scal_(DL_scal), LayerPotenSL(ker_FxU, false, comm), LayerPotenDL(ker_DxU, false, comm) {
   LayerPotenSL.SetAccuracy(1e-14);
   LayerPotenDL.SetAccuracy(1e-14);
-  LayerPotenSL.SetFMMKer(ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU);
+  // LayerPotenSL.SetFMMKer(ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU);
+  LayerPotenSL.SetFMMKer(ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, stokes_sl_volpot);
   LayerPotenDL.SetFMMKer(ker_DxU, ker_DxU, ker_DxU, ker_FSxU, ker_FSxU, ker_FSxU, ker_FxU, ker_FxU);
 };
 
@@ -282,13 +298,19 @@ template <class Real> void StokesBIO<Real>::SetAccuracy(Real tol) {
   LayerPotenDL.SetAccuracy(tol);
 }
 
-template <class Real> template <class ElemLstType> void StokesBIO<Real>::AddElemList(const ElemLstType& elem_lst, const std::string& name) {
-  LayerPotenSL.AddElemList(elem_lst, name);
-  LayerPotenDL.AddElemList(elem_lst, name);
+template <class Real> template <class ElemLstType> void StokesBIO<Real>::AddElemList(const ElemLstType& elem_lst, const std::string& name, bool sl, bool dl) {
+  // std::cout << "Adding element list with size: " << elem_lst.Size() << std::endl;
+    
+  if (sl) {
+    LayerPotenSL.AddElemList(elem_lst, name);
+  }
+  if (dl) {
+    LayerPotenDL.AddElemList(elem_lst, name);
+  }
 }
 
 template <class Real> template <class ElemLstType> const ElemLstType& StokesBIO<Real>::GetElemList(const std::string& name) const {
-  return LayerPotenSL.template GetElemList<ElemLstType>(name);
+  return LayerPotenDL.template GetElemList<ElemLstType>(name);
 }
 
 template <class Real> void StokesBIO<Real>::DeleteElemList(const std::string& name) {
@@ -312,7 +334,7 @@ template <class Real> void StokesBIO<Real>::SetTargetNormal(const sctl::Vector<R
 }
 
 template <class Real> sctl::Long StokesBIO<Real>::Dim(sctl::Integer k) const {
-  return LayerPotenSL.Dim(k);
+  return LayerPotenDL.Dim(k);
 }
 
 template <class Real> void StokesBIO<Real>::Setup() const {
@@ -327,8 +349,24 @@ template <class Real> void StokesBIO<Real>::ClearSetup() const {
 
 template <class Real> void StokesBIO<Real>::ComputePotential(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const {
   sctl::Vector<Real> Us, Ud;
-  if (SL_scal_) LayerPotenSL.ComputePotential(Us, F);
-  if (DL_scal_) LayerPotenDL.ComputePotential(Ud, F);
+  if (SL_scal_ && LayerPotenSL.Dim(0)) {
+    if (LayerPotenSL.Dim(0) != F.Dim()) {
+      sctl::Vector<Real> subF(LayerPotenSL.Dim(0), (sctl::Iterator<Real>) F.begin(), true);
+      LayerPotenSL.ComputePotential(Us, subF);
+    } else {
+      std::cout << "Stokes BIE compute potential for SL" << std::endl;
+      LayerPotenSL.ComputePotential(Us, F);
+    }
+  } else {
+    Us.ReInit(LayerPotenSL.Dim(1));
+    Us.SetZero();
+  }
+  if (DL_scal_ && LayerPotenDL.Dim(0)) {
+    LayerPotenDL.ComputePotential(Ud, F);
+  } else {
+    Ud.ReInit(LayerPotenDL.Dim(1));
+    Ud.SetZero();
+  }
 
   if (SL_scal_ && DL_scal_) U = Us * SL_scal_ + Ud * DL_scal_;
   else if (SL_scal_) U = Us * SL_scal_;
@@ -336,12 +374,21 @@ template <class Real> void StokesBIO<Real>::ComputePotential(sctl::Vector<Real>&
   else U.SetZero();
 }
 
+template <class Real> void StokesBIO<Real>::ComputeSL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const {
+  LayerPotenSL.ComputePotential(U, F);
+}
+
+template <class Real> void StokesBIO<Real>::ComputeDL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const {
+  LayerPotenDL.ComputePotential(U, F);
+}
+
+
 template <class Real> void StokesBIO<Real>::SqrtScaling(sctl::Vector<Real>& U) const {
-  LayerPotenSL.SqrtScaling(U);
+  LayerPotenDL.SqrtScaling(U);
 }
 
 template <class Real> void StokesBIO<Real>::InvSqrtScaling(sctl::Vector<Real>& U) const {
-  LayerPotenSL.InvSqrtScaling(U);
+  LayerPotenDL.InvSqrtScaling(U);
 }
 
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_straight(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Integer nbr_range, const sctl::Integer peri_mode, const Real r, const sctl::Comm& comm, const sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
@@ -813,12 +860,12 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
     // ptcls_Xcs.PushBack(0.2);
     // ptcls_Xcs.PushBack(0.2);
     // ptcls_Xcs.PushBack(0.2);
-    // ptcls_rs.PushBack(0.1);
+    // ptcls_rs.PushBack(0.06);
 
     // ptcls_Xcs.PushBack(0.7);
     // ptcls_Xcs.PushBack(0.25);
     // ptcls_Xcs.PushBack(0.65);
-    // ptcls_rs.PushBack(0.25);
+    // ptcls_rs.PushBack(0.2);
 
     // ptcls_Xcs.PushBack(0.5);
     // ptcls_Xcs.PushBack(0.25);
@@ -829,7 +876,8 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
     ptcls_Xcs.PushBack(0.5);
     ptcls_Xcs.PushBack(0.5);
     ptcls_Xcs.PushBack(0.5);
-    ptcls_rs.PushBack(0.3);
+    // ptcls_rs.PushBack(0.3);
+    ptcls_rs.PushBack(0.1);
 
     ptcls.PushBack(Nelem);
     // ptcls.PushBack(Nelem);
@@ -861,7 +909,9 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
     // std::cout << "create matrix" << std::endl;
     std::string data_filename;
     sctl::Matrix<Real> Xc_from_file(Nptcl,4);
-    if (Nptcl==27 || Nptcl==64||Nptcl==343|| Nptcl==512 ||Nptcl==729 ||Nptcl==1331||Nptcl==1728||Nptcl==2197) { // Nptcl = 125 and Nptcl = 1000 are ignored because they overlap with _larger files, which are used for actual scaling data.
+    if (peri_mode==2) {
+      data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_2peri.txt";
+    } else if (Nptcl==27 || Nptcl==64||Nptcl==343|| Nptcl==512 ||Nptcl==729 ||Nptcl==1331||Nptcl==1728||Nptcl==2197) { // Nptcl = 125 and Nptcl = 1000 are ignored because they overlap with _larger files, which are used for actual scaling data.
       data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_grid.txt";
     } else {
       data_filename = "data/sphere_data_"+std::to_string(Nptcl)+"_larger.txt";
@@ -1210,49 +1260,6 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::X_nbr_copy(const sc
   }
 }
 
-// Previous version -- pushback, large memory reallocation cost
-// template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::X_nbr_copy(const sctl::Vector<Real> X, const sctl::Integer nbr_range, const sctl::Integer peri_mode) {
-//   if (nbr_range>0) { // duplicate geomtry to add images
-//     sctl::Vector<Real> Xc_;
-//     if (peri_mode == 1) {
-//       for (sctl::Long k0 = -nbr_range; k0 <= nbr_range; k0++) {
-//         for (sctl::Long i = 0; i < X.Dim()/3; i++) { // shift in x
-//           Xc_.PushBack(X[i*3+0] + k0);
-//           Xc_.PushBack(X[i*3+1]);
-//           Xc_.PushBack(X[i*3+2]);
-//         }
-//       }
-//     } else if (peri_mode == 2) {
-//       for (sctl::Long k1 = -nbr_range; k1 <= nbr_range; k1++) {
-//         for (sctl::Long k0 = -nbr_range; k0 <= nbr_range; k0++) {
-//           for (sctl::Long i = 0; i < X.Dim()/3; i++) { // shift in x
-//             Xc_.PushBack(X[i*3+0] + k0);
-//             Xc_.PushBack(X[i*3+1] + k1);
-//             Xc_.PushBack(X[i*3+2]);
-//           }
-//         }
-//       }
-//     } else if (peri_mode == 3) {
-//       for (sctl::Long k2 = -nbr_range; k2 <= nbr_range; k2++) {
-//         for (sctl::Long k1 = -nbr_range; k1 <= nbr_range; k1++) {
-//           for (sctl::Long k0 = -nbr_range; k0 <= nbr_range; k0++) {
-//             for (sctl::Long i = 0; i < X.Dim()/3; i++) { // shift in x
-//               Xc_.PushBack(X[i*3+0] + k0);
-//               Xc_.PushBack(X[i*3+1] + k1);
-//               Xc_.PushBack(X[i*3+2] + k2);
-//             }
-//           }
-//         }
-//       }
-//     } else {
-//       SCTL_ASSERT(false);
-//     }
-//     return Xc_;
-//   } else {
-//     return X;
-//   }
-// }
-
 // Replaced by XsectionVis
 template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::form_targets(const sctl::Long r_ord, const sctl::Long azi_ord, const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm) {
   // Create streakline targets at Ngroups cross sections, divided evenly among processes in comm, and return the local list.
@@ -1420,11 +1427,6 @@ template <class Real> void PeriodicGeom<Real>::many_sphs(sctl::Vector<Real>& ptc
   }
 }
 
-// template <class Real> void PeriodicGeom<Real>::many_sphs(sctl::Vector<Real>& ptcls_Xcs, sctl::Vector<Real>& ptcls_rs, const Real box_length, const sctl::Long geom_mode) {
-//    // TODO: packed suspension of spheres to be repeated in 2- or 3-periodic geom.
-//   return;
-// }
-
 template <class Real> void PeriodicGeom<Real>::packed_sphs_conv_div(sctl::Vector<Real>& ptcls_Xcs, sctl::Vector<Real>& ptcls_rs, const Real r1, const Real r2) {
   srand48(2);
 
@@ -1587,4 +1589,60 @@ template <class Real> void PeriodicGeom<Real>::spheroid_geom(Real& x, Real& y, R
   ex = 0;
   ey = 1;
   ez = 0;
+}
+
+
+// Use FMM to approximate field generated by infinite copies of Xsrc's in <peri_mode>-periodic geometry; approximation done by adding <Ncopy> many source (with strength <sigma>) contributions using FMM.
+template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::exact_field_fmm(const sctl::Vector<Real>& Xtrg, const sctl::Vector<Real>& Xsrc, const sctl::Vector<Real>& sigma, const sctl::Long Ncopy, const sctl::Integer peri_mode) {
+    sctl::Stokes3D_FxU ker;
+    Real tol_ = 1e-14; // arbitrary multipole accuracy for fmm
+  
+    const sctl::Long N = Xtrg.Dim()/3; // Number of targets.
+    sctl::Vector<Real> U(N*3); // output vector.
+    U.SetZero();
+    // Setup FMM
+    fmm.SetKernels(ker, ker, ker);
+    fmm.AddSrc("Src", ker, ker);
+    fmm.AddTrg("Trg", ker, ker);
+    fmm.SetKernelS2T("Src", "Trg", ker);
+    fmm.SetAccuracy((sctl::Integer)(sctl::log(tol_)/sctl::log(0.1))+1);
+    fmm.SetTrgCoord("Trg", Xtrg);
+    
+    // Vector of all sources for approximation
+    PeriodicGeom<Real> obj;
+    sctl::Vector<Real> Xsrc_, sigma_;
+    if (peri_mode==3) {
+      // 3-Peri requires too large memory for all copies to be loaded at the same time.
+      Xsrc_ = obj.X_nbr_copy(Xsrc,Ncopy,2);
+      sigma_ = obj.vec_nbr_copy(sigma,Ncopy,2);
+      sctl::Long Nsrc2D = Xsrc_.Dim()/3;
+      sctl::Vector<Real> Zshift_(Xsrc.Dim());
+      Zshift_.SetZero();
+      for (int i=0; i<Xsrc.Dim()/3; i++) {
+        Zshift_[i*3+2] = 1.;
+      }
+      // std::cout << "size of Zshift_ before copies: " << Zshift_.Dim() << std::endl;
+      sctl::Vector<Real> Zshift = obj.vec_nbr_copy(Zshift_,Ncopy,2);
+      sctl::Vector<Real> Uloc(Xtrg.Dim());
+      sctl::Vector<Real> Xsrc_plane;
+      fmm.SetSrcDensity("Src", sigma_);
+      for (int k3=-Ncopy; k3<Ncopy; k3++) {
+        std::cout << "K3 = " << k3 << std::endl;
+        Uloc.SetZero(); // reset U
+        // std::cout << "size of Xsrc: " << Xsrc_.Dim() << ", size of Zshift: " << Zshift.Dim() << std::endl;
+        Xsrc_plane = Xsrc_ + k3 * Zshift; // Shift 2D grid by k3*(0,0,1) for each point.
+        // std::cout << "Check shift, Xsrc_[0] was " << Xsrc_[0] << ", " << Xsrc_[1] << ", " << Xsrc_[2] << ", is (after shift) " << Xsrc_plane[0] << ", " << Xsrc_plane[1] << ", " << Xsrc_plane[2] << ". " << std::endl;
+        fmm.SetSrcCoord("Src", Xsrc_plane);
+        fmm.Eval(Uloc, "Trg");
+        U += Uloc;
+      }
+    } else {
+      std::cout << "peri mode < 3" << std::endl;
+      Xsrc_ = obj.X_nbr_copy(Xsrc,Ncopy,peri_mode);
+      sigma_ = obj.vec_nbr_copy(sigma,Ncopy,peri_mode);
+      fmm.SetSrcDensity("Src", sigma_);
+      fmm.SetSrcCoord("Src", Xsrc_); 
+      fmm.Eval(U, "Trg");
+    }
+    return U;
 }
