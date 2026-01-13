@@ -70,7 +70,7 @@ template <class Real> void test(sctl::Long gl_order, sctl::Long Nelem_xy, Real z
     LayerPotenOp1.AddElemList(plane);
     LayerPotenOp1.SetTargetCoord(X0);
     LayerPotenOp1.SetAccuracy(tol);
-    // LayerPotenOp1.SetPeriodicity(sctl::Periodicity::XY, 1.0);
+    LayerPotenOp1.SetPeriodicity(sctl::Periodicity::XY, 1.0);
     sctl::Vector<Real> NormalOrient(X0.Dim());
     NormalOrient = -1.; 
 
@@ -78,8 +78,7 @@ template <class Real> void test(sctl::Long gl_order, sctl::Long Nelem_xy, Real z
     StokesBIO LayerPotenOp2(1.0, 0.0, comm);
     LayerPotenOp2.AddElemList(plane);
     LayerPotenOp2.SetAccuracy(tol);
-    // DEBUG SL: no periodicity first.
-    // LayerPotenOp2.SetPeriodicity(sctl::Periodicity::XY, 1.0);
+    LayerPotenOp2.SetPeriodicity(sctl::Periodicity::XY, 1.0);
 
     Real surface_area_wall;
     sctl::Vector<Real> wts_wall;
@@ -122,9 +121,9 @@ template <class Real> void test(sctl::Long gl_order, sctl::Long Nelem_xy, Real z
         
         U->SetZero();
         LayerPotenOp1.ComputePotential(*U, sigma0);
+        if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
         // DEBUG SL
-        // if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
-        U->SetZero();
+        // U->SetZero();
 
         // single layer singularity subtraction
         {
@@ -168,38 +167,85 @@ template <class Real> void test(sctl::Long gl_order, sctl::Long Nelem_xy, Real z
 
     // Eval: all far.
     const auto BIO_eval = [&wts_wall, &surface_area_wall, &comm, &LayerPotenOp1, &LayerPotenOp2](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {        
-        // U->SetZero();
-        // LayerPotenOp1.ComputePotential(*U, sigma);
-        U->SetZero(); // DEBUG SL
-        // sctl::Vector<Real> U2(U->Dim());
-        // LayerPotenOp2.ComputePotential(U2, sigma);
-        // (*U) += U2;
-        LayerPotenOp2.ComputePotential(*U, sigma);
+        sctl::Vector<Real> sigma_mean, sigma0;
+        { // compute sigma_mean and sigma0 = sigma - sigma_mean
+            sctl::Vector<Real> sigma_mean_wall;
+            sctl::Vector<Real> sigma_wall_ = sigma;
+            SurfaceIntegral(sigma_mean_wall, sigma_wall_, wts_wall);
+            // MPI
+            sctl::Vector<Real> sa_loc(3);
+            for (int i=0; i<3; i++) {
+                sa_loc[i] = sigma_mean_wall[i];
+            }
+            sctl::Vector<Real> sa_all(3);
+            sa_all = 0.;
+            for (int i=0; i<3; i++) {
+                comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+i, (sctl::Iterator<Real>) sa_all.begin()+i, 1, sctl::CommOp::SUM);
+            }
+            sigma_mean = sa_all / surface_area_wall;
+            sigma0 = sigma;
+            AddConstVec(sigma0, -sigma_mean);
+        }
+
+        // std::cout << "DEBUG: sigma mean is " << sigma_mean[0] << ", " << sigma_mean[1] << ", " << sigma_mean[2] << std::endl;
+        
+        U->SetZero();
+        LayerPotenOp1.ComputePotential(*U, sigma0); 
+        // U->SetZero(); // DEBUG SL
+        sctl::Vector<Real> U2(U->Dim());
+        LayerPotenOp2.ComputePotential(U2, sigma0);
+        (*U) += U2;
+
+        AddConstVec(*U, sigma_mean);
+        
     };
 
-    sctl::GMRES<Real> solver(comm);
+    const auto bg_shear_flow = [](const sctl::Vector<Real>& Xtrg) {
+        sctl::Vector<Real> Utrg(Xtrg.Dim());
+        Utrg.SetZero();
+        sctl::Long Ntrg = Xtrg.Dim()/3;
+        for (sctl::Long i=0; i<Ntrg/2; i++) {
+            Utrg[i*3+0] = 1.;
+            Utrg[i*3+1] = 0.5;
+            // shear flow on top plane: [1,0.5,0]; bottom plate fixed.
+        }
+        return Utrg;
+    };
+
+    // sctl::GMRES<Real> solver(comm);
     // sctl::Vector<Real> sigma;
-    // solver(&sigma,BIO, -bg_pres_flow(X0), gmres_tol);
+    // sctl::Vector<Real> Utrg = bg_shear_flow(X0);
+    // solver(&sigma,BIO, Utrg, gmres_tol);
     // plane.WriteVTK("vis/plane_density", sigma, comm);
+
+    // Getting singular values
+    sctl::Long Nsrc = X0_src.Dim()/3;
+    sctl::Vector<Real> sigma_eye(Nsrc*3);
+    sctl::Vector<sctl::Vector<Real>> LPOvecvec(Nsrc*3);
+    for (sctl::Long i=0; i<Nsrc; i++) {
+        for (sctl::Long k=0; k<3; k++) {
+            sigma_eye.SetZero();
+            sigma_eye[i*3+k] = 1.;
+            std::cout << "Node number is = " << i << ", dimension = " << k << std::endl;
+            BIO(LPOvecvec.begin()+i*3+k, sigma_eye);
+        }
+    }
+    // SVD
+    sctl::Matrix<Real> LPOmat(Nsrc*3,Nsrc*3);
+    for (long i=0; i < Nsrc*3; i++) {
+        for (long j = 0; j < Nsrc*3; j++) {
+            LPOmat(j,i) = LPOvecvec[i][j];
+        }
+    }      
+    sctl::Matrix<Real> Usvd_p, VT_p, S_p;
+    sctl::Matrix<Real> LPOforSVD = sctl::Matrix<Real>(LPOmat);
+    LPOforSVD.SVD(Usvd_p, S_p, VT_p);
+    std::cout << "debug by printing matrix singular values:" << std::endl;
+    std::cout << "shape of S_p is " << S_p.Dim(0) << ", " << S_p.Dim(1) << std::endl;
+    for (long i=0; i<S_p.Dim(0); i++) {
+        std::cout << S_p(i,i) << std::endl;
+    }
     
-    // DEBUG SL: Use sigma constant in x.
-    sctl::Vector<Real> sigma(X0.Dim());
-    sigma.SetZero();
-    sctl::Vector<Real> sigma_temp(3);
-    sigma_temp = 0.;
-    sigma_temp[0] = 1.;
-    AddConstVec(sigma, sigma_temp);
-
-    // DEBUG SL: test non-periodic Sl integral
-    sctl::Vector<Real> Xtrg(3);
-    Xtrg[0] = 0.3;
-    Xtrg[1] = 0.46;
-    Xtrg[2] = 0.43;
-
-    sctl::Vector<Real> Utrg(3);
-    BIO_eval(&Utrg,sigma);
-    std::cout << "Utrg at X = [" << Xtrg[0] << ", " << Xtrg[1] << ", " << Xtrg[2] << "] is [" << Utrg[0] << ", " << Utrg[1] << ", " << Utrg[2] << "]" << std::endl;
-
     /*
     // Eval and vis at traget box
     {

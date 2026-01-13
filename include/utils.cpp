@@ -354,7 +354,6 @@ template <class Real> void StokesBIO<Real>::ComputePotential(sctl::Vector<Real>&
       sctl::Vector<Real> subF(LayerPotenSL.Dim(0), (sctl::Iterator<Real>) F.begin(), true);
       LayerPotenSL.ComputePotential(Us, subF);
     } else {
-      std::cout << "Stokes BIE compute potential for SL" << std::endl;
       LayerPotenSL.ComputePotential(Us, F);
     }
   } else {
