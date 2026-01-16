@@ -97,6 +97,58 @@ template <class Real> void test(sctl::Long gl_order, sctl::Long Nelem_xy, Real z
         std::cout << "DEBUG wall surface area, computed to be " << surface_area_wall << std::endl;
     }
 
+    // Real eps = 1e-5;
+    // sctl::Vector<Real> X0_trg;
+
+    // const auto reg_sl_self = [&eps, &wts_wall](const sctl::Vector<Real> Xsrc, const sctl::Vector<Real> sigma) {
+    //     sctl::Long Nsrc = Xsrc.Dim() / 3;
+    //     sctl::Vector<Real> SL_eps(Nsrc*3);
+    //     Real eps2 = eps*eps;
+    //     for (sctl::Long i=0; i<Nsrc; i++) { // trg idx
+    //         sctl::Vector<Real> xtrg(3, (sctl::Iterator<Real>) Xsrc.begin() + i*3, false);
+    //         for (sctl::Long j=0; j<Nsrc; j++) { // src idx
+    //             sctl::Vector<Real> xsrc(3, (sctl::Iterator<Real>) Xsrc.begin() + j*3, false);
+    //             sctl::Vector<Real> r = xtrg - xsrc;
+    //             Real r2 = r[0]*r[0]+r[1]*r[1]+r[2]*r[2];
+    //             Real sqrt_r2e2 = sctl::sqrt<Real>(r2 + eps2);
+    //             Real inv_r2e2 = 1./sqrt_r2e2;
+    //             Real inv3_r2e2 = inv_r2e2*inv_r2e2*inv_r2e2;
+    //             for (sctl::Long k1 = 0; k1 < 3; k1++) { // trg dim
+    //                 for (sctl::Long k2 = 0; k2 < 3; k2++) { // src dim
+    //                     SL_eps[i*3 + k1] += (k1==k2 ? ( (r2+2.*eps2)*inv3_r2e2)*sigma[j*3+k2]*wts_wall[j] : 0.) + r[k1]*r[k2]*inv3_r2e2*sigma[j*3+k2]*wts_wall[j];
+    //                 }
+    //             }
+    //         }
+    //     }       
+    //     return SL_eps;
+    // };
+
+    // const auto reg_sl_far = [&eps, &wts_wall](const sctl::Vector<Real> Xtrg, const sctl::Vector<Real> Xsrc, const sctl::Vector<Real> sigma) {
+    //     sctl::Long Nsrc = Xsrc.Dim() / 3;
+    //     sctl::Long Ntrg = Xtrg.Dim() / 3;
+    //     sctl::Vector<Real> SL_eps(Ntrg*3);
+    //     Real eps2 = eps*eps;
+    //     for (sctl::Long i=0; i<Ntrg; i++) { // trg idx
+    //         sctl::Vector<Real> xtrg(3, (sctl::Iterator<Real>) Xtrg.begin() + i*3, false);
+    //         for (sctl::Long j=0; j<Nsrc; j++) { // src idx
+    //             sctl::Vector<Real> xsrc(3, (sctl::Iterator<Real>) Xsrc.begin() + j*3, false);
+    //             sctl::Vector<Real> r = xtrg - xsrc;
+    //             Real r2 = r[0]*r[0]+r[1]*r[1]+r[2]*r[2];
+    //             Real sqrt_r2e2 = sctl::sqrt<Real>(r2 + eps2);
+    //             // Real inv_r2e2 = sctl::approx_rsqrt<15, Real, >(r2+eps2, r2+eps2 > 0.);
+    //             std::cout << std::setprecision(8) << "debug reg sl far, r2 is " << r2 << ", r2+eps2 is " << r2 + eps2 << std::endl;
+    //             Real inv_r2e2 = 1./sqrt_r2e2;
+    //             Real inv3_r2e2 = inv_r2e2*inv_r2e2*inv_r2e2;
+    //             for (sctl::Long k1 = 0; k1 < 3; k1++) { // trg dim
+    //                 for (sctl::Long k2 = 0; k2 < 3; k2++) { // src dim
+    //                     SL_eps[i*3 + k1] += (k1==k2 ? ( (r2+2.*eps2)*inv3_r2e2)*sigma[j*3+k2]*wts_wall[j] : 0.) + r[k1]*r[k2]*inv3_r2e2*sigma[j*3+k2]*wts_wall[j];
+    //                 }
+    //             }
+    //         }
+    //     }       
+    //     return SL_eps;
+    // };
+
     // periodized layer potential operator
     const auto BIO = [&wts_wall, &surface_area_wall, &plane, &comm, DL_scal,&LayerPotenOp1,NormalOrient,&LayerPotenOp2,&X0_src](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         sctl::Vector<Real> sigma_mean, sigma0;
@@ -125,42 +177,48 @@ template <class Real> void test(sctl::Long gl_order, sctl::Long Nelem_xy, Real z
         // DEBUG SL
         // U->SetZero();
 
-        // single layer singularity subtraction
-        {
-            sctl::Long Nentries_plane = X0_src.Dim()/2; 
-            sctl::Vector<Real> U2(3); 
-            // Top plane first.
-            for (int i=0; i<X0_src.Dim()/6; i++) {
-                // Get sigma, x for i-th node
-                sctl::Vector<Real> sigma_i(3, (sctl::Iterator<Real>) sigma0.begin() + i*3, true);
-                sctl::Vector<Real> x_i(3, (sctl::Iterator<Real>) X0_src.begin() + i*3, true);
-                // Change sigma_top_0 to sigma_top_0 - sigma_i
-                sctl::Vector<Real> sigma_topsub = sigma0;
-                sctl::Vector<Real> sigma_top(Nentries_plane, (sctl::Iterator<Real>) sigma_topsub.begin(), false); 
-                AddConstVec(sigma_top, -sigma_i);
-                // Evaluate SL1[sigma_top - sigma_i](x_i) + SL2[sigma_bot](x_i), subtracted (sigma_i) * (int G dS) = 0
-                LayerPotenOp2.SetTargetCoord(x_i);
-                LayerPotenOp2.ComputePotential(U2, sigma_topsub); 
-                // Add SL vel to DL vel
-                for (int k=0; k<3; k++) {
-                    (*U)[i*3+k] += U2[k];
-                }
-            }
-            // Bottom plane
-            for (int i=0; i<X0_src.Dim()/6; i++) {
-                sctl::Vector<Real> sigma_i(3, (sctl::Iterator<Real>) sigma0.begin() + Nentries_plane + i*3, true);
-                sctl::Vector<Real> x_i(3, (sctl::Iterator<Real>) X0_src.begin() + Nentries_plane + i*3, true);
-                // Change sigma_top_0 to sigma_top_0 - sigma_i
-                sctl::Vector<Real> sigma_botsub = sigma0;
-                sctl::Vector<Real> sigma_bot(Nentries_plane, (sctl::Iterator<Real>) sigma_botsub.begin() + Nentries_plane, false); 
-                AddConstVec(sigma_bot, -sigma_i);
-                LayerPotenOp2.SetTargetCoord(x_i);
-                LayerPotenOp2.ComputePotential(U2, sigma_botsub); 
-                for (int k=0; k<3; k++) {
-                    (*U)[i*3+k+Nentries_plane] += U2[k];
-                }
-            }
-        }
+        // // single layer singularity subtraction
+        // {
+        //     sctl::Long Nentries_plane = X0_src.Dim()/2; 
+        //     sctl::Vector<Real> U2(3); 
+        //     // Top plane first.
+        //     for (int i=0; i<X0_src.Dim()/6; i++) {
+        //         // Get sigma, x for i-th node
+        //         sctl::Vector<Real> sigma_i(3, (sctl::Iterator<Real>) sigma0.begin() + i*3, true);
+        //         sctl::Vector<Real> x_i(3, (sctl::Iterator<Real>) X0_src.begin() + i*3, true);
+        //         // Change sigma_top_0 to sigma_top_0 - sigma_i
+        //         sctl::Vector<Real> sigma_topsub = sigma0;
+        //         sctl::Vector<Real> sigma_top(Nentries_plane, (sctl::Iterator<Real>) sigma_topsub.begin(), false); 
+        //         AddConstVec(sigma_top, -sigma_i);
+        //         // Evaluate SL1[sigma_top - sigma_i](x_i) + SL2[sigma_bot](x_i), subtracted (sigma_i) * (int G dS) = 0
+        //         LayerPotenOp2.SetTargetCoord(x_i);
+        //         LayerPotenOp2.ComputePotential(U2, sigma_topsub); 
+        //         // Add SL vel to DL vel
+        //         for (int k=0; k<3; k++) {
+        //             (*U)[i*3+k] += U2[k];
+        //         }
+        //     }
+        //     // Bottom plane
+        //     for (int i=0; i<X0_src.Dim()/6; i++) {
+        //         sctl::Vector<Real> sigma_i(3, (sctl::Iterator<Real>) sigma0.begin() + Nentries_plane + i*3, true);
+        //         sctl::Vector<Real> x_i(3, (sctl::Iterator<Real>) X0_src.begin() + Nentries_plane + i*3, true);
+        //         // Change sigma_top_0 to sigma_top_0 - sigma_i
+        //         sctl::Vector<Real> sigma_botsub = sigma0;
+        //         sctl::Vector<Real> sigma_bot(Nentries_plane, (sctl::Iterator<Real>) sigma_botsub.begin() + Nentries_plane, false); 
+        //         AddConstVec(sigma_bot, -sigma_i);
+        //         LayerPotenOp2.SetTargetCoord(x_i);
+        //         LayerPotenOp2.ComputePotential(U2, sigma_botsub); 
+        //         for (int k=0; k<3; k++) {
+        //             (*U)[i*3+k+Nentries_plane] += U2[k];
+        //         }
+        //     }
+        // }        
+        
+        // Single layer regularized Stokeslet
+        sctl::Vector<Real> reg_sl_U;
+        LayerPotenOp2.SetTargetCoord(X0_src);
+        LayerPotenOp2.ComputePotential(reg_sl_U, sigma0);
+        (*U) += reg_sl_U;
         
         AddConstVec(*U, sigma_mean);
     };
@@ -186,8 +244,6 @@ template <class Real> void test(sctl::Long gl_order, sctl::Long Nelem_xy, Real z
             sigma0 = sigma;
             AddConstVec(sigma0, -sigma_mean);
         }
-
-        // std::cout << "DEBUG: sigma mean is " << sigma_mean[0] << ", " << sigma_mean[1] << ", " << sigma_mean[2] << std::endl;
         
         U->SetZero();
         LayerPotenOp1.ComputePotential(*U, sigma0); 
@@ -207,17 +263,22 @@ template <class Real> void test(sctl::Long gl_order, sctl::Long Nelem_xy, Real z
         for (sctl::Long i=0; i<Ntrg/2; i++) {
             Utrg[i*3+0] = 1.;
             Utrg[i*3+1] = 0.5;
-            // shear flow on top plane: [1,0.5,0]; bottom plate fixed.
+            // shear flow on top plane: [1,0.5,0];
+        }
+        for (sctl::Long i=Ntrg/2; i<Ntrg; i++) {
+            Utrg[i*3+0] = -1.;
+            // shear flow on bottom plane: [-1,0,0];
         }
         return Utrg;
     };
 
-    // sctl::GMRES<Real> solver(comm);
-    // sctl::Vector<Real> sigma;
-    // sctl::Vector<Real> Utrg = bg_shear_flow(X0);
-    // solver(&sigma,BIO, Utrg, gmres_tol);
-    // plane.WriteVTK("vis/plane_density", sigma, comm);
+    sctl::GMRES<Real> solver(comm);
+    sctl::Vector<Real> sigma;
+    sctl::Vector<Real> Utrg = bg_shear_flow(X0);
+    solver(&sigma,BIO, Utrg, gmres_tol);
+    plane.WriteVTK("vis/plane_density", sigma, comm);
 
+    /*
     // Getting singular values
     sctl::Long Nsrc = X0_src.Dim()/3;
     sctl::Vector<Real> sigma_eye(Nsrc*3);
@@ -226,7 +287,7 @@ template <class Real> void test(sctl::Long gl_order, sctl::Long Nelem_xy, Real z
         for (sctl::Long k=0; k<3; k++) {
             sigma_eye.SetZero();
             sigma_eye[i*3+k] = 1.;
-            std::cout << "Node number is = " << i << ", dimension = " << k << std::endl;
+            // std::cout << "Node number is = " << i << ", dimension = " << k << std::endl;
             BIO(LPOvecvec.begin()+i*3+k, sigma_eye);
         }
     }
@@ -245,8 +306,9 @@ template <class Real> void test(sctl::Long gl_order, sctl::Long Nelem_xy, Real z
     for (long i=0; i<S_p.Dim(0); i++) {
         std::cout << S_p(i,i) << std::endl;
     }
+    */
     
-    /*
+    // /*
     // Eval and vis at traget box
     {
         PeriodicGeom<Real> trg;    
@@ -260,9 +322,9 @@ template <class Real> void test(sctl::Long gl_order, sctl::Long Nelem_xy, Real z
         // U += bg_pres_flow(X0);
         // vol_vis.WriteVTK("vis/planeSL_withbg", U); 
     }
-    */      
+    // */      
 
-    /*
+    // /*
     // difference at x=1 vs 0, y=1 vs 0 check periodicity.
     {
         sctl::Long Ntrg_side = 5;
@@ -326,7 +388,7 @@ template <class Real> void test(sctl::Long gl_order, sctl::Long Nelem_xy, Real z
             std::cout << std::setprecision(8) << UdiffY[i*3+0]<< ", " << UdiffY[i*3+1]<< ", " << UdiffY[i*3+2]<< ". " << std::endl;
         }
     } 
-    */
+    // */
 }
 
 
