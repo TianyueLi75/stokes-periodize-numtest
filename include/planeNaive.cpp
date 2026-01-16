@@ -110,6 +110,10 @@ namespace sctl {
         return gl_nodes_;
     }
 
+    template <class Real> Long PlaneIntegral<Real>::Order_const() const {
+        return order_;
+    }
+
     template <class Real> Long PlaneIntegral<Real>::Size() const {
         return Nelem_x_ * Nelem_y_ * 2;
     }
@@ -142,5 +146,88 @@ namespace sctl {
         GetVTUData(vtu_data, F);
         vtu_data.WriteVTK(fname, comm);
     }
+
+    template <class Real> template <class Kernel> void PlaneIntegral<Real>::SelfInterac(sctl::Vector<sctl::Matrix<Real>>& M_lst, const Kernel& ker, Real tol, bool trg_dot_prod, const sctl::ElementListBase<Real>* self) {
+        // std::cout << "DEBUG: in selfInterac in planeIntegral class. " << std::endl;
+        
+        const auto& elem_lst = *dynamic_cast<const PlaneIntegral*>(self); 
+        sctl::Long Nelem = elem_lst.Size();
+        if (M_lst.Dim() != Nelem) M_lst.ReInit(Nelem);
+        sctl::Vector<Real> Xsrc;
+        elem_lst.GetNodeCoord(&Xsrc, nullptr, nullptr);
+        
+        // TODO: change if needed...
+        Real eps = 1e-6;
+        sctl::Long starting_idx = 0;
+        sctl::Long Nentries = elem_lst.Order_const()*elem_lst.Order_const()*3; // 3 x Nnodes per element
+        for (sctl::Long elem_idx=0; elem_idx < Nelem; elem_idx++) {
+            // std::cout << "elem idx is " << elem_idx << std::endl;
+            if constexpr (std::is_same_v<Kernel, Stokes3D_FxU>) { // SL self-to-self, use regularized SL (for now..)
+                // std::cout << "In SL loop" << std::endl;
+                // Grab nodes on panel
+                sctl::Vector<Real> Xsrc_here(Nentries, (sctl::Iterator<Real>) Xsrc.begin() + starting_idx, false);
+                reg_sl(M_lst[elem_idx], Xsrc_here, eps);
+            } else {
+                // std::cout << "In DL loop, setting Mlist here to be 0, size " << Nentries << std::endl;
+                // DL self to self: all zeros.
+                M_lst[elem_idx].ReInit(Nentries, Nentries);
+                M_lst[elem_idx] = 0.;
+            }
+            starting_idx += Nentries;
+        }
+    }
+
+    template <class Real> void PlaneIntegral<Real>::reg_sl(sctl::Matrix<Real>& SL_eps, const sctl::Vector<Real> Xsrc, const Real eps) {
+        sctl::Long Nsrc = Xsrc.Dim() / 3;
+        if (SL_eps.Dim(0)!=Nsrc*3 || SL_eps.Dim(1)!=Nsrc*3) SL_eps.ReInit(Nsrc*3,Nsrc*3);
+        // std::cout << "In Reg_sl function, size of Xsrc is " << Nsrc*3 << std::endl;
+        Real eps2 = eps*eps;
+        for (sctl::Long i=0; i<Nsrc; i++) { // trg idx
+            sctl::Vector<Real> xtrg(3, (sctl::Iterator<Real>) Xsrc.begin() + i*3, false);
+            for (sctl::Long j=0; j<Nsrc; j++) { // src idx
+                sctl::Vector<Real> xsrc(3, (sctl::Iterator<Real>) Xsrc.begin() + j*3, false);
+                sctl::Vector<Real> r = xtrg - xsrc;
+                Real r2 = r[0]*r[0]+r[1]*r[1]+r[2]*r[2];
+                Real sqrt_r2e2 = sctl::sqrt<Real>(r2 + eps2);
+                Real inv_r2e2 = 1./sqrt_r2e2;
+                Real inv3_r2e2 = inv_r2e2*inv_r2e2*inv_r2e2;
+                for (sctl::Long k1 = 0; k1 < 3; k1++) { // trg dim
+                    for (sctl::Long k2 = 0; k2 < 3; k2++) { // src dim
+                        SL_eps(i*3 + k1, j*3+k2) += (k1==k2 ? ( (r2+2.*eps2)*inv3_r2e2) : 0.) + r[k1]*r[k2]*inv3_r2e2;
+                    }
+                }
+            }
+        }
+        SL_eps = 1./8./sctl::const_pi<Real>()*SL_eps;
+    };
+
+    template <class Real> void PlaneIntegral<Real>::subtr_sl(sctl::Matrix<Real>& SL_subtr, const sctl::Vector<Real> Xsrc) {
+        sctl::Long Nsrc = Xsrc.Dim() / 3;
+        if (SL_subtr.Dim(0)!=Nsrc*3 || SL_subtr.Dim(1)!=Nsrc*3) SL_subtr.ReInit(Nsrc*3,Nsrc*3);
+        for (sctl::Long i=0; i<Nsrc; i++) { // trg idx
+            sctl::Vector<Real> xtrg(3, (sctl::Iterator<Real>) Xsrc.begin() + i*3, false);
+            for (sctl::Long j=0; j<Nsrc; j++) { // src idx
+                sctl::Vector<Real> xsrc(3, (sctl::Iterator<Real>) Xsrc.begin() + j*3, false);
+                sctl::Vector<Real> r = xtrg - xsrc;
+                Real r2 = r[0]*r[0]+r[1]*r[1]+r[2]*r[2];
+                Real rnorm = sctl::sqrt<Real>(r2);
+                Real rinv = 1./rnorm;
+                Real rinv3 = rinv*rinv*rinv;
+                for (sctl::Long k1 = 0; k1 < 3; k1++) { // trg dim
+                    for (sctl::Long k2 = 0; k2 < 3; k2++) { // src dim
+                        SL_subtr(i*3 + k1, j*3+k2) += (k1==k2 ? (rinv) : 0.) + r[k1]*r[k2]*rinv3;
+                    }
+                }
+            }
+        }
+        // Matrix for subtracting sigma_i
+        sctl::Matrix<Real> Subtr_mat(Nsrc*3,Nsrc*3);
+        Subtr_mat.SetZero();
+        for (sctl::Long i=0; i<Nsrc*3; i++) {
+            Subtr_mat(i,i) = 1.;
+            // TODO: a different subtr matrix for each src i, then put the output to target i
+        }
+        SL_subtr = 1./8./sctl::const_pi<Real>()*SL_subtr;
+    };
 
 }

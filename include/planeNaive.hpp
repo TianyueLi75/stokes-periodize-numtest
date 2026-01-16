@@ -37,6 +37,14 @@ namespace sctl {
             Long Size() const override;
 
             /**
+             * @brief Number of nodes on EITHER top and bottom
+             *          TODO: update to Order_x and Order_y, and change from one value to a vectro of values.
+             * 
+             * @return Long 
+             */
+            Long Order_const() const;
+
+            /**
              * @brief Populate destination vectors with list of nodes, normals, and number of nodes on each panel, top plane first, dimensions fast node slow.
              * 
              * @param X 
@@ -63,8 +71,12 @@ namespace sctl {
 
             void WriteVTK(const std::string& fname, const sctl::Vector<Real>& F, sctl::Comm comm) const;
 
+            template <class Kernel> static void SelfInterac(sctl::Vector<sctl::Matrix<Real>>& M_lst, const Kernel& ker, Real tol, bool trg_dot_prod, const sctl::ElementListBase<Real>* self);
+
         private: 
             static const std::pair<Vector<Real>,Vector<Real>>& LegendreQuad_plane(Integer ORDER);
+            static void reg_sl(sctl::Matrix<Real>& SL_eps, const sctl::Vector<Real> Xsrc, const Real eps);
+            static void subtr_sl(sctl::Matrix<Real>& SL_subtr, const sctl::Vector<Real> Xsrc);
 
             Long order_, Nelem_x_, Nelem_y_; // order of gl grids on each element in both directions; number of elements in the x and y directions on EACH plane.
             Real z_offset_; // assume two symmetric flat planes, so only specify z offset only.
