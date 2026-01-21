@@ -6,26 +6,14 @@
  * Background flow with unit pressure gradient along X-axis.
  */
 template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
-    const Real pdrive = 1;
     const sctl::Long N = X.Dim()/3;
     sctl::Vector<Real> U(N*3);
     for (sctl::Long i = 0; i < N; i++) {
         const auto x = X.begin() + i*3;
-        U[i*3+0] = -pdrive * ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
+        U[i*3+0] = -((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
         U[i*3+1] = 0;
         U[i*3+2] = 0;
     }
-    return U;
-}
-
-// Uniform background flow in x direction.
-template <class Real> sctl::Vector<Real> bg_unif_flow(const sctl::Vector<Real>& X) {
-    sctl::Vector<Real> U = X;
-    // const sctl::Long N = X.Dim() /3;
-    U = 1.; // background flow diagonal to avoid planes of unaffected flows between periods.
-    // for (sctl::Long i = 0; i < N; i++) {
-    //     U[i*3+0] = 1.; // background flow in only x direction for timing runs.
-    // }
     return U;
 }
 
@@ -33,24 +21,19 @@ template <class Real> sctl::Vector<sctl::Vector<Real>> get_rot_mat(const sctl::V
     sctl::Vector<Real> center;
     center = {0.5,0.5,0.5};
     sctl::Vector<Real> r1 = Xc - center;
-    // std::cout << "Xc - center = r1 = " << r1[0] << ", " << r1[1] << ", " << r1[2] << std::endl;
     Real r1norm = r1[0]*r1[0] + r1[1]*r1[1] + r1[2]*r1[2];
     sctl::Vector<Real> r2, r3;
     if (r1norm > 1e-5) {
-        // std::cout << "center not at (0.5,0.5,0.5)." << std::endl;
         r2 = {r1[1], -r1[0], 0.};
         Real r2norm = r2[0]*r2[0] + r2[1]*r2[1] + r2[2]*r2[2];
         r2 = r2 / sctl::sqrt<Real>(r2norm);
         r1 = r1 / sctl::sqrt<Real>(r1norm);
-        // std::cout << "new r1 = "<< r1[0] << ", " << r1[1] << ", " << r1[2] << std::endl;
         r3 = { \
             r1[1]*r2[2] - r1[2]*r2[1], \
             -r1[0]*r2[2] + r1[2]*r2[0], \
             r1[0]*r2[1] - r1[1]*r2[0]
         };
         r3 = -r3;
-        // std::cout << "r2 = "<< r2[0] << ", " << r2[1] << ", " << r2[2] << std::endl;
-        // std::cout << "r3 = "<< r3[0] << ", " << r3[1] << ", " << r3[2] << std::endl;
     } else {
         r1 = {1.,0.,0.};
         r2 = {0.,1.,0.};
@@ -70,17 +53,13 @@ template <class Real> Real get_rot_mat_direction(const sctl::Vector<Real> Ftot, 
     Real r1norm = r1[0]*r1[0] + r1[1]*r1[1] + r1[2]*r1[2];
     r2 = Ftot / sctl::sqrt<Real>(utilde);
     r1 = r1 / sctl::sqrt<Real>(r1norm);
-    // std::cout << "new r1 = "<< r1[0] << ", " << r1[1] << ", " << r1[2] << std::endl;
     r3 = { \
         r1[1]*r2[2] - r1[2]*r2[1], \
         -r1[0]*r2[2] + r1[2]*r2[0], \
         r1[0]*r2[1] - r1[1]*r2[0]
     };
     r3 = -r3;
-    // std::cout << "r2 = "<< r2[0] << ", " << r2[1] << ", " << r2[2] <<"); norm of Ftot = " << utilde << std::endl;
-    // std::cout << "r3 = "<< r3[0] << ", " << r3[1] << ", " << r3[2] << std::endl;
     
-    // R = {r1,r2,r3}; // NOTE: R = [ -r1T- ; -r2T- ; -r3T- ], actually the COB from standard to new basis.
     (*R) = {r1, r3, r2}; // Same order as x-y-z.
     return utilde;
 }
@@ -168,7 +147,34 @@ template <class Real> sctl::Vector<Real> vslip_direction(const sctl::Vector<Real
     return Utrg;
 }
 
+template <class Real> void SurfaceIntegral(sctl::Vector<Real>& I, const sctl::Vector<Real>& vals, const sctl::Vector<Real>& wts) {
+  const sctl::Long dof = vals.Dim() / wts.Dim();
+  SCTL_ASSERT(vals.Dim() == wts.Dim() * dof);
+  if (I.Dim() != dof) I.ReInit(dof);
+  I = 0;
+  for (sctl::Long i = 0; i < wts.Dim(); i++) {
+    for (sctl::Long j = 0; j < dof; j++) {
+      I[j] += vals[i*dof + j] * wts[i];
+    }
+  }
+}
 
+template <class Real> void AddConstVec(sctl::Vector<Real>& vals, const sctl::Vector<Real>& c0) {
+  const sctl::Long dof = c0.Dim();
+  const sctl::Long N = vals.Dim() / dof;
+  SCTL_ASSERT(vals.Dim() == N * dof);
+  for (sctl::Long i = 0; i < N; i++) {
+    for (sctl::Long j = 0; j < dof; j++) {
+      vals[i*dof + j] += c0[j];
+    }
+  }
+}
+
+/**
+ * Set up slip velocities on spheres such that total hydro. force is 0 in each copy, 
+ * using formula for drag on sphere traveling along direction with velocity U, 
+ * setting U = 1 and direction tangential to Xc-[0.5,0.5,0.5] || x-y plane for all but last sphere. Last sphere U scaled to enforce net force 0.
+*/
 template <class Real> sctl::Vector<Real> total_vslip(const sctl::Vector<Real> X0, const sctl::Long ptcl_gridsize, const sctl::Long Nptcl, const sctl::Vector<Real> ptcls_Xcs, const sctl::Vector<Real> ptcls_rs) {
     sctl::Vector<Real> Uslip(X0.Dim());
     // Set up for total force calculation
@@ -218,13 +224,13 @@ template <class Real> sctl::Vector<Real> total_vslip(const sctl::Vector<Real> X0
     return Uslip;
 }
 
-template <class Real> void plot_setup(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Integer peri_mode, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode, const Real gmres_tol, const Real tol) {
-
-    // // Combine single-layer and double-layer kernels in these proportions
-    // const Real SL_scal = 1.0;
-    // const Real DL_scal = 1.0;
+/**
+ * Set up and plot vslip on <Nptcl> system.
+*/
+template <class Real> void plot_setup(sctl::Long Nelem, sctl::Long FourierOrder, sctl::Comm comm, sctl::Long Nptcl) {
 
     const sctl::Long ElemOrder = 10;
+    const sctl::Long geom_mode = 0;
     
     PeriodicGeom<Real> obj;
     sctl::Vector<sctl::Long> ptcls;
@@ -241,9 +247,7 @@ template <class Real> void plot_setup(sctl::Long Nelem, sctl::Long FourierOrder,
         elem_lst0 = std::get<0>(build0);
         NormalOrient = std::get<1>(build0);
     }
-    // const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); 
     Nptcl = ptcls_rs.Dim(); 
-    // std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
 
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
@@ -252,19 +256,25 @@ template <class Real> void plot_setup(sctl::Long Nelem, sctl::Long FourierOrder,
     sctl::Vector<Real> ptcls_Xcs_slip(Nptcl_slip * 3, (sctl::Iterator<Real>)ptcls_Xcs.begin() + comm.Rank()*Nptcl_slip*3, true);
     sctl::Vector<Real> ptcls_rs_slip(Nptcl_slip,  (sctl::Iterator<Real>)ptcls_rs.begin()+comm.Rank()*Nptcl_slip, true);
     sctl::Vector<Real> Uslip = total_vslip(X0, ptcl_gridsize, Nptcl_slip, ptcls_Xcs_slip, ptcls_rs_slip);
-    if (write_ref) {
-        elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres",Uslip,comm);
-    }  
+    elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_vslip",Uslip,comm);
 }
 
-
-template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Integer peri_mode, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode, const Real gmres_tol, const Real tol) {
+/**
+ * Set up, solve, time, and evaluate with given BC (slip or no-slip). 
+ * Accomodates any periodicity, no bounding surfaces, only particles. 
+ * Particle files generated using spheres
+*/
+template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Integer peri_mode, bool bc_slip, sctl::Comm comm, sctl::Long Nptcl, const Real gmres_tol, const Real tol) {
 
     // Combine single-layer and double-layer kernels in these proportions
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
 
+    const Real pressure_drop = -1.0;
+    const Real period_length = 1.;
+
     const sctl::Long ElemOrder = 10;
+    const sctl::Long geom_mode = 0; // Since presaved geometries of Nptcls are created with spheres, enforce this for timing runs.
     
     PeriodicGeom<Real> obj;
     sctl::Vector<sctl::Long> ptcls;
@@ -281,38 +291,64 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         elem_lst0 = std::get<0>(build0);
         NormalOrient = std::get<1>(build0);
     }
-    // const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); 
     Nptcl = ptcls_rs.Dim(); 
-    // std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
 
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
-    // if (write_ref) {
-    //     elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres",X0,comm);
-    // }  
-    sctl::Long ptcl_gridsize = Nelem * ElemOrder * FourierOrder * 3; 
-    sctl::Long Nptcl_slip = elem_lst0.Size() / Nelem; 
-    sctl::Vector<Real> ptcls_Xcs_slip(Nptcl_slip * 3, (sctl::Iterator<Real>)ptcls_Xcs.begin() + comm.Rank()*Nptcl_slip*3, true);
-    sctl::Vector<Real> ptcls_rs_slip(Nptcl_slip,  (sctl::Iterator<Real>)ptcls_rs.begin()+comm.Rank()*Nptcl_slip, true);
-    sctl::Vector<Real> Uslip = total_vslip(X0, ptcl_gridsize, Nptcl_slip, ptcls_Xcs_slip, ptcls_rs_slip);
     if (write_ref) {
-        elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_streamline_vslip/"+std::to_string(Nptcl)+"spheres",Uslip,comm);
+        elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres",X0,comm);
     }  
+    sctl::Vector<Real> Uslip;
+    if (bc_slip) {
+        sctl::Long ptcl_gridsize = Nelem * ElemOrder * FourierOrder * 3; 
+        sctl::Long Nptcl_slip = elem_lst0.Size() / Nelem; // Number of particles on current MPI process
+        sctl::Vector<Real> ptcls_Xcs_slip(Nptcl_slip * 3, (sctl::Iterator<Real>)ptcls_Xcs.begin() + comm.Rank()*Nptcl_slip*3, true); // Assumes same number of particles on previous processes
+        sctl::Vector<Real> ptcls_rs_slip(Nptcl_slip,  (sctl::Iterator<Real>)ptcls_rs.begin()+comm.Rank()*Nptcl_slip, true);
+        sctl::Vector<Real> Uslip = total_vslip(X0, ptcl_gridsize, Nptcl_slip, ptcls_Xcs_slip, ptcls_rs_slip); // Compute slip for only particles stored on current MPI process
+        if (write_ref) {
+            elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_vslip", Uslip, comm);
+        }  
+    }
 
-    StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
+    Real surface_area;
+    sctl::Vector<Real> wts;
+    { // get wts and surface area
+        sctl::Vector<Real> X, Xn, dist_far, surface_area_;
+        sctl::Vector<sctl::Long> element_wise_node_cnt;
+        elem_lst0.GetFarFieldNodes(X, Xn, wts, dist_far, element_wise_node_cnt, 1);
+        SurfaceIntegral(surface_area_, wts*0+1, wts);
+        sctl::Vector<Real> sa_loc(1);
+        sa_loc[0] = surface_area_[0];
+        sctl::Vector<Real> sa_all(1);
+        sa_all[0] = 0;
+        comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
+        surface_area = sa_all[0];
+    }
+    // // DEBUG MPI Surface area:
+    // if (!comm.Rank()) {
+    //     Real surfA_manual = 0.;
+    //     for (sctl::Long i=0; i<Nptcl; i++) {
+    //         Real r_i = ptcls_rs[i];
+    //         surfA_manual += 4.*sctl::const_pi<Real>() * r_i * r_i;
+    //     }
+    //     std::cout << "Surface area computed for a total of " << Nptcl << " spheres is " << surface_area << "; manual calculation gives " << surfA_manual << std::endl;
+    // }
+
+    StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); 
     LayerPotenOp0.AddElemList(elem_lst0);
     LayerPotenOp0.SetTargetCoord(X0);
     LayerPotenOp0.SetAccuracy(tol);
     if (peri_mode==1) {
-        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, 1.0);
-    } else if (peri_mode==3) {
-        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XYZ, 1.0);
+        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, period_length);
     } else if (peri_mode==2) {
-        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XY, 1.0);
+        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XY, period_length);
+    } else if (peri_mode==3) {
+        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XYZ, period_length);
     } else {
         SCTL_ASSERT(false);
     }
 
+    // /*
     // =============== PRECONDITIONING =======================================
     // Store preconditioner matrix, or make new if not present.
     std::string precond0_file = "data/precond0_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
@@ -336,7 +372,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         sctl::Vector<Real> X0_precond; // target coordinates
         elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
         StokesBIO Precond_bio(SL_scal, DL_scal, comm.Self());
-        Precond_bio.SetAccuracy(tol); // set quadrature accuracy
+        Precond_bio.SetAccuracy(1e-13); // fix quadrature accuracy on 1 ptcl, since no close eval.
         Precond_bio.AddElemList(elem_lst_precond);
         Precond_bio.SetTargetCoord(X0_precond);
         const auto BIO_1ptcl = [&DL_scal,&Precond_bio](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
@@ -371,12 +407,43 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
             PrecondMat1.template Write<Real>(precond1_file.c_str());
         }
     }
+    // */
 
-    // periodized layer potential operator
-    const auto BIO = [&DL_scal,&LayerPotenOp0,&X0,NormalOrient](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+    // =============== Boundary Integral Operators =======================================
+    // BIO for periodic problems
+    const auto BIO = [&wts,&surface_area,&elem_lst0,&LayerPotenOp0,&DL_scal,&NormalOrient, &comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        sctl::Vector<Real> sigma_mean, sigma0;
+        { // compute sigma_mean and sigma0 = sigma - sigma_mean
+            sctl::Vector<Real> sigma_;
+            elem_lst0.GetFarFieldDensity(sigma_, sigma);
+            SurfaceIntegral(sigma_mean, sigma_, wts);
+            // MPI
+            sctl::Vector<Real> sa_loc = sigma_mean;
+            sctl::Vector<Real> sa_all(3);
+            sa_all = 0;
+            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
+            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+1, (sctl::Iterator<Real>) sa_all.begin()+1, 1, sctl::CommOp::SUM);
+            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+2, (sctl::Iterator<Real>) sa_all.begin()+2, 1, sctl::CommOp::SUM);
+            sigma_mean = sa_all;
+            sigma_mean *= (1/surface_area);
+
+            sigma0 = sigma;
+            AddConstVec(sigma0, -sigma_mean);
+
+            // // DEBUG: check that sigma-sigma_mean has surface integral = 0:
+            // sctl::Vector<Real> sigma1 = sigma_;
+            // AddConstVec(sigma1, -sigma_mean);
+            // sctl::Vector<Real> sigma_test_;
+            // SurfaceIntegral(sigma_test_, sigma1, wts);
+            // std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "<< sigma_test_[1] << ", " << sigma_test_[2] << ". "<< std::endl;
+        
+        }
+
         U->SetZero();
-        LayerPotenOp0.ComputePotential(*U, sigma);
-        if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma*0.5*NormalOrient * DL_scal; // for double-layer
+        LayerPotenOp0.ComputePotential(*U, sigma0);
+        if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
+
+        AddConstVec(*U, sigma_mean);
     };
 
     // Apply A11inv to each panel of vec.
@@ -395,6 +462,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         return AinvVec;
     };
 
+    // Left diagonal preconditioning on BIO 
     const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         sctl::Vector<Real> Uloc;
         BIO(&Uloc,sigma);
@@ -402,77 +470,98 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
         (*U) = AinvApply(Uloc);
     };
 
-    // first gmres to remove timing for matrix loading, and set Krylov preconditioner.
+    // =============== Right hand side: 3-peri background flow =======================================
+    const auto eval_rhs = [&LayerPotenOp0,surface_area,period_length](const Real pressure_drop) { // BIOpSL( -pressure_drop * cross_sectional_area / surface_area )
+        sctl::Vector<Real> force_density(LayerPotenOp0.Dim(0)); force_density = 0;
+        AddConstVec(force_density, sctl::Vector<Real>{-pressure_drop * period_length*period_length / surface_area, 0, 0});
+        sctl::Vector<Real> U0;
+        LayerPotenOp0.ComputeSL(U0, force_density);
+        return U0;
+    };
+
+    sctl::Vector<Real> RHS;
+    if (bc_slip) {
+        RHS = Uslip;
+    } else {
+        if (peri_mode == 1 || peri_mode == 2) {
+            RHS = bg_flow(X0) * (pressure_drop/period_length);
+        } else if (peri_mode == 3) {
+            RHS = eval_rhs(pressure_drop);
+        }
+    }
+    sctl::Vector<Real> A11invF = AinvApply(RHS);
+
+    // =============== Solve and timing =======================================
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
-    sctl::Vector<Real> A11invF = AinvApply(Uslip);
+    // first gmres to remove timing for matrix loading, and set Krylov preconditioner.
+    sctl::Vector<Real> sigma_setup;
+    solver(&sigma_setup, BIO_precond, A11invF, 1e-2);
+    // solver(&sigma_setup, BIO, RHS, 1e0);
+    sctl::Profile::reset();
 
-    // sctl::Vector<Real> sigma_temp;
-    // solver(&sigma_temp, BIO_precond, A11invF, 1e-2);
-    // // solver(&sigma_temp, BIO, -bg_flow(X0), 1e0);
-    // sctl::Profile::reset();
+    LayerPotenOp0.ClearSetup();
+    sctl::Profile::Tic("Setup SurfOP");
+    LayerPotenOp0.Setup();
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm);
+    sctl::Profile::reset();
 
-    // LayerPotenOp0.ClearSetup();
-    // sctl::Profile::Tic("Setup SurfOP");
-    // LayerPotenOp0.Setup();
-    // sctl::Profile::Toc();
-    // sctl::Profile::print(&comm);
-    // sctl::Profile::reset();
-
-    // // // Weak scaling data did not include this.
-    // // sctl::Profile::Tic("Setup ProxyOP");
-    // // LayerPotenOp_proxy.ClearSetup();
-    // // LayerPotenOp_proxy.Setup(); 
-    // // sctl::Profile::Toc();
-    // // sctl::Profile::print(&comm);
-    // // sctl::Profile::reset();
-
-    // sctl::Profile::Tic("Solve without Precond");
-    // sctl::Vector<Real> sigma_temp2;
-    // solver(&sigma_temp2, BIO, -bg_unif_flow(X0), gmres_tol, -1, false);
-    // sctl::Profile::Toc();
-    // sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    // sctl::Profile::reset();
-    // comm.Barrier();
-
-    sctl::Vector<Real> sigma;
-    sctl::Profile::Tic("Solver: KrylovPrecond_setup");
-    solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    // solver(&sigma,BIO,Uslip, gmres_tol, -1, false, nullptr, &krylov_precond);
-    // solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false);
+    sctl::Profile::Tic("Solve without Precond");
+    sctl::Vector<Real> sigma_noprecond;
+    solver(&sigma_noprecond, BIO, RHS, gmres_tol, -1, false);
     sctl::Profile::Toc();
     sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
     sctl::Profile::reset();
     comm.Barrier();
 
-    // sctl::Vector<Real> sigma1;
-    // sctl::Profile::Tic("Solver1");
-    // // PRECOND with Krylov
-    // solver(&sigma1, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    // // solver(&sigma1,BIO,-bg_flow(X0), gmres_tol, -1, false, nullptr, &krylov_precond);
-    // sctl::Profile::Toc();
-    // sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    // sctl::Profile::reset();
-    // comm.Barrier();
+    sctl::Vector<Real> sigma;
+    sctl::Profile::Tic("Solver: KrylovPrecond Setup");
+    solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    // solver(&sigma, BIO, RHS, gmres_tol, -1, false, nullptr, &krylov_precond); // Krylov preconditioner only, no diagonal multiply
+    // solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false); // Diag precond only, no Krylov.
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    sctl::Profile::reset();
+    comm.Barrier();
+
+    for (int loop=1; loop<5; loop++) {
+        sctl::Vector<Real> sigma1;
+        std::string solvername = "Solver"+std::to_string(loop);
+        sctl::Profile::Tic(solvername.c_str());
+        solver(&sigma1, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+        // solver(&sigma1, BIO, RHS, gmres_tol, -1, false, nullptr, &krylov_precond);
+        sctl::Profile::Toc();
+        sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+        sctl::Profile::reset();
+        comm.Barrier();
+    }
+    
     if (!comm.Rank()) {
         std::cout << "------------------- DONE WITH SOLVE ======================" << std::endl;
     }
 
+    // =============== Visualization =======================================
     if (write_ref) { 
         PeriodicGeom<Real> trg;    
-        CubeVolumeVisShifted<Real> vol_vis(100, 0.9, comm);
-        // VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
-        // X0 = vol_vis.GetCoord();
+        CubeVolumeVisShifted<Real> vol_vis(80, 0.95, comm);
+        // Filter out target points inside spheres 
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
         sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
         std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         X0 = std::get<0>(trg_tuple);
         filtered_inds = std::get<1>(trg_tuple);
-        std::cout << "number of target points: " << X0.Dim() << std::endl;
 
         LayerPotenOp0.SetTargetCoord(X0);
         sctl::Vector<Real> U;
         BIO(&U, sigma);
+        if (!bc_slip) {
+            if (peri_mode == 1 || peri_mode == 2) {
+                U -= bg_flow(X0) * (pressure_drop/period_length);
+            } else if (peri_mode == 3) {
+                U -= eval_rhs(pressure_drop);
+            }
+        }
 
         sctl::Vector<Real> U_vis(X0_all.Dim());
         U_vis = 0.;
@@ -485,10 +574,14 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, bool 
                 X1_ptr += 1;
             }
         }
-        vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_streamline_vslip/"+std::to_string(Nptcl)+"streamlines", U_vis); 
+        if (bc_slip) {
+            vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_vslip_U", U_vis); 
+        } else {
+            vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_U", U_vis); 
+        }
+        
     } 
 }
-
 
 int main(int argc, char** argv) {
 
@@ -503,12 +596,11 @@ int main(int argc, char** argv) {
         int write_ref = std::stoi(argv[3]);
         int peri_mode = std::stoi(argv[4]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
         long Nptcl = std::stol(argv[5]); // number of particles inside
-        long geom_mode = std::stol(argv[6]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
+        long bc_slip = std::stol(argv[6]); // whether to use slip or no-slip for BC; =1 if slip, =0 if no-slip.
         double gmres_tol = std::stod(argv[7]);
         double tol = std::stod(argv[8]);
 
-        test<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, comm, Nptcl, geom_mode, gmres_tol, tol);
-        // plot_setup<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, comm, Nptcl, geom_mode, gmres_tol, tol);
+        timing_run<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, (bc_slip==1), comm, Nptcl, gmres_tol, tol);
     }
 
     sctl::Comm::MPI_Finalize();
