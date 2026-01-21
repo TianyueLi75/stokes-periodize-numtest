@@ -1,13 +1,14 @@
 #!/bin/bash
 
 # Set up batch job settings
-#SBATCH --job-name=test_newcode
+#SBATCH --job-name=periodicity
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --time=01:30:00
-#SBATCH --partition=gen
-# #SBATCH --partition=ccm
+#SBATCH --time=00:05:00
+#SBATCH --mem=50g
+# #SBATCH --partition=gen
+#SBATCH --partition=ccm
 #SBATCH --constraint=icelake 
 #SBATCH --mail-user=tianycli@umich.edu
 #SBATCH --mail-type=BEGIN,END
@@ -22,9 +23,24 @@ export NCORES=$((${NTASK}*${OMP_NUM_THREADS}))
 
 cd ${WORK_DIR}
 
-# mpirun -n 1 --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2 2 16 0 1 25 0 > ${WORK_DIR}/results/25ptcls_2_16_timing.txt
-make test2_ptcl_conv -j32 &&
-mpirun -n 1 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2_ptcl_conv 5 24 1 25 0 30000 > ${WORK_DIR}/results/25ptcls_5_24_newcode_30k.txt
+# test periodicity
+# make test_plane -j &&
+# mpirun -n 1 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test_plane 40 2 0.01 0.9 1e-8 1e-8 > ${WORK_DIR}/out/test_plane_regluarized.txt
+
+make test_peri -j &&
+mpirun -n 1 --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test_periodicity 2 32 1 1 1e-8 1e-8 > ${WORK_DIR}/out/1ptcls_1peri_periodicity.txt
+
+
+# Timing for 25 particles
+# mpirun -n 1 --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2_timing 2 16 0 1 25 0 > ${WORK_DIR}/results/25ptcls_2_16_timing.txt
+# make test2_ptcl_conv -j32 &&
+# mpirun -n 1 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2_ptcl_conv 5 24 1 25 0 30000 > ${WORK_DIR}/results/25ptcls_5_24_newcode_30k.txt
+
+# Streamlines
+# make test2_timing -j32 &&
+# mpirun -n 1 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2_timing 3 24 1 3 25 0 1e-9 1e-14 > ${WORK_DIR}/results/25ptcls_3peri_1proc_streamlines.txt
+# mpirun -n 16 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2_timing 3 24 1 3 400 0 1e-9 1e-14 > ${WORK_DIR}/results/400ptcls_3peri_16proc_streamlines.txt
+# mpirun -n 80 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2_timing 3 24 1 3 2000 0 1e-9 1e-14 > ${WORK_DIR}/results/2000ptcls_3peri_80proc_streamlines.txt
 
 # make test_proxy_mats -B -j &&
 # mpirun -n 1 --map-by slot:pe=${OMP_NUM_THREADS} ./bin/test2_ptcl_periodize_mats 30 20 > proxy_mat_30_20.txt
