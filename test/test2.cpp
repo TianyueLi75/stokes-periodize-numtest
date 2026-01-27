@@ -239,11 +239,11 @@ template <class Real> void plot_setup(sctl::Long Nelem, sctl::Long FourierOrder,
     sctl::SlenderElemList<Real> elem_lst0;
     sctl::Vector<Real> NormalOrient;
     if (Nptcl == 1) {
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
         NormalOrient = std::get<1>(build0);
     } else { 
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 0, 1, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
         NormalOrient = std::get<1>(build0);
     }
@@ -283,11 +283,11 @@ template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder,
     sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
     sctl::Vector<Real> NormalOrient;
     if (Nptcl == 1) {
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
         NormalOrient = std::get<1>(build0);
     } else { 
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 0, 1, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
         NormalOrient = std::get<1>(build0);
     }
@@ -367,7 +367,7 @@ template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder,
         std::cout << "making precond matrices" << std::endl;
         sctl::Vector<sctl::Long> ptcls_pre;
         sctl::Vector<Real> ptcls_Xcs_pre, ptcls_rs_pre;
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, geom_mode);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, geom_mode);
         sctl::SlenderElemList<Real> elem_lst_precond = std::get<0>(build_precond);
         sctl::Vector<Real> X0_precond; // target coordinates
         elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);

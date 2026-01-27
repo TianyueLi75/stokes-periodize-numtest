@@ -121,24 +121,24 @@ namespace sctl {
     template <class Real> void PlaneIntegral<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
         for (const auto& x : Xsrc_) vtu_data.coord.PushBack((float)x);
         for (const auto& x :     F) vtu_data.value.PushBack((float)x);
-        // sctl::Long N = Nelem_x_*order_;
-        // for (sctl::Long j = 0; j < N-1; j++) {
-        //     for (sctl::Long k = 0; k < N-1; k++) {
-        //         auto idx = [this,N](sctl::Long j, sctl::Long k) {
-        //             return j*N+k;
-        //         };
-        //         vtu_data.connect.PushBack(idx(j+0,k+0));
-        //         vtu_data.connect.PushBack(idx(j+0,k+1));
-        //         vtu_data.connect.PushBack(idx(j+1,k+1));
-        //         vtu_data.connect.PushBack(idx(j+1,k+0));
-        //         vtu_data.connect.PushBack(idx(j+0,k+0));
-        //         vtu_data.connect.PushBack(idx(j+0,k+1));
-        //         vtu_data.connect.PushBack(idx(j+1,k+1));
-        //         vtu_data.connect.PushBack(idx(j+1,k+0));
-        //         vtu_data.offset.PushBack(vtu_data.connect.Dim());;
-        //         vtu_data.types.PushBack(12);
-        //     }
-        // }
+        sctl::Long N = Nelem_x_*order_;
+        for (sctl::Long j = 0; j < N-1; j++) {
+            for (sctl::Long k = 0; k < N-1; k++) {
+                auto idx = [this,N](sctl::Long j, sctl::Long k) {
+                    return j*N+k;
+                };
+                vtu_data.connect.PushBack(idx(j+0,k+0));
+                vtu_data.connect.PushBack(idx(j+0,k+1));
+                vtu_data.connect.PushBack(idx(j+1,k+1));
+                vtu_data.connect.PushBack(idx(j+1,k+0));
+                vtu_data.connect.PushBack(idx(j+0,k+0));
+                vtu_data.connect.PushBack(idx(j+0,k+1));
+                vtu_data.connect.PushBack(idx(j+1,k+1));
+                vtu_data.connect.PushBack(idx(j+1,k+0));
+                vtu_data.offset.PushBack(vtu_data.connect.Dim());;
+                vtu_data.types.PushBack(12);
+            }
+        }
     }
 
     template <class Real> void PlaneIntegral<Real>::WriteVTK(const std::string& fname, const sctl::Vector<Real>& F, sctl::Comm comm) const {
