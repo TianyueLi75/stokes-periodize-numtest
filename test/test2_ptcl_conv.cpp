@@ -5,20 +5,42 @@
  * Background flow with unit pressure gradient along X-axis.
  */
 template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
-    const Real pdrive = 1;
     const sctl::Long N = X.Dim()/3;
     sctl::Vector<Real> U(N*3);
     for (sctl::Long i = 0; i < N; i++) {
         const auto x = X.begin() + i*3;
-        U[i*3+0] = -pdrive * ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
+        U[i*3+0] = - ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
         U[i*3+1] = 0;
         U[i*3+2] = 0;
     }
     return U;
 }
 
+template <class Real> void SurfaceIntegral(sctl::Vector<Real>& I, const sctl::Vector<Real>& vals, const sctl::Vector<Real>& wts) {
+  const sctl::Long dof = vals.Dim() / wts.Dim();
+  SCTL_ASSERT(vals.Dim() == wts.Dim() * dof);
+  if (I.Dim() != dof) I.ReInit(dof);
+  I = 0;
+  for (sctl::Long i = 0; i < wts.Dim(); i++) {
+    for (sctl::Long j = 0; j < dof; j++) {
+      I[j] += vals[i*dof + j] * wts[i];
+    }
+  }
+}
+
+template <class Real> void AddConstVec(sctl::Vector<Real>& vals, const sctl::Vector<Real>& c0) {
+  const sctl::Long dof = c0.Dim();
+  const sctl::Long N = vals.Dim() / dof;
+  SCTL_ASSERT(vals.Dim() == N * dof);
+  for (sctl::Long i = 0; i < N; i++) {
+    for (sctl::Long j = 0; j < dof; j++) {
+      vals[i*dof + j] += c0[j];
+    }
+  }
+}
+
 // Loop over copies and add consecutively, to reduce memory requirements. Perhaps do 2D planes at a time.
-template <class Real> sctl::Vector<Real> exact_field(const sctl::Vector<Real>& Xtrg, const sctl::Vector<Real>& Xsrc, const sctl::Vector<Real>& sigma, const sctl::Long Ncopy, const sctl::Integer peri_mode) {
+template <class Real> sctl::Vector<Real> exact_field(const sctl::Vector<Real>& Xtrg, const sctl::Vector<Real>& Xsrc, const sctl::Vector<Real>& sigma, const sctl::Long Ncopy) {
     sctl::Stokes3D_FxU ker;
   
     const sctl::Long N = Xtrg.Dim()/3;
@@ -26,30 +48,14 @@ template <class Real> sctl::Vector<Real> exact_field(const sctl::Vector<Real>& X
     U = 0.;
     PeriodicGeom<Real> obj;
 
-    if (peri_mode == 1) {
-        sctl::Vector<Real> Xsrc_ = obj.X_nbr_copy(Xsrc,Ncopy,peri_mode);
-        sctl::Vector<Real> sigma_ = obj.vec_nbr_copy(sigma,Ncopy,peri_mode);
-        ker.Eval(U,Xtrg,Xsrc_,Xsrc_,sigma_);
-    } else {
-        const sctl::Vector<Real> Xsrc_2D = obj.X_nbr_copy(Xsrc,Ncopy,2);
-        const sctl::Vector<Real> sigma_2D = obj.vec_nbr_copy(sigma,Ncopy,2);
-        sctl::Vector<Real> Xsrc_plane = Xsrc_2D;
-        sctl::Vector<Real> Uloc = U;
-        for (int k3=-Ncopy; k3<=Ncopy; k3++) {
-            Uloc = 0.; // reset U
-            Xsrc_plane = Xsrc_2D; // reset to center plane each time.
-            for (int src_ind = 0; src_ind < Xsrc_2D.Dim()/3; src_ind ++) {
-                Xsrc_plane[src_ind*3 + 2] += k3; // move z direction up and down.
-            }
-            ker.Eval(Uloc,Xtrg,Xsrc_plane,Xsrc_plane,sigma_2D);
-            U += Uloc; // Add contribution to Xtrg from this layer of sources.
-        }
-    }
+    sctl::Vector<Real> Xsrc_ = obj.X_nbr_copy(Xsrc,Ncopy,1);
+    sctl::Vector<Real> sigma_ = obj.vec_nbr_copy(sigma,Ncopy,1);
+    ker.Eval(U,Xtrg,Xsrc_,Xsrc_,sigma_);
 
     return U;
 }
 
-template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl::Integer peri_mode, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode, sctl::Long Ncopy) {
+template <class Real> void manufactured_soln_1peri(sctl::Long Nelem, sctl::Long FourierOrder, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode, sctl::Long Ncopy) {
 
     // Combine single-layer and double-layer kernels in these proportions
     const Real SL_scal = 1.0;
@@ -58,6 +64,7 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
     Real tol = 1e-14;
     Real gmres_tol = 1e-10; 
     const sctl::Long ElemOrder = 10;
+    const Real period_length = 1.;
 
     if (FourierOrder < 20) {
         gmres_tol = 1e-6;
@@ -86,39 +93,50 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
     sctl::SlenderElemList<Real> elem_lst0;
     sctl::Vector<Real> NormalOrient;
     if (Nptcl == 1) {
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+    } else if (Nptcl == 3) {
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
         NormalOrient = std::get<1>(build0);
     } else { 
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, 0, 1, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
         NormalOrient = std::get<1>(build0);
     }
-    // const sctl::Long Nrepeat = elem_lst_nbr.Size() / elem_lst0.Size(); 
     Nptcl = ptcls_rs.Dim(); 
-    // std::cout << "periodic mode is " << peri_mode << ", Nrepeat is " << Nrepeat << std::endl;
-
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
-    sctl::Vector<Real> X_proxy;
-    if (peri_mode == 1) {
-        X_proxy = Periodize1D<Real>::GetProxySurf(); // proxy points coordinates
-    } else if (peri_mode == 3) {
-        X_proxy = Periodize3D<Real>::GetProxySurf(); // proxy points coordinates
-    } else {
-        SCTL_ASSERT(false);
+    Real surface_area;
+    sctl::Vector<Real> wts;
+    { // get wts and surface area
+        sctl::Vector<Real> X, Xn, dist_far, surface_area_;
+        sctl::Vector<sctl::Long> element_wise_node_cnt;
+        elem_lst0.GetFarFieldNodes(X, Xn, wts, dist_far, element_wise_node_cnt, 1);
+        SurfaceIntegral(surface_area_, wts*0+1, wts);
+        // MPI
+        sctl::Vector<Real> sa_loc(1);
+        sa_loc[0] = surface_area_[0];
+        sctl::Vector<Real> sa_all(1);
+        sa_all[0] = 0;
+        comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
+        surface_area = sa_all[0];
+        // surface_area = surface_area_[0];
     }
+    std::cout << "DEBUG surface area = " << surface_area << "." << std::endl;
 
     // Create point charges at random locations close to particle center, by a distance of at most 0.2r.
     sctl::Long Ncharge;
-    if (Nptcl < 150) {
-        // two equal and opposite charges per particle
-        Ncharge = 2*Nptcl;
-    } else {
-        // only first 150 particles get charges inside. (arbitrary, to limit true solution timing)
-        Ncharge = 2*150;
-    }
-    // Currently one charge per particle.
+    // if (Nptcl < 150) {
+    //     // two equal and opposite charges per particle
+    //     Ncharge = 2*Nptcl;
+    // } else {
+    //     // only first 150 particles get charges inside. (arbitrary, to limit true solution timing)
+    //     Ncharge = 2*150;
+    // }
+    Ncharge = 2;
+    // Currently one Stokeslet doublet per particle (for a simple net-force-zero scenario)
     sctl::Vector<Real> Xsrc(Ncharge*3);
     sctl::Vector<Real> Stokeslet_sigma(Ncharge*3);
     srand48(2);
@@ -142,35 +160,50 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
         Stokeslet_sigma[i*6+5] = rand_mag * disp_z; 
         
     }
-    // sctl::Vector<Real> field_on_surf = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy, peri_mode);
-    sctl::Vector<Real> field_on_surf;
-    if (peri_mode == 1) {
-        field_on_surf = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy, peri_mode);
-    } else {
-        // Setting peri_mode=1 and Ncopy = 0 calculates ker.Eval from current copy to current copy.
-        field_on_surf = exact_field(X0, Xsrc, Stokeslet_sigma, 0, 1);
-    }
+    // std::cout << "Computing exact field: " << std::endl;
+    sctl::Vector<Real> field_on_surf = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy);
+    // std::cout << "Done with exact field: " << std::endl;
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
-    // LayerPotenOp0.AddElemList(elem_lst_nbr);
     LayerPotenOp0.AddElemList(elem_lst0);
     LayerPotenOp0.SetTargetCoord(X0);
     LayerPotenOp0.SetAccuracy(tol);
-    if (peri_mode==1) {
-        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, 1.0);
-    } else if (peri_mode==3) {
-        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XYZ, 1.0);
-    } else if (peri_mode==2) {
-        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XY, 1.0);
-    } else {
-        SCTL_ASSERT(false);
-    }
+    LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, period_length);
 
     // periodized layer potential operator
-    const auto BIO = [&DL_scal,&LayerPotenOp0,&X0,NormalOrient](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+    const auto BIO = [&wts,&surface_area,&elem_lst0,&DL_scal,&LayerPotenOp0,&X0,NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        sctl::Vector<Real> sigma_mean, sigma0;
+        { // compute sigma_mean and sigma0 = sigma - sigma_mean
+            sctl::Vector<Real> sigma_;
+            elem_lst0.GetFarFieldDensity(sigma_, sigma);
+            SurfaceIntegral(sigma_mean, sigma_, wts);
+            //MPI
+            sctl::Vector<Real> sa_loc = sigma_mean;
+            sctl::Vector<Real> sa_all(3);
+            sa_all = 0;
+            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
+            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+1, (sctl::Iterator<Real>) sa_all.begin()+1, 1, sctl::CommOp::SUM);
+            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+2, (sctl::Iterator<Real>) sa_all.begin()+2, 1, sctl::CommOp::SUM);
+            sigma_mean = sa_all;
+            sigma_mean *= (1/surface_area);
+
+            sigma0 = sigma;
+            AddConstVec(sigma0, -sigma_mean);
+
+            // // DEBUG: check that sigma-sigma_mean has surface integral = 0:
+            // sctl::Vector<Real> sigma1 = sigma_;
+            // AddConstVec(sigma1, -sigma_mean);
+            // sctl::Vector<Real> sigma_test_;
+            // SurfaceIntegral(sigma_test_, sigma1, wts);
+            // std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "<< sigma_test_[1] << ", " << sigma_test_[2] << ". "<< std::endl;
+        
+        }
+        
         U->SetZero();
-        LayerPotenOp0.ComputePotential(*U, sigma);
-        if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma*0.5*NormalOrient * DL_scal; // for double-layer
+        LayerPotenOp0.ComputePotential(*U, sigma0);
+        if (DL_scal && U->Dim() == sigma0.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
+    
+        AddConstVec(*U, sigma_mean);
     };
 
     // =============== PRECONDITIONING =======================================
@@ -184,13 +217,14 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
 
     comm.Barrier();
     if (PrecondMat0.Dim(0) || PrecondMat0.Dim(1)) {
-        // std::cout << " successfully read file." << std::endl;
+        std::cout << " successfully read file." << std::endl;
         PrecondMat1.template Read<Real>(precond1_file.c_str());
         A11size = PrecondMat0.Dim(1);
     } else {
+        std::cout << " Making precond files " << std::endl;
         sctl::Vector<sctl::Long> ptcls_pre;
         sctl::Vector<Real> ptcls_Xcs_pre, ptcls_rs_pre;
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, 0, 1, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, geom_mode);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, geom_mode);
         sctl::SlenderElemList<Real> elem_lst_precond = std::get<0>(build_precond);
         sctl::Vector<Real> X0_precond; // target coordinates
         elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
@@ -255,79 +289,86 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
         (*U) = AinvApply(Uloc);
     };
 
-    // // first gmres to remove timing for matrix loading, and set Krylov preconditioner.
-    // sctl::Vector<Real> sigma_temp;
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
     sctl::Vector<Real> A11invF = AinvApply(field_on_surf);
-    // // PRECOND with Krylov
-    // solver(&sigma_temp, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    // sctl::Profile::reset();
-
-    // LayerPotenOp0.ClearSetup();
-    // sctl::Profile::Tic("Setup");
-    // LayerPotenOp0.Setup();
-    // sctl::Profile::Toc();
-    // sctl::Profile::print(&comm);
-    // LayerPotenOp0.ClearSetup();
-    // sctl::Profile::Tic("Setup");
-    // LayerPotenOp0.Setup();
-    // sctl::Profile::Toc();
-    // sctl::Profile::print(&comm);
 
     sctl::Vector<Real> sigma;
-    // sctl::Profile::Tic("Solver");
-    // PRECOND with Krylov
     solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    // solver(&sigma,BIO,field_on_surf,gmres_tol); // Also checks precond.
-    // sctl::Profile::Toc();
-    // sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    // sctl::Profile::reset();
-    // comm.Barrier();
-    // if (!comm.Rank()) {
-    //     std::cout << "------------------- DONE WITH SOLVE ======================" << std::endl;
+    // solver(&sigma,BIO,field_on_surf,gmres_tol); 
+
+    PeriodicGeom<Real> trg;    
+    CubeVolumeVisShifted<Real> vol_vis(5, 0.95, comm);
+    sctl::Vector<Real> X0_all = vol_vis.GetCoord();
+    sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
+    std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    X0 = std::get<0>(trg_tuple);
+    filtered_inds = std::get<1>(trg_tuple);
+    // std::cout<< "Number of targets before filter: " << X0_all.Dim() << ", after filter: " << X0.Dim() << std::endl;
+    LayerPotenOp0.SetTargetCoord(X0);
+    sctl::Vector<Real> U;
+    BIO(&U, sigma);
+
+    sctl::Vector<Real> field_on_trg = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy);
+    // get max abs error
+    sctl::Vector<Real> err = U - field_on_trg;
+
+    // // DEBUGGING: just print the errors to check whether x,y,z dependence, constant, etc.
+    // for (int i=0; i<err.Dim()/3; i++) {
+    //     std::cout << "err: " << std::setprecision(10) << err[i*3+0] << ", " << err[i*3+1] << ", " << err[i*3+2] << ". " << std::endl;
     // }
-    if (peri_mode ==1) { 
-        PeriodicGeom<Real> trg;    
-        CubeVolumeVisShifted<Real> vol_vis(20, 0.95, comm);
-        // // VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
-        // X0 = vol_vis.GetCoord();
-        sctl::Vector<Real> X0_all = vol_vis.GetCoord();
-        sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
-        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-        X0 = std::get<0>(trg_tuple);
-        filtered_inds = std::get<1>(trg_tuple);
-        std::cout<< "Number of targets before filter: " << X0_all.Dim() << ", after filter: " << X0.Dim() << std::endl;
-        LayerPotenOp0.SetTargetCoord(X0);
-        sctl::Vector<Real> U;
-        BIO(&U, sigma);
 
-        sctl::Vector<Real> field_on_trg = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy, peri_mode);
-        // get max abs error
-        const auto err = U - field_on_trg;
-        double max_err = 0;
-        Real max_u = 0.;
-        for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
-        for (const auto e : field_on_trg) max_u = std::max<Real>(max_u, sctl::fabs(e));
-        sctl::Vector<Real> err_loc(1);
-        err_loc[0] = max_err;
-        sctl::Vector<Real> err_all(1);
-        err_all[0] = 0;
-        // comm.Allreduce((sctl::Iterator<sctl::Long>) err_loc.begin(), (sctl::Iterator<sctl::Long>) err_all.begin(), 1, sctl::CommOp::MAX);
-        comm.Allreduce((sctl::Iterator<Real>) err_loc.begin(), (sctl::Iterator<Real>) err_all.begin(), 1, sctl::CommOp::MAX);
-    
-        sctl::Vector<Real> u_loc(1);
-        u_loc[0] = max_u;
-        sctl::Vector<Real> u_all(1);
-        u_all[0] = 0.;
-        comm.Allreduce((sctl::Iterator<Real>) u_loc.begin(), (sctl::Iterator<Real>) u_all.begin(), 1, sctl::CommOp::MAX);
+    // Subtract mean to remove constant difference
+    sctl::Vector<Real> sum_err(3);
+    sum_err = 0.;
+    for (sctl::Long i=0; i<err.Dim()/3; i++) {
+        for (sctl::Long k=0; k<3; k++) {
+            sum_err[k] += err[i*3+k];
+        }
+    }
+    sctl::Long err_size = err.Dim()/3;
+    //MPI
+    sctl::Vector<Real> sum_err_loc = sum_err;
+    sctl::Vector<Real> sum_err_all(3);
+    sum_err_all = 0;
+    comm.Allreduce((sctl::Iterator<Real>) sum_err_loc.begin(), (sctl::Iterator<Real>) sum_err_all.begin(), 1, sctl::CommOp::SUM);
+    comm.Allreduce((sctl::Iterator<Real>) sum_err_loc.begin()+1, (sctl::Iterator<Real>) sum_err_all.begin()+1, 1, sctl::CommOp::SUM);
+    comm.Allreduce((sctl::Iterator<Real>) sum_err_loc.begin()+2, (sctl::Iterator<Real>) sum_err_all.begin()+2, 1, sctl::CommOp::SUM);
+    sum_err = sum_err_all;
 
-        if (!comm.Rank()) {
-            std::cout<<"Max error = "<< std::setprecision(15) << err_all[0] << std::endl;
-            std::cout<<"Max u = "<< std::setprecision(15) << u_all[0] << std::endl;
-            std::cout<<"Max relative error = "<< std::setprecision(15) << err_all[0] / u_all[0] << std::endl;
-        }     
-    } 
+    sctl::Vector<sctl::Long> err_size_loc(1);
+    err_size_loc[0] = err_size;
+    sctl::Vector<sctl::Long> err_size_all(1); 
+    err_size_all[0] = 0;
+    comm.Allreduce((sctl::Iterator<Real>) err_size_loc.begin(), (sctl::Iterator<Real>) err_size_all.begin(), 1, sctl::CommOp::SUM);
+    // avg err
+    sctl::Vector<Real> avg_err = sum_err / err_size_all[0];
+    AddConstVec(err,-avg_err); // relative error with offset: max ((Ucalc - C) - Uexact) / Uexact, since C = Ucalc_exact - Uexact ~ E[Ucalc - Uexact]
+    // std::cout << "avg err: " << avg_err[0] << ", " << avg_err[1] << ", " << avg_err[2] << std::endl;
+    // for (int i=0; i<err.Dim()/3; i++) {
+    //     std::cout << "err after subtracting avg err: " << std::setprecision(10) << err[i*3+0] << ", " << err[i*3+1] << ", " << err[i*3+2] << ". " << std::endl;
+    // }
+
+    double max_err = 0;
+    Real max_u = 0.;
+    for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
+    for (const auto e : field_on_trg) max_u = std::max<Real>(max_u, sctl::fabs(e));
+    sctl::Vector<Real> err_loc(1);
+    err_loc[0] = max_err;
+    sctl::Vector<Real> err_all(1);
+    err_all[0] = 0;
+    // comm.Allreduce((sctl::Iterator<sctl::Long>) err_loc.begin(), (sctl::Iterator<sctl::Long>) err_all.begin(), 1, sctl::CommOp::MAX);
+    comm.Allreduce((sctl::Iterator<Real>) err_loc.begin(), (sctl::Iterator<Real>) err_all.begin(), 1, sctl::CommOp::MAX);
+
+    sctl::Vector<Real> u_loc(1);
+    u_loc[0] = max_u;
+    sctl::Vector<Real> u_all(1);
+    u_all[0] = 0.;
+    comm.Allreduce((sctl::Iterator<Real>) u_loc.begin(), (sctl::Iterator<Real>) u_all.begin(), 1, sctl::CommOp::MAX);
+
+    if (!comm.Rank()) {
+        std::cout<<"Max error = "<< std::setprecision(15) << err_all[0] << ", Max u = " << u_all[0] << ", Max relative error = " << err_all[0] / u_all[0] << std::endl;
+    }   
 }
 
 
@@ -340,12 +381,11 @@ int main(int argc, char** argv) {
         sctl::Comm comm = sctl::Comm::World();
         long Nelem_ptcl = std::stol(argv[1]); // number of elements
         long FourierOrder = std::stol(argv[2]);  // number of Fourier nodes
-        int peri_mode = std::stoi(argv[3]); // what kind of periodicity does the system have; peri_mode = j for j-periodic.
-        long Nptcl = std::stol(argv[4]); // number of particles inside
-        long geom_mode = std::stol(argv[5]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
-        long Ncopy = std::stol(argv[6]);
+        long Nptcl = std::stol(argv[3]); // number of particles inside
+        long geom_mode = std::stol(argv[4]); // =0: spheres; =1: spheroids; =3: bacteria; =4: loop.
+        long Ncopy = std::stol(argv[5]);
 
-        test<Real>(Nelem_ptcl, FourierOrder, peri_mode, comm, Nptcl, geom_mode, Ncopy);
+        manufactured_soln_1peri<Real>(Nelem_ptcl, FourierOrder, comm, Nptcl, geom_mode, Ncopy);
     }
 
     sctl::Comm::MPI_Finalize();

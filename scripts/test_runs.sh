@@ -1,12 +1,12 @@
 #!/bin/bash
 
 # Set up batch job settings
-#SBATCH --job-name=periodicity
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
+#SBATCH --job-name=trefoil_selfconv
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-node=2
 #SBATCH --cpus-per-task=32
-#SBATCH --time=00:05:00
-#SBATCH --mem=50g
+#SBATCH --time=01:00:00
+# #SBATCH --mem=50g
 # #SBATCH --partition=gen
 #SBATCH --partition=ccm
 #SBATCH --constraint=icelake 
@@ -27,14 +27,20 @@ cd ${WORK_DIR}
 # make test_plane -j &&
 # mpirun -n 1 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test_plane 40 2 0.01 0.9 1e-8 1e-8 > ${WORK_DIR}/out/test_plane_regluarized.txt
 
-make test_peri -j &&
-mpirun -n 1 --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test_periodicity 2 32 1 1 1e-8 1e-8 > ${WORK_DIR}/out/1ptcls_1peri_periodicity.txt
+# make test_peri -j &&
+# mpirun -n 1 --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test_periodicity 2 32 1 1 1e-8 1e-8 > ${WORK_DIR}/out/1ptcls_1peri_periodicity.txt
+
+# make test3 -j &&
+# mpirun -n 4 --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test3 > ${WORK_DIR}/out/channel_example.txt
+
+make test_selfconv -j &&
+mpirun -n 4 --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test_convergence 0 1 > ${WORK_DIR}/out/test_convergence_trefoil.txt
 
 
 # Timing for 25 particles
 # mpirun -n 1 --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2_timing 2 16 0 1 25 0 > ${WORK_DIR}/results/25ptcls_2_16_timing.txt
 # make test2_ptcl_conv -j32 &&
-# mpirun -n 1 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2_ptcl_conv 5 24 1 25 0 30000 > ${WORK_DIR}/results/25ptcls_5_24_newcode_30k.txt
+# mpirun -n 1 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2_ptcl_conv 5 24 25 0 30000 > ${WORK_DIR}/results/25ptcls_5_24_newcode_30k.txt
 
 # Streamlines
 # make test2_timing -j32 &&

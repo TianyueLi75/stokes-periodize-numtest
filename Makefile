@@ -89,41 +89,35 @@ TEST_BIN = \
 # Test target: build all test binaries
 test: $(TEST_BIN)
 
-# Periodic channel code with or without particles.
-test1: $(BINDIR)/test1
+# Example script with visualizations in all periodicity
+examples: $(BINDIR)/examples
+# Example script with particle dispersion through trefoil channel, simple Euler time step.
+dispersion: $(BINDIR)/dispersion
 
-# Preconditioned channel flow [without particle for now.]
-test1_precond: $(BINDIR)/test1_precond
-test1_dispersion: $(BINDIR)/test1_dispersion
-
-# Particle only, periodicity
-test2: $(BINDIR)/test2
+# Timing call in different periodicity
+timing: ${BINDIR}/test2
 
 # Test accuracy of particle periodic code by manufactured solutions
-test2_ptcl_conv: $(BINDIR)/test2_ptcl_conv
-test2_ptcl_precond_left: $(BINDIR)/test2_ptcl_precond_left
-
-# Aarticle in free space no periodicity
-test3: $(BINDIR)/test3
-
-# Aarticle in free space, direct sum periodicity
-test3_copies: $(BINDIR)/test3_copies
-
-# # Dense suspension of particles in periodic geom, can be replaced by test2_ptcl_conv
-# test4: $(BINDIR)/test4
-
-# Debug plane discretization
-test_plane: $(BINDIR)/test_plane
-# Debug periodicity
-test_peri: $(BINDIR)/test_periodicity
-test_fmm: $(BINDIR)/test_fmm_exact
-test_peri_channel: $(BINDIR)/test_periodicity_channel
-test_peri_netzero: $(BINDIR)/test_netzero
-
+test_manufactured_soln: $(BINDIR)/test2_ptcl_conv
 # Test self convergence of channel with or without particles
 test_selfconv: $(BINDIR)/test_convergence
 
-# Create proxy files for different order parameters
+
+# DEBUGGING
+# Debug periodicity
+test_peri: $(BINDIR)/test_periodicity
+# Comparing 1-peri vs 3-peri of channel flow, should give same solution.
+test_3peri: ${BINDIR}/test_3peri
+
+
+# OLDER TESTS
+# [Deprecated] Periodic channel code with or without particles.
+test1: $(BINDIR)/test1
+
+# [Deprecated] A particle in free space, direct sum periodicity
+test3_copies: $(BINDIR)/test3_copies
+
+# [Deprecated] Create proxy files for different order parameters
 test_proxy_mats: $(BINDIR)/test2_ptcl_periodize_mats
 test_proxy_order: $(BINDIR)/test2_ptcl_periodize_order
 
