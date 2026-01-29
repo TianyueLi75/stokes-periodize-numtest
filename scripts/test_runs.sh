@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Set up batch job settings
-#SBATCH --job-name=trefoil_selfconv
-#SBATCH --nodes=2
+#SBATCH --job-name=plane_selfconv
+#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=2
 #SBATCH --cpus-per-task=32
-#SBATCH --time=01:00:00
+#SBATCH --time=01:30:00
 # #SBATCH --mem=50g
 # #SBATCH --partition=gen
 #SBATCH --partition=ccm
@@ -33,9 +33,18 @@ cd ${WORK_DIR}
 # make test3 -j &&
 # mpirun -n 4 --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test3 > ${WORK_DIR}/out/channel_example.txt
 
-make test_selfconv -j &&
-mpirun -n 4 --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test_convergence 0 1 > ${WORK_DIR}/out/test_convergence_trefoil.txt
+make test_selfconv -B -j &&
+# mpirun -n ${NTASK} --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test_convergence 1 2 > ${WORK_DIR}/out/test_convergence_3ptcls_2peri.txt
+# mpirun -n ${NTASK} --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test_convergence 1 3 > ${WORK_DIR}/out/test_convergence_3ptcls_3peri.txt
+mpirun -n ${NTASK} --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test_convergence 2 1 > ${WORK_DIR}/out/test_convergence_convdiv.txt 
+mpirun -n 1 --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test_convergence 4 2 > ${WORK_DIR}/out/test_convergence_plane_3loops.txt
+# mpirun -n ${NTASK} --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test_convergence 0 1 > ${WORK_DIR}/out/test_convergence_trefoil.txt
 
+# make examples -j &&
+# mpirun -n ${NTASK} --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/dispersion 400 64 > ${WORK_DIR}/out/channel_example.txt
+
+# make dispersion -j &&
+# mpirun -n ${NTASK} --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/dispersion 400 64 > ${WORK_DIR}/out/trefoil_vis.txt
 
 # Timing for 25 particles
 # mpirun -n 1 --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2_timing 2 16 0 1 25 0 > ${WORK_DIR}/results/25ptcls_2_16_timing.txt

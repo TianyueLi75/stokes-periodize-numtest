@@ -230,7 +230,7 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
     const sctl::Long ElemOrder = 10;
-    const sctl::Long gmres_max_iter = 400;
+    const sctl::Long gmres_max_iter = 200;
 
     const Real pressure_drop = -1.0;
     const Real period_length = 1;
@@ -313,12 +313,12 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
             sigma0 = sigma;
             AddConstVec(sigma0, -sigma_mean);
 
-            // DEBUG: check that sigma-sigma_mean has surface integral = 0:
-            sctl::Vector<Real> sigma1 = sigma_;
-            AddConstVec(sigma1, -sigma_mean);
-            sctl::Vector<Real> sigma_test_;
-            SurfaceIntegral(sigma_test_, sigma1, wts);
-            std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "<< sigma_test_[1] << ", " << sigma_test_[2] << ". "<< std::endl;
+            // // DEBUG: check that sigma-sigma_mean has surface integral = 0:
+            // sctl::Vector<Real> sigma1 = sigma_;
+            // AddConstVec(sigma1, -sigma_mean);
+            // sctl::Vector<Real> sigma_test_;
+            // SurfaceIntegral(sigma_test_, sigma1, wts);
+            // std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "<< sigma_test_[1] << ", " << sigma_test_[2] << ". "<< std::endl;
         
         }
         
@@ -401,7 +401,7 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
     { // Evaluate in interior, and write visualization
         PeriodicGeom<Real> trg;
         const sctl::Long Nelem_trg = 200;
-        const sctl::Long FourierOrder_trg = 16;
+        const sctl::Long FourierOrder_trg = 4;
         sctl::SlenderElemList<Real> elem_lst_trg;
         sctl::Vector<sctl::Long> ptcls_trg;
         sctl::Vector<Real> ptcls_Xcs_trg;
@@ -429,6 +429,7 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
         if (write_ref) {
 
             U.Write(filename_out.c_str());
+            vol_vis.WriteVTK(filename_vis, U);
             
         } else {
 
@@ -436,7 +437,15 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
             U_ref.Read(filename_out.c_str());
 
             sctl::Vector<Real> err = U - U_ref;
+            // std::cout << "===== error before renorm: ======" << std::endl;
+            // for (int i=0; i<err.Dim()/3; i++) {
+            //     std::cout << std::setprecision(8) << err[i*3+0] << ", " << err[i*3+1] << ", " << err[i*3+2] << "; " << std::endl;
+            // }
             renormalize_error(err,comm);
+            // std::cout << "===== error after renorm: ======" << std::endl;
+            // for (int i=0; i<err.Dim()/3; i++) {
+            //     std::cout << std::setprecision(8) << err[i*3+0] << ", " << err[i*3+1] << ", " << err[i*3+2] << "; " << std::endl;
+            // }
             double max_err = 0;
             for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
             Real max_u = 0.;
@@ -455,6 +464,31 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
 
             if (!comm.Rank()) {
                 std::cout<<"Max error = "<< std::setprecision(10) << err_all[0] << ", Max u = " << u_all[0] << ", Max relative error = " << err_all[0] / u_all[0] << std::endl;
+            }
+
+            // Try average error instead of max? (can probably use omp_scan.. )
+            double avg_err = 0.;
+            for (const auto e : err) avg_err += sctl::fabs(e);
+            sctl::Vector<Real> avg_err_loc(1);
+            avg_err_loc[0] = avg_err;
+            sctl::Vector<Real> avg_err_all(1);
+            avg_err_all[0] = 0;
+            comm.Allreduce((sctl::Iterator<Real>) avg_err_loc.begin(), (sctl::Iterator<Real>) avg_err_all.begin(), 1, sctl::CommOp::SUM);
+            std::cout << "on MPI process " << comm.Rank() << ", sum of err locally is " << avg_err << ", total error is " << avg_err_all[0] << std::endl;
+
+            long size_err = err.Dim();
+            sctl::Vector<sctl::Long> size_err_loc(1);
+            size_err_loc[0] = size_err;
+            sctl::Vector<sctl::Long> size_err_all(1);
+            size_err_all[0] = 0;
+            comm.Allreduce((sctl::Iterator<sctl::Long>) size_err_loc.begin(), (sctl::Iterator<sctl::Long>) size_err_all.begin(), 1, sctl::CommOp::SUM);
+
+            std::cout << "size of error on process" << comm.Rank() << " is " << size_err << ", after collection total size is " << size_err_all[0] << std::endl;
+
+            avg_err = avg_err_all[0] / (1.0*size_err_all[0]);
+
+            if (!comm.Rank()) {
+                std::cout<<"Average error = "<< std::setprecision(10) << avg_err << ", average relative error (divide by max u above) = " << avg_err / u_all[0] << std::endl;
             }
         }
 
@@ -601,7 +635,7 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
 
     { // Evaluate in interior, and write visualization
         PeriodicGeom<Real> trg;
-        CubeVolumeVisShifted<Real> vol_vis(20, 1.0, comm); 
+        CubeVolumeVisShifted<Real> vol_vis(20, 0.99, comm); 
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
         sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
         std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, 0);
@@ -624,6 +658,20 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
         if (write_ref) {
             
             U.Write(filename_out.c_str());
+            // Create array of velocity for all target points, including filtered out ones.
+            sctl::Vector<Real> U_vis(X0_all.Dim());
+            U_vis = 0.;
+            sctl::Long X1_ptr = 0;
+            for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+                if (filtered_inds[i] == 0) {
+                    U_vis[i*3] = U[X1_ptr*3];
+                    U_vis[i*3+1] = U[X1_ptr*3+1];
+                    U_vis[i*3+2] = U[X1_ptr*3+2];
+                    X1_ptr += 1;
+                }
+            }
+            // Write visualization to VTK
+            vol_vis.WriteVTK(filename_vis, U_vis);
 
         } else {
 
@@ -666,12 +714,12 @@ template <class Real> void convdiv_self_conv(sctl::Long Nelem, sctl::Long Fourie
     const sctl::Long ElemOrder = 10;
     const Real pressure_drop = -1.0;
     const Real period_length = 1;
-    const sctl::Long geom_mode = 0;
+    const sctl::Long geom_mode = 1;
     const sctl::Long gmres_max_iter = 400;
 
     PeriodicGeom<Real> obj;
-    sctl::Long Nptcl = 50; // placeholder; will be replaced inside conv-div channel build.
-    sctl::Long ptcl_ord = 1;
+    sctl::Long Nptcl = 3; // correct, but will be replaced inside conv-div channel build.
+    sctl::Long ptcl_ord = 16; // Be careful with this if using particle preconditioner, since it's possible that not all panels on each particle are on the same MPI process.
     sctl::Vector<sctl::Long> ptcls(Nptcl);
     ptcls = ptcl_ord;
     // /////// DEBUG no particle in conv div, shoudl converge
@@ -682,18 +730,22 @@ template <class Real> void convdiv_self_conv(sctl::Long Nelem, sctl::Long Fourie
     sctl::Vector<Real> ptcls_Xcs;
     sctl::Vector<Real> ptcls_rs;
     sctl::SlenderElemList<Real> elem_lst0;
-    sctl::Vector<Real> NormalOrient;
+    sctl::Vector<Real> NormalOrient, ptcls_thetas, ptcls_phis;
     sctl::Long peri_mode = 1;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem, ElemOrder, FourierOrder, 0.1, 0.1, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, geom_mode);
+    Real channel_r1 = 0.1;
+    Real channel_r2 = 0.2;
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem, ElemOrder, FourierOrder, channel_r1, channel_r2, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord);
     elem_lst0 = std::get<0>(build0);
     NormalOrient = std::get<1>(build0);
+    ptcls_thetas = std::get<2>(build0);
+    ptcls_phis = std::get<3>(build0);
     Nptcl = ptcls_rs.Dim();
 
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
 
     if (write_ref) {
-        elem_lst0.WriteVTK("vis/channel", X0, comm);
+        elem_lst0.WriteVTK("vis/channel", X0);
     }
 
     Real surface_area;
@@ -712,7 +764,9 @@ template <class Real> void convdiv_self_conv(sctl::Long Nelem, sctl::Long Fourie
         surface_area = sa_all[0];
         // surface_area = surface_area_[0];
     }
-    std::cout << "DEBUG surface area = " << surface_area << "." << std::endl;
+    if (!comm.Rank()) {
+        std::cout << "DEBUG surface area = " << surface_area << "." << std::endl;
+    }
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
     LayerPotenOp0.AddElemList(elem_lst0);
@@ -755,12 +809,12 @@ template <class Real> void convdiv_self_conv(sctl::Long Nelem, sctl::Long Fourie
             sigma0 = sigma;
             AddConstVec(sigma0, -sigma_mean);
 
-            // DEBUG: check that sigma-sigma_mean has surface integral = 0:
-            sctl::Vector<Real> sigma1 = sigma_;
-            AddConstVec(sigma1, -sigma_mean);
-            sctl::Vector<Real> sigma_test_;
-            SurfaceIntegral(sigma_test_, sigma1, wts);
-            std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "<< sigma_test_[1] << ", " << sigma_test_[2] << ". "<< std::endl;
+            // // DEBUG: check that sigma-sigma_mean has surface integral = 0:
+            // sctl::Vector<Real> sigma1 = sigma_;
+            // AddConstVec(sigma1, -sigma_mean);
+            // sctl::Vector<Real> sigma_test_;
+            // SurfaceIntegral(sigma_test_, sigma1, wts);
+            // std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "<< sigma_test_[1] << ", " << sigma_test_[2] << ". "<< std::endl;
         
         }
         
@@ -848,13 +902,13 @@ template <class Real> void convdiv_self_conv(sctl::Long Nelem, sctl::Long Fourie
         sctl::Vector<sctl::Long> ptcls_trg; // dim = 0 so no particles are first generated
         sctl::Vector<Real> ptcls_Xcs_trg;
         sctl::Vector<Real> ptcls_rs_trg;
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_conv_div(Nelem_trg, ElemOrder, FourierOrder_trg, 0.1, 0.1, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, ptcl_ord, 0);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build_trg = trg.build_conv_div(Nelem_trg, ElemOrder, FourierOrder_trg, channel_r1, channel_r2, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, ptcl_ord);
         elem_lst_trg = std::get<0>(build_trg);
 
         VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
         sctl::Vector<Real> X0_all = vol_vis.GetCoord(); // set new target coordinates
         sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
-        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, 0);
+        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target_rotated(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode, ptcls_thetas, ptcls_phis);
         X0 = std::get<0>(trg_tuple);
         filtered_inds = std::get<1>(trg_tuple);
 
@@ -863,10 +917,10 @@ template <class Real> void convdiv_self_conv(sctl::Long Nelem, sctl::Long Fourie
         BIO(&U, sigma);
         U -= bg_flow(X0) * (pressure_drop / period_length);
 
-        sctl::Vector<sctl::Long> size_loc(1);
-        size_loc[0] = X0.Dim();
-        sctl::Vector<sctl::Long> size_all(1);
-        comm.Allreduce((sctl::Iterator<sctl::Long>) size_loc.begin(), (sctl::Iterator<sctl::Long>) size_all.begin(), 1, sctl::CommOp::SUM);
+        // sctl::Vector<sctl::Long> size_loc(1);
+        // size_loc[0] = X0.Dim();
+        // sctl::Vector<sctl::Long> size_all(1);
+        // comm.Allreduce((sctl::Iterator<sctl::Long>) size_loc.begin(), (sctl::Iterator<sctl::Long>) size_all.begin(), 1, sctl::CommOp::SUM);
         // std::cout << "rank " << comm.Rank() << " size loc = " << size_loc[0] << ", size all is " << size_all[0] << std::endl;
 
         // std::string filename = "Conv_div.txt";
@@ -876,6 +930,20 @@ template <class Real> void convdiv_self_conv(sctl::Long Nelem, sctl::Long Fourie
         if (write_ref) {
 
             U.Write(filename_out.c_str());
+            // Create array of velocity for all target points, including filtered out ones.
+            sctl::Vector<Real> U_vis(X0_all.Dim());
+            U_vis = 0.;
+            sctl::Long X1_ptr = 0;
+            for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+                if (filtered_inds[i] == 0) {
+                    U_vis[i*3] = U[X1_ptr*3];
+                    U_vis[i*3+1] = U[X1_ptr*3+1];
+                    U_vis[i*3+2] = U[X1_ptr*3+2];
+                    X1_ptr += 1;
+                }
+            }
+            // Write visualization to VTK
+            vol_vis.WriteVTK(filename_vis, U_vis);
 
         } else {
             sctl::Vector<Real> U_ref;
@@ -901,6 +969,46 @@ template <class Real> void convdiv_self_conv(sctl::Long Nelem, sctl::Long Fourie
             if (!comm.Rank()) {
                 std::cout<<"Max error = "<< std::setprecision(10) << err_all[0] << ", Max u = " << u_all[0] << ", Max relative error = " << err_all[0] / u_all[0] << std::endl;
             }
+
+            // Try average error instead of max? (can probably use omp_scan.. )
+            double avg_err = 0.;
+            for (const auto e : err) avg_err += sctl::fabs(e);
+            sctl::Vector<Real> avg_err_loc(1);
+            avg_err_loc[0] = avg_err;
+            sctl::Vector<Real> avg_err_all(1);
+            avg_err_all[0] = 0;
+            comm.Allreduce((sctl::Iterator<Real>) avg_err_loc.begin(), (sctl::Iterator<Real>) avg_err_all.begin(), 1, sctl::CommOp::SUM);
+            std::cout << "on MPI process " << comm.Rank() << ", sum of err locally is " << avg_err << ", total error is " << avg_err_all[0] << std::endl;
+
+            long size_err = err.Dim();
+            sctl::Vector<sctl::Long> size_err_loc(1);
+            size_err_loc[0] = size_err;
+            sctl::Vector<sctl::Long> size_err_all(1);
+            size_err_all[0] = 0;
+            comm.Allreduce((sctl::Iterator<sctl::Long>) size_err_loc.begin(), (sctl::Iterator<sctl::Long>) size_err_all.begin(), 1, sctl::CommOp::SUM);
+
+            std::cout << "size of error on process" << comm.Rank() << " is " << size_err << ", after collection total size is " << size_err_all[0] << std::endl;
+
+            avg_err = avg_err_all[0] / (1.0*size_err_all[0]);
+
+            if (!comm.Rank()) {
+                std::cout<<"Average error = "<< std::setprecision(10) << avg_err << ", average relative error (divide by max u above) = " << avg_err / u_all[0] << std::endl;
+            }
+
+            // Create array of velocity for all target points, including filtered out ones.
+            sctl::Vector<Real> err_vis(X0_all.Dim());
+            err_vis = 0.;
+            sctl::Long X1_ptr = 0;
+            for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+                if (filtered_inds[i] == 0) {
+                    err_vis[i*3] = err[X1_ptr*3];
+                    err_vis[i*3+1] = err[X1_ptr*3+1];
+                    err_vis[i*3+2] = err[X1_ptr*3+2];
+                    X1_ptr += 1;
+                }
+            }
+            // Write visualization to VTK
+            vol_vis.WriteVTK("vis/ConvDiv_U_err", err_vis);
         }
 
     } 
@@ -1122,6 +1230,20 @@ template <class Real> void trefoil_ptcl_self_conv(sctl::Long Nelem, sctl::Long F
         std::string filename_vis = "vis/"+filename;
         if (write_ref) {
             U.Write(filename_out.c_str());
+            // Create array of velocity for all target points, including filtered out ones.
+            sctl::Vector<Real> U_vis(X0_all.Dim());
+            U_vis = 0.;
+            sctl::Long X1_ptr = 0;
+            for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+                if (filtered_inds[i] == 0) {
+                    U_vis[i*3] = U[X1_ptr*3];
+                    U_vis[i*3+1] = U[X1_ptr*3+1];
+                    U_vis[i*3+2] = U[X1_ptr*3+2];
+                    X1_ptr += 1;
+                }
+            }
+            // Write visualization to VTK
+            vol_vis.WriteVTK(filename_vis, U_vis);
 
         } else {
             sctl::Vector<Real> U_ref;
@@ -1158,7 +1280,9 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
     const Real DL_scal = 1.0;
 
     const sctl::Long ElemOrder = 10;
-    const sctl::Long geom_mode = 0;
+
+    const sctl::Long geom_mode = 3;
+
     const Real period_length = 1.;
     const sctl::Long gmres_max_iter = 100;
     const Real pressure_drop = -1.;
@@ -1169,10 +1293,13 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
     sctl::Vector<Real> ptcls_Xcs;
     sctl::Vector<Real> ptcls_rs;
     sctl::SlenderElemList<Real> elem_lst0;
-    sctl::Vector<Real> NormalOrient;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    sctl::Vector<Real> NormalOrient, ptcls_thetas, ptcls_phis;
+    // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.many_loops3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs);
     elem_lst0 = std::get<0>(build0);
     NormalOrient = std::get<1>(build0);
+    ptcls_thetas = std::get<2>(build0);
+    ptcls_phis = std::get<3>(build0);
     
     sctl::Vector<Real> X0_ptcl; // target coordinates
     elem_lst0.GetNodeCoord(&X0_ptcl, nullptr, nullptr);
@@ -1310,10 +1437,11 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
 
     { // Evaluate in interior, and write visualization
         PeriodicGeom<Real> trg;
-        CubeVolumeVisShifted<Real> vol_vis(20, 1.0, comm); 
+        CubeVolumeVisShifted<Real> vol_vis(10, 0.8, comm); // leave space away from planes to avoid close eval errors
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
         sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
-        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, 0);
+        // std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, 0);
+        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target_rotated(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode, ptcls_thetas, ptcls_phis);
         X0 = std::get<0>(trg_tuple);
         filtered_inds = std::get<1>(trg_tuple);
         
@@ -1333,6 +1461,20 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
         if (write_ref) {
             
             U.Write(filename_out.c_str());
+            // Create array of velocity for all target points, including filtered out ones.
+            sctl::Vector<Real> U_vis(X0_all.Dim());
+            U_vis = 0.;
+            sctl::Long X1_ptr = 0;
+            for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+                if (filtered_inds[i] == 0) {
+                    U_vis[i*3] = U[X1_ptr*3];
+                    U_vis[i*3+1] = U[X1_ptr*3+1];
+                    U_vis[i*3+2] = U[X1_ptr*3+2];
+                    X1_ptr += 1;
+                }
+            }
+            // Write visualization to VTK
+            vol_vis.WriteVTK(filename_vis, U_vis);
 
         } else {
 
@@ -1360,6 +1502,46 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
             if (!comm.Rank()) {
                 std::cout<<"Max error = "<< std::setprecision(10) << err_all[0] << ", Max u = " << u_all[0] << ", Max relative error = " << err_all[0] / u_all[0] << std::endl;
             }
+
+            // Try average error instead of max? (can probably use omp_scan.. )
+            double avg_err = 0.;
+            for (const auto e : err) avg_err += sctl::fabs(e);
+            sctl::Vector<Real> avg_err_loc(1);
+            avg_err_loc[0] = avg_err;
+            sctl::Vector<Real> avg_err_all(1);
+            avg_err_all[0] = 0;
+            comm.Allreduce((sctl::Iterator<Real>) avg_err_loc.begin(), (sctl::Iterator<Real>) avg_err_all.begin(), 1, sctl::CommOp::SUM);
+            std::cout << "on MPI process " << comm.Rank() << ", sum of err locally is " << avg_err << ", total error is " << avg_err_all[0] << std::endl;
+
+            long size_err = err.Dim();
+            sctl::Vector<sctl::Long> size_err_loc(1);
+            size_err_loc[0] = size_err;
+            sctl::Vector<sctl::Long> size_err_all(1);
+            size_err_all[0] = 0;
+            comm.Allreduce((sctl::Iterator<sctl::Long>) size_err_loc.begin(), (sctl::Iterator<sctl::Long>) size_err_all.begin(), 1, sctl::CommOp::SUM);
+
+            std::cout << "size of error on process" << comm.Rank() << " is " << size_err << ", after collection total size is " << size_err_all[0] << std::endl;
+
+            avg_err = avg_err_all[0] / (1.0*size_err_all[0]);
+
+            if (!comm.Rank()) {
+                std::cout<<"Average error = "<< std::setprecision(10) << avg_err << ", average relative error (divide by max u above) = " << avg_err / u_all[0] << std::endl;
+            }
+
+            // Create array of velocity for all target points, including filtered out ones.
+            sctl::Vector<Real> err_vis(X0_all.Dim());
+            err_vis = 0.;
+            sctl::Long X1_ptr = 0;
+            for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+                if (filtered_inds[i] == 0) {
+                    err_vis[i*3] = err[X1_ptr*3];
+                    err_vis[i*3+1] = err[X1_ptr*3+1];
+                    err_vis[i*3+2] = err[X1_ptr*3+2];
+                    X1_ptr += 1;
+                }
+            }
+            // Write visualization to VTK
+            vol_vis.WriteVTK("vis/Plane_ptcl_2_peri_U_err_", err_vis);
         }
     }
 
@@ -1384,25 +1566,28 @@ int main(int argc, char** argv) {
         // for (int i=1; i<4; i += 2) {
             Nelem_lst.PushBack(2*i);
         }
+    } else if (test_mode == 4) { // plane with loop
+        // Nelem_lst.PushBack(8);
+        // Nelem_lst.PushBack(16);
+        Nelem_lst.PushBack(32);
     } else if (test_mode == 0 || test_mode == 3) { // trefoil needs more panels
-        Nelem_lst.PushBack(200);
         Nelem_lst.PushBack(400);
+        Nelem_lst.PushBack(600);
         Nelem_lst.PushBack(800);
-    } else {
-        // for conv div channel
-        Nelem_lst.PushBack(6);
-        Nelem_lst.PushBack(12);
-        Nelem_lst.PushBack(24);
+    } else { // for conv div channel
+        // Nelem_lst.PushBack(25);
+        // Nelem_lst.PushBack(50);
+        Nelem_lst.PushBack(100);
     } 
     
     sctl::Vector<sctl::Long> FourierOrder_lst;
-    if (test_mode == 2) {
+    if (test_mode == 1) { // with particles
         FourierOrder_lst.PushBack(16);
         FourierOrder_lst.PushBack(32);
         FourierOrder_lst.PushBack(64);
-    } else {
+    } else { // channels or plane with loops
         // FourierOrder_lst.PushBack(16);
-        FourierOrder_lst.PushBack(32);
+        // FourierOrder_lst.PushBack(32);
         FourierOrder_lst.PushBack(64);
         FourierOrder_lst.PushBack(96); 
     }
@@ -1433,7 +1618,7 @@ int main(int argc, char** argv) {
                 }
                 // continue;
             } else {
-                Real tol = 1e-12;
+                Real tol = 1e-14;
                 Real gmres_tol;
                 if (i < 3) {
                     gmres_tol = 1e-10;

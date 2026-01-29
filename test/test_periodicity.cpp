@@ -47,11 +47,13 @@ template <class Real> void test1peri_channel(sctl::Long Nelem_channel, sctl::Lon
     sctl::Vector<Real> ptcls_Xcs;
     sctl::Vector<Real> ptcls_rs;
     sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
-    sctl::Vector<Real> NormalOrient;
+    sctl::Vector<Real> NormalOrient, ptcls_thetas, ptcls_phis;
     sctl::Long peri_mode = 1;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0.1, 0.2, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0.1, 0.2, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord);
     elem_lst0 = std::get<0>(build0);
     NormalOrient = std::get<1>(build0);
+    ptcls_thetas = std::get<2>(build0);
+    ptcls_phis = std::get<3>(build0);
     Nptcl = ptcls_rs.Dim(); // Number of particles could have changed after initializing.
 
     sctl::Vector<Real> X0; // target coordinates
@@ -180,7 +182,7 @@ template <class Real> void test2peri_plane(sctl::Long Nelem, sctl::Long FourierO
 
     const sctl::Long ElemOrder = 10;
     // const sctl::Long geom_mode = 0;
-    const sctl::Long geom_mode = 1;
+    const sctl::Long geom_mode = 1; // spheroids
     // const sctl::Long Nptcl = 1; // Other spherical configurations are not checked to remain between z_offsets to stay clear of the plates, so only check periodicity for one particle.
     
     PeriodicGeom<Real> obj;
@@ -189,14 +191,23 @@ template <class Real> void test2peri_plane(sctl::Long Nelem, sctl::Long FourierO
     sctl::Vector<Real> ptcls_rs;
     sctl::SlenderElemList<Real> elem_lst0;
     sctl::Vector<Real> NormalOrient, ptcls_thetas, ptcls_phis;
-    // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-    // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.many_spheroids3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.many_loops3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs);
-    elem_lst0 = std::get<0>(build0);
-    NormalOrient = std::get<1>(build0);
-    ptcls_thetas = std::get<2>(build0);
-    ptcls_phis = std::get<3>(build0);
-    
+    if (geom_mode == 0) {
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+    } else if (geom_mode == 1) {
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.many_spheroids3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs);
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+        ptcls_thetas = std::get<2>(build0);
+        ptcls_phis = std::get<3>(build0);
+    } else {
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.many_loops3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs);
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+        ptcls_thetas = std::get<2>(build0);
+        ptcls_phis = std::get<3>(build0);
+    }
     sctl::Vector<Real> X0_ptcl; // target coordinates
     elem_lst0.GetNodeCoord(&X0_ptcl, nullptr, nullptr);
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); 
@@ -481,7 +492,12 @@ template <class Real> void test2peri_plane(sctl::Long Nelem, sctl::Long FourierO
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
         
         sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
-        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target_rotated(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode, ptcls_thetas, ptcls_phis);
+        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple;
+        if (geom_mode > 0) {
+            trg_tuple = trg.filter_target_rotated(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode, ptcls_thetas, ptcls_phis);
+        } else {
+            trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        }
         X0 = std::get<0>(trg_tuple);
         filtered_inds = std::get<1>(trg_tuple);
 

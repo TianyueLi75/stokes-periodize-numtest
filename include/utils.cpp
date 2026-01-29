@@ -1315,7 +1315,7 @@ template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> Pe
       } else if (geom_mode == 2) {
         outside = (outside && outside_bacteria(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0]));
       } else if (geom_mode == 3) {
-        outside = (outside && outside_loop(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],0.025,pr[0])); // ptcls_rs for loops store the size of the loop, so loop_rad, rather than the "thickness", which is hardcoded to be 0.025.
+        outside = (outside && outside_loop(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],0.05,pr[0])); // ptcls_rs for loops store the size of the loop, so loop_rad, rather than the "thickness", which is hardcoded to be 0.025.
       } else {
         SCTL_ASSERT(false); // not implemented
       }
@@ -1357,14 +1357,14 @@ template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> Pe
       } else if (geom_mode == 2) {
         outside = (outside && outside_bacteria_rotated(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],ptheta[0],pphi[0]));
       } else if (geom_mode == 3) {
-        outside = (outside && outside_loop_rotated(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],0.025,pr[0],ptheta[0],pphi[0])); // hardcoded geometry r.n.
+        outside = (outside && outside_loop_rotated(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],0.05,pr[0],ptheta[0],pphi[0])); // hardcoded geometry r.n.
       } else {
         SCTL_ASSERT(false); // not implemented
       }
       
       if (!outside) {
         // std::cout << "rank " << comm_.Rank() << ", inside particle" << std::endl;
-        // std::cout << "inside particle, remove." << std::endl;
+        // std::cout << "target "<< i << " inside particle, remove." << std::endl;
         filtered_inds[i] = 1; // =1 if inside.
         break;  
       }
@@ -1395,7 +1395,7 @@ template <class Real> bool PeriodicGeom<Real>::outside_spheroid(const Real x1, c
   const Real x1sq = (x1-pXc1)*(x1-pXc1);
   const Real x2sq = (x2-pXc2)*(x2-pXc2);
   const Real x3sq = (x3-pXc3)*(x3-pXc3);
-  if (x2sq * C2inv + (x1sq+x3sq) * A2inv < 1.05) { // with buffer layer.
+  if (x1sq * C2inv + (x2sq+x3sq) * A2inv < 1.05) { // with buffer layer.
     return false;
   } else {
     return true;
@@ -1406,6 +1406,7 @@ template <class Real> bool PeriodicGeom<Real>::outside_spheroid_rotated(const Re
   const Real v1 = x1-pXc1;
   const Real v2 = x2-pXc2;
   const Real v3 = x3-pXc3;
+  const Real buffer = 1.25;
   
   // Counter rotate target -- R^{-1} = R^T
   const Real cos_theta_rotate = sctl::cos<Real>(ptheta);
@@ -1415,6 +1416,9 @@ template <class Real> bool PeriodicGeom<Real>::outside_spheroid_rotated(const Re
   Real v1_rotated = cos_theta_rotate * cos_phi_rotate * v1 + sin_phi_rotate * cos_theta_rotate * v2 - sin_theta_rotate * v3;
   Real v2_rotated = - sin_phi_rotate * v1 + cos_phi_rotate * v2;
   Real v3_rotated = cos_phi_rotate * sin_theta_rotate * v1 + sin_phi_rotate * sin_theta_rotate * v2 + cos_theta_rotate * v3; 
+  // std::cout << "difference vector before rotation: " << v1 << ", " << v2 << ", " << v3 << "; " << std::endl;
+  // std::cout << "Rotation by theta = " << ptheta << ", phi = " << pphi << "; " << std::endl;
+  // std::cout << "New rotated vector is " << v1_rotated<<", " << v2_rotated << ", " << v3_rotated << ". " << std::endl;
 
   const Real A = a * sctl::sqrt(u0*u0-1);
   const Real C = a * u0;
@@ -1423,7 +1427,7 @@ template <class Real> bool PeriodicGeom<Real>::outside_spheroid_rotated(const Re
   const Real x1sq = v1_rotated*v1_rotated; // should be same as v1^2, etc
   const Real x2sq = v2_rotated*v2_rotated;
   const Real x3sq = v3_rotated*v3_rotated;
-  if (x1sq * C2inv + (x2sq+x3sq) * A2inv < 1.05) { // with buffer layer.
+  if (x1sq * C2inv + (x2sq+x3sq) * A2inv < buffer * 1.0) { // with buffer layer.
     return false;
   } else {
     return true;
@@ -1445,11 +1449,14 @@ template <class Real> bool PeriodicGeom<Real>::outside_loop(const Real x1, const
   const Real v1 = x1-pXc1;
   const Real v2 = x2-pXc2;
   const Real v3 = x3-pXc3;
+  const Real buffer = 1.25;
 
-  bool A = v1*v1 + v2*v2  > (loop_rad-pr)*(loop_rad-pr)*1.05;
-  bool B = v1*v1 + v2*v2  < (loop_rad+pr)*(loop_rad+pr)*1.05; // x-y direction within pr ring
-  bool C = v3 < pr * 1.05 && v3 > -pr * 1.05; // z direction between [-pr, pr]
+  bool A = v1*v1 + v2*v2  > (loop_rad-pr*buffer)*(loop_rad-pr*buffer);
+  bool B = v1*v1 + v2*v2  < (loop_rad+pr*buffer)*(loop_rad+pr*buffer); // x-y direction within pr ring
+  bool C = v3 < pr * buffer && v3 > -pr * buffer; // z direction between [-pr, pr]
   bool inside = A && B && C; // includes more points than necessary to be "inside"
+  // std::cout << "target at " << x1 << ", " << x2 << ", " << x3 << ", particle center at " << pXc1 << ", " << pXc2 << ", " << pXc3 << ". Large radius of loop is " << loop_rad << ", radius of the ringlet is " << pr << std::endl;
+  // std::cout << "x,y distance ^2 to center: " << v1*v1+v2*v2 << ", radius min ^2 = " << (loop_rad-pr)*(loop_rad-pr) << ", max ^2 = " << (loop_rad+pr)*(loop_rad+pr) << std::endl;
 
   return !inside;
 }
@@ -1458,6 +1465,7 @@ template <class Real> bool PeriodicGeom<Real>::outside_loop_rotated(const Real x
   const Real v1 = x1-pXc1;
   const Real v2 = x2-pXc2;
   const Real v3 = x3-pXc3;
+  const Real buffer = 1.25;
 
   // Counter rotate target -- R^{-1} = R^T
   const Real cos_theta_rotate = sctl::cos<Real>(ptheta);
@@ -1468,10 +1476,13 @@ template <class Real> bool PeriodicGeom<Real>::outside_loop_rotated(const Real x
   Real v2_rotated = - sin_phi_rotate * v1 + cos_phi_rotate * v2;
   Real v3_rotated = cos_phi_rotate * sin_theta_rotate * v1 + sin_phi_rotate * sin_theta_rotate * v2 + cos_theta_rotate * v3; 
 
-  bool A = v1_rotated*v1_rotated + v2_rotated*v2_rotated  > (loop_rad-pr*1.05)*(loop_rad-pr*1.05); // decrease inner radius to filter out more close eval points.
-  bool B = v1_rotated*v1_rotated + v2_rotated*v2_rotated  < (loop_rad+pr*1.05)*(loop_rad+pr*1.05); // x-y direction within pr ring
-  bool C = v3_rotated < pr * 1.05 && v3_rotated > -pr * 1.05; // z direction between [-pr, pr]
+  bool A = v1_rotated*v1_rotated + v2_rotated*v2_rotated  > (loop_rad-pr*buffer)*(loop_rad-pr*buffer); // decrease inner radius to filter out more close eval points.
+  bool B = v1_rotated*v1_rotated + v2_rotated*v2_rotated  < (loop_rad+pr*buffer)*(loop_rad+pr*buffer); // x-y direction within pr ring
+  bool C = v3_rotated < pr * buffer && v3_rotated > -pr * buffer; // z direction between [-pr, pr]
   bool inside = A && B && C; // includes more points than necessary to be "inside"
+  // std::cout << "target at " << x1 << ", " << x2 << ", " << x3 << ", particle center at " << pXc1 << ", " << pXc2 << ", " << pXc3 << ". Large radius of loop is " << loop_rad << ", radius of the ringlet is " << pr << std::endl;
+  // std::cout << "x,y distance ^2 to center: " << v1_rotated*v1_rotated+v2_rotated*v2_rotated << ", radius min ^2 = " << (loop_rad-pr)*(loop_rad-pr) << ", max ^2 = " << (loop_rad+pr)*(loop_rad+pr) << std::endl;
+  // std::cout << "z difference value: " << v3_rotated << ", one sided radius for z bound: " << pr << std::endl;
 
   return !inside;
 }
