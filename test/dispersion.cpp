@@ -8,16 +8,38 @@
  * Background flow with unit pressure gradient along X-axis.
  */
 template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
-    const Real dp = 15;
     const sctl::Long N = X.Dim()/3;
     sctl::Vector<Real> U(N*3);
     for (sctl::Long i = 0; i < N; i++) {
         const auto x = X.begin() + i*3;
-        U[i*3+0] = -dp*((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
+        U[i*3+0] = - ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
         U[i*3+1] = 0;
         U[i*3+2] = 0;
     }
     return U;
+}
+
+template <class Real> void SurfaceIntegral(sctl::Vector<Real>& I, const sctl::Vector<Real>& vals, const sctl::Vector<Real>& wts) {
+  const sctl::Long dof = vals.Dim() / wts.Dim();
+  SCTL_ASSERT(vals.Dim() == wts.Dim() * dof);
+  if (I.Dim() != dof) I.ReInit(dof);
+  I = 0;
+  for (sctl::Long i = 0; i < wts.Dim(); i++) {
+    for (sctl::Long j = 0; j < dof; j++) {
+      I[j] += vals[i*dof + j] * wts[i];
+    }
+  }
+}
+
+template <class Real> void AddConstVec(sctl::Vector<Real>& vals, const sctl::Vector<Real>& c0) {
+  const sctl::Long dof = c0.Dim();
+  const sctl::Long N = vals.Dim() / dof;
+  SCTL_ASSERT(vals.Dim() == N * dof);
+  for (sctl::Long i = 0; i < N; i++) {
+    for (sctl::Long j = 0; j < dof; j++) {
+      vals[i*dof + j] += c0[j];
+    }
+  }
 }
 
 /**
@@ -107,7 +129,7 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
     const Real gmres_tol = 1e-9;
     const sctl::Long ElemOrder = 10;
     const Real period_length = 1.;
-    const Real pressure_drop = -1.;
+    const Real pressure_drop = -15.;
     const sctl::Long gmres_max_iter = 400;
 
     PeriodicGeom<Real> obj;
@@ -153,7 +175,7 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
     LayerPotenOp0.AddElemList(elem_lst0);
     LayerPotenOp0.SetTargetCoord(X0);
     LayerPotenOp0.SetAccuracy(tol);
-    LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, period_length)
+    LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, period_length);
 
     // Define the boundary-integral operator: (I/2 + D + S)[sigma-sigma_mean] + sigma_mean
     const auto BIO = [&wts,&surface_area,&elem_lst0,&LayerPotenOp0,&DL_scal,&NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
@@ -267,7 +289,7 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
 
         sctl::GMRES<Real> solver(comm);
         sctl::KrylovPrecond<Real> krylov;
-        solver(&sigma, BIO, -bg_flow(X0)*pressure_drop/period_length, gmres_tol, gmres_max_iter, false, nullptr, &krylov);
+        solver(&sigma, BIO, bg_flow(X0)*pressure_drop/period_length, gmres_tol, gmres_max_iter, false, nullptr, &krylov);
         // sctl::Vector<Real> A11invF = AinvApply(-bg_flow(X0));
         // solver(&sigma, BIO_precond, A11invF, gmres_tol);
 
@@ -276,7 +298,8 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
     } 
 
    
-    { 
+    /*
+            { 
         PeriodicGeom<Real> trg;
         sctl::Long Nelem_trg=200;  
         const sctl::Long FourierOrder_trg = 8; // not used
@@ -370,6 +393,32 @@ template <class Real> void trefoil_dispersion(sctl::Long Nelem_channel, sctl::Lo
             }
         }
 
+    }
+    */
+
+    {
+        PeriodicGeom<Real> trg;
+        const sctl::Long Nelem_trg = 200;
+        const sctl::Long FourierOrder_trg = 16;
+        sctl::SlenderElemList<Real> elem_lst_trg;
+        sctl::Vector<sctl::Long> ptcls_trg;
+        sctl::Vector<Real> ptcls_Xcs_trg;
+        sctl::Vector<Real> ptcls_rs_trg;
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_trefoil(Nelem_trg, ElemOrder, FourierOrder_trg, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, 1, 0);
+        elem_lst_trg = std::get<0>(build_trg);
+
+        VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
+        X0 = vol_vis.GetCoord(); // set new target coordinates
+        LayerPotenOp0.SetTargetCoord(X0);
+        sctl::Vector<Real> U;
+        BIO(&U, sigma);
+        U -= bg_flow(X0)* (pressure_drop/period_length);
+
+        // sctl::Vector<sctl::Long> size_loc(1);
+        // size_loc[0] = X0.Dim();
+        // sctl::Vector<sctl::Long> size_all(1);
+        // comm.Allreduce((sctl::Iterator<sctl::Long>) size_loc.begin(), (sctl::Iterator<sctl::Long>) size_all.begin(), 1, sctl::CommOp::SUM);
+        vol_vis.WriteVTK("vis/Trefoil_U_exact", U);
     }
 
 

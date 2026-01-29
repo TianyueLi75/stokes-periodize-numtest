@@ -211,7 +211,9 @@ template <class Real> void planes_with_particle(sctl::Comm comm) {
     const sctl::Long Nelem = 4;
     const sctl::Long ElemOrder = 10;
     const sctl::Long FourierOrder = 64;
-    const sctl::Long geom_mode = 0; // designate internal particles to be spheres.
+
+    const sctl::Long geom_mode = 3; 
+
     const Real tol = 1e-10; // quadrature tolerance
     const sctl::Long gl_order = 49; // *Cheb order on each panel of plane
     const sctl::Long Nelem_x = 2; // Number of panels in x .. 
@@ -232,6 +234,7 @@ template <class Real> void planes_with_particle(sctl::Comm comm) {
     sctl::SlenderElemList<Real> elem_lst0;
     sctl::Vector<Real> NormalOrient, ptcls_thetas, ptcls_phis;
     // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.many_spheroids3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs);
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.many_loops3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs);
     elem_lst0 = std::get<0>(build0);
     NormalOrient = std::get<1>(build0);
@@ -245,7 +248,7 @@ template <class Real> void planes_with_particle(sctl::Comm comm) {
     sctl::PlaneIntegral<Real> plane(gl_order, Nelem_x, Nelem_y, z_offset);
     sctl::Vector<Real> X0_wall;
     plane.GetNodeCoord(&X0_wall, nullptr, nullptr);
-    plane.WriteVTK("vis/planes_geometry", X0_wall, comm);
+    // plane.WriteVTK("vis/planes_geometry", X0_wall, comm);
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); 
     LayerPotenOp0.AddElemList(elem_lst0,"1");
@@ -339,7 +342,8 @@ template <class Real> void planes_with_particle(sctl::Comm comm) {
         CubeVolumeVisShifted<Real> vol_vis(10, 0.9, comm);
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
         sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
-        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, 0);
+        // std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target_rotated(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode, ptcls_thetas, ptcls_phis);
         X0 = std::get<0>(trg_tuple);
         filtered_inds = std::get<1>(trg_tuple);
 
@@ -360,6 +364,15 @@ template <class Real> void planes_with_particle(sctl::Comm comm) {
         }
         vol_vis.WriteVTK("vis/planes_U", U_vis);
     }
+
+    // {
+    //     sctl::Vector<Real> X0_all(3);
+    //     X0_all[0] = 1;
+    //     X0_all[0] = 1;
+    //     X0_all[0] = 1;
+    //     PeriodicGeom<Real> trg;    
+    //     std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target_rotated(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode, ptcls_thetas, ptcls_phis);
+    // }
     
 }
 
@@ -521,8 +534,8 @@ int main(int argc, char** argv) {
 
     {
         sctl::Comm comm = sctl::Comm::World();
-        // channel_with_particle<Real>(comm);
-        planes_with_particle<Real>(comm);
+        channel_with_particle<Real>(comm);
+        // planes_with_particle<Real>(comm);
         // particle_3peri<Real>(comm);
     }
 

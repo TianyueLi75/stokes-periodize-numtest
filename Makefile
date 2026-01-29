@@ -121,6 +121,9 @@ test3_copies: $(BINDIR)/test3_copies
 test_proxy_mats: $(BINDIR)/test2_ptcl_periodize_mats
 test_proxy_order: $(BINDIR)/test2_ptcl_periodize_order
 
+# [Delete later]: manufacture solution tests for spheroid and loops
+test_particles: $(BINDIR)/test_spheroid_loop
+
 # Rules for building binaries
 $(BINDIR)/%: $(OBJDIR)/%.o
 	-@$(MKDIRS) $(dir $@)
