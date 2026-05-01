@@ -348,7 +348,7 @@ template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder,
         SCTL_ASSERT(false);
     }
 
-    // /*
+    /*
     // =============== PRECONDITIONING =======================================
     // Store preconditioner matrix, or make new if not present.
     std::string precond0_file = "data/precond0_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
@@ -407,7 +407,7 @@ template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder,
             PrecondMat1.template Write<Real>(precond1_file.c_str());
         }
     }
-    // */
+    */
 
     // =============== Boundary Integral Operators =======================================
     // BIO for periodic problems
@@ -446,29 +446,29 @@ template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder,
         AddConstVec(*U, sigma_mean);
     };
 
-    // Apply A11inv to each panel of vec.
-    const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size, &comm](const sctl::Vector<Real>& vec) {
-        sctl::Long N = vec.Dim();
-        sctl::Long Nptcl = N / A11size; 
-        sctl::Vector<Real> AinvVec(N);
-        for (sctl::Long i=0; i<Nptcl; i++) {
-            // for each particle, apply A11inv.
-            sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-            sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
-            for (sctl::Long j=0; j<A11size; j++) {
-                AinvVec[i*A11size + j] = AinvVecMat(j,0);
-            }
-        }
-        return AinvVec;
-    };
+    // // Apply A11inv to each panel of vec.
+    // const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size, &comm](const sctl::Vector<Real>& vec) {
+    //     sctl::Long N = vec.Dim();
+    //     sctl::Long Nptcl = N / A11size; 
+    //     sctl::Vector<Real> AinvVec(N);
+    //     for (sctl::Long i=0; i<Nptcl; i++) {
+    //         // for each particle, apply A11inv.
+    //         sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
+    //         sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
+    //         for (sctl::Long j=0; j<A11size; j++) {
+    //             AinvVec[i*A11size + j] = AinvVecMat(j,0);
+    //         }
+    //     }
+    //     return AinvVec;
+    // };
 
-    // Left diagonal preconditioning on BIO 
-    const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        sctl::Vector<Real> Uloc;
-        BIO(&Uloc,sigma);
-        // LEFT PRECONDITIONER: u -> A11inv*u
-        (*U) = AinvApply(Uloc);
-    };
+    // // Left diagonal preconditioning on BIO 
+    // const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+    //     sctl::Vector<Real> Uloc;
+    //     BIO(&Uloc,sigma);
+    //     // LEFT PRECONDITIONER: u -> A11inv*u
+    //     (*U) = AinvApply(Uloc);
+    // };
 
     // =============== Right hand side: 3-peri background flow =======================================
     const auto eval_rhs = [&LayerPotenOp0,surface_area,period_length](const Real pressure_drop) { // BIOpSL( -pressure_drop * cross_sectional_area / surface_area )
@@ -489,7 +489,7 @@ template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder,
             RHS = eval_rhs(pressure_drop);
         }
     }
-    sctl::Vector<Real> A11invF = AinvApply(RHS);
+    // sctl::Vector<Real> A11invF = AinvApply(RHS);
 
     // =============== Solve and timing =======================================
     sctl::GMRES<Real> solver(comm);
