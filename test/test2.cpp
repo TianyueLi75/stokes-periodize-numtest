@@ -495,47 +495,49 @@ template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder,
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
     // first gmres to remove timing for matrix loading, and set Krylov preconditioner.
-    sctl::Vector<Real> sigma_setup;
-    solver(&sigma_setup, BIO_precond, A11invF, 1e-2);
+    // sctl::Vector<Real> sigma_setup;
+    // solver(&sigma_setup, BIO_precond, A11invF, 1e-2);
     // solver(&sigma_setup, BIO, RHS, 1e0);
-    sctl::Profile::reset();
+    // sctl::Profile::reset();
 
-    LayerPotenOp0.ClearSetup();
-    sctl::Profile::Tic("Setup SurfOP");
-    LayerPotenOp0.Setup();
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm);
-    sctl::Profile::reset();
+    // LayerPotenOp0.ClearSetup();
+    // sctl::Profile::Tic("Setup SurfOP");
+    // LayerPotenOp0.Setup();
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm);
+    // sctl::Profile::reset();
 
-    sctl::Profile::Tic("Solve without Precond");
-    sctl::Vector<Real> sigma_noprecond;
-    solver(&sigma_noprecond, BIO, RHS, gmres_tol, -1, false);
-    sctl::Profile::Toc();
-    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-    sctl::Profile::reset();
-    comm.Barrier();
+    // sctl::Profile::Tic("Solve without Precond");
+    // sctl::Vector<Real> sigma_noprecond;
+    // solver(&sigma_noprecond, BIO, RHS, gmres_tol, -1, false);
+    // sctl::Profile::Toc();
+    // sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    // sctl::Profile::reset();
+    // comm.Barrier();
 
     sctl::Vector<Real> sigma;
     sctl::Profile::Tic("Solver: KrylovPrecond Setup");
-    solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    // solver(&sigma, BIO, RHS, gmres_tol, -1, false, nullptr, &krylov_precond); // Krylov preconditioner only, no diagonal multiply
+    // solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    solver(&sigma, BIO, RHS, gmres_tol, -1, false, nullptr, &krylov_precond); // Krylov preconditioner only, no diagonal multiply
     // solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false); // Diag precond only, no Krylov.
     sctl::Profile::Toc();
     sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
     sctl::Profile::reset();
     comm.Barrier();
 
-    for (int loop=1; loop<5; loop++) {
-        sctl::Vector<Real> sigma1;
-        std::string solvername = "Solver"+std::to_string(loop);
-        sctl::Profile::Tic(solvername.c_str());
-        solver(&sigma1, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-        // solver(&sigma1, BIO, RHS, gmres_tol, -1, false, nullptr, &krylov_precond);
-        sctl::Profile::Toc();
-        sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
-        sctl::Profile::reset();
-        comm.Barrier();
-    }
+    elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_sigma", sigma, comm);
+
+    // for (int loop=1; loop<5; loop++) {
+    //     sctl::Vector<Real> sigma1;
+    //     std::string solvername = "Solver"+std::to_string(loop);
+    //     sctl::Profile::Tic(solvername.c_str());
+    //     solver(&sigma1, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    //     // solver(&sigma1, BIO, RHS, gmres_tol, -1, false, nullptr, &krylov_precond);
+    //     sctl::Profile::Toc();
+    //     sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    //     sctl::Profile::reset();
+    //     comm.Barrier();
+    // }
     
     if (!comm.Rank()) {
         std::cout << "------------------- DONE WITH SOLVE ======================" << std::endl;
@@ -574,10 +576,23 @@ template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder,
                 X1_ptr += 1;
             }
         }
+        // sctl::Vector<Real> RHS_vis(X0_all.Dim());
+        // RHS_vis = 0.;
+        // X1_ptr = 0;
+        // sctl::Vector<Real> RHS_eval = eval_rhs(pressure_drop);
+        // for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+        //     if (filtered_inds[i] == 0) {
+        //         RHS_vis[i*3] = RHS_eval[X1_ptr*3];
+        //         RHS_vis[i*3+1] = RHS_eval[X1_ptr*3+1];
+        //         RHS_vis[i*3+2] = RHS_eval[X1_ptr*3+2];
+        //         X1_ptr += 1;
+        //     }
+        // }
         if (bc_slip) {
             vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_vslip_U", U_vis); 
         } else {
             vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_U", U_vis); 
+            // vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_RHS", RHS_vis);
         }
         
     } 
