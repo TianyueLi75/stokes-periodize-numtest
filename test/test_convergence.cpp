@@ -245,7 +245,7 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_trefoil(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, 0);
     elem_lst0 = std::get<0>(build0);
     NormalOrient = std::get<1>(build0);    
-    sctl::Long Nptcl = ptcls_rs.Dim();
+    // sctl::Long Nptcl = ptcls_rs.Dim();
 
     sctl::Vector<Real> X0; // target coordinates
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
@@ -625,17 +625,33 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
     //     (*U) = AinvApply(Uloc);
     // };
 
+    const auto eval_rhs = [&LayerPotenOp0,surface_area,period_length](const Real pressure_drop) { // BIOpSL( -pressure_drop * cross_sectional_area / surface_area )
+        sctl::Vector<Real> force_density(LayerPotenOp0.Dim(0)); force_density = 0;
+        AddConstVec(force_density, sctl::Vector<Real>{-pressure_drop * period_length*period_length / surface_area, 0, 0});
+
+        sctl::Vector<Real> U0;
+        LayerPotenOp0.ComputeSL(U0, force_density);
+        return U0;
+    };
+
     // Solve for sigma to satisfy no-slip boundary conditions: BIO(sigma) + bg_flow = 0
     sctl::Vector<Real> sigma;
     sctl::GMRES<Real> solver(comm, false);
     sctl::KrylovPrecond<Real> krylov;
-    sctl::Vector<Real> rhs = bg_flow(X0)*(pressure_drop/period_length);
+    // sctl::Vector<Real> rhs = bg_flow(X0)*(pressure_drop/period_length);
+    sctl::Vector<Real> rhs;
+    if (peri_mode == 1 || peri_mode == 2) {
+        rhs = bg_flow(X0)*(pressure_drop/period_length);
+    } else {
+        rhs = eval_rhs(pressure_drop);
+    }
+    
     solver(&sigma, BIO, rhs, gmres_tol, gmres_max_iter, false, nullptr, &krylov);
     // solver(&sigma, BIO_precond, AinvApply(rhs), gmres_tol, gmres_max_iter);
 
     { // Evaluate in interior, and write visualization
         PeriodicGeom<Real> trg;
-        CubeVolumeVisShifted<Real> vol_vis(20, 0.99, comm); 
+        CubeVolumeVisShifted<Real> vol_vis(20, 0.9, comm); 
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
         sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
         std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, 0);
@@ -645,7 +661,14 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
         LayerPotenOp0.SetTargetCoord(X0);
         sctl::Vector<Real> U;
         BIO(&U, sigma);
-        U -= bg_flow(X0) * (pressure_drop/period_length);
+
+        if (peri_mode == 1 || peri_mode == 2) {
+            rhs = bg_flow(X0) * (pressure_drop/period_length);
+            U -= rhs;
+        } else {
+            rhs = eval_rhs(pressure_drop);
+            U -= rhs;
+        }
 
         sctl::Vector<sctl::Long> size_loc(1);
         size_loc[0] = X0.Dim();
@@ -719,7 +742,7 @@ template <class Real> void convdiv_self_conv(sctl::Long Nelem, sctl::Long Fourie
 
     PeriodicGeom<Real> obj;
     sctl::Long Nptcl = 3; // correct, but will be replaced inside conv-div channel build.
-    sctl::Long ptcl_ord = 16; // Be careful with this if using particle preconditioner, since it's possible that not all panels on each particle are on the same MPI process.
+    sctl::Long ptcl_ord = 48; // Be careful with this if using particle preconditioner, since it's possible that not all panels on each particle are on the same MPI process.
     sctl::Vector<sctl::Long> ptcls(Nptcl);
     ptcls = ptcl_ord;
     // /////// DEBUG no particle in conv div, shoudl converge
@@ -731,10 +754,10 @@ template <class Real> void convdiv_self_conv(sctl::Long Nelem, sctl::Long Fourie
     sctl::Vector<Real> ptcls_rs;
     sctl::SlenderElemList<Real> elem_lst0;
     sctl::Vector<Real> NormalOrient, ptcls_thetas, ptcls_phis;
-    sctl::Long peri_mode = 1;
+    // sctl::Long peri_mode = 1;
     Real channel_r1 = 0.1;
     Real channel_r2 = 0.2;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem, ElemOrder, FourierOrder, channel_r1, channel_r2, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div_sph(Nelem, ElemOrder, FourierOrder, channel_r1, channel_r2, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord);
     elem_lst0 = std::get<0>(build0);
     NormalOrient = std::get<1>(build0);
     ptcls_thetas = std::get<2>(build0);
@@ -902,7 +925,7 @@ template <class Real> void convdiv_self_conv(sctl::Long Nelem, sctl::Long Fourie
         sctl::Vector<sctl::Long> ptcls_trg; // dim = 0 so no particles are first generated
         sctl::Vector<Real> ptcls_Xcs_trg;
         sctl::Vector<Real> ptcls_rs_trg;
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build_trg = trg.build_conv_div(Nelem_trg, ElemOrder, FourierOrder_trg, channel_r1, channel_r2, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, ptcl_ord);
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build_trg = trg.build_conv_div_sph(Nelem_trg, ElemOrder, FourierOrder_trg, channel_r1, channel_r2, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, ptcl_ord);
         elem_lst_trg = std::get<0>(build_trg);
 
         VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
@@ -1037,7 +1060,7 @@ template <class Real> void trefoil_ptcl_self_conv(sctl::Long Nelem, sctl::Long F
     sctl::Vector<Real> ptcls_rs;
     sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
     sctl::Vector<Real> NormalOrient;
-    sctl::Long peri_mode = 1;
+    // sctl::Long peri_mode = 1;
     // std::cout << "right before build trefoils" << std::endl;
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_trefoil(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, geom_mode);
     elem_lst0 = std::get<0>(build0);
@@ -1273,15 +1296,14 @@ template <class Real> void trefoil_ptcl_self_conv(sctl::Long Nelem, sctl::Long F
     }
 }
 
-template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Comm comm, const Real tol, const Real gmres_tol) {
+template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, const sctl::Long Nptcl, const sctl::Long geom_mode, sctl::Comm comm, const Real tol, const Real gmres_tol) {
+    SCTL_ASSERT(Nptcl == 1 || Nptcl == 3);
 
     // Combine single-layer and double-layer kernels in these proportions
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
 
     const sctl::Long ElemOrder = 10;
-
-    const sctl::Long geom_mode = 3;
 
     const Real period_length = 1.;
     const sctl::Long gmres_max_iter = 100;
@@ -1294,13 +1316,22 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
     sctl::Vector<Real> ptcls_rs;
     sctl::SlenderElemList<Real> elem_lst0;
     sctl::Vector<Real> NormalOrient, ptcls_thetas, ptcls_phis;
-    // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.many_loops3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs);
-    elem_lst0 = std::get<0>(build0);
-    NormalOrient = std::get<1>(build0);
-    ptcls_thetas = std::get<2>(build0);
-    ptcls_phis = std::get<3>(build0);
-    
+    if (Nptcl == 1) {
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+    } else if (geom_mode == 0) {
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode); // checking with three spheres
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+    } else {
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.many_loops3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs);
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+        ptcls_thetas = std::get<2>(build0);
+        ptcls_phis = std::get<3>(build0);
+    }
+
     sctl::Vector<Real> X0_ptcl; // target coordinates
     elem_lst0.GetNodeCoord(&X0_ptcl, nullptr, nullptr);
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); 
@@ -1430,7 +1461,7 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
 
     // Solve for sigma to satisfy no-slip boundary conditions: BIO(sigma) + bg_flow = 0
     sctl::Vector<Real> sigma;
-    sctl::GMRES<Real> solver(comm);
+    sctl::GMRES<Real> solver(comm, false);
     sctl::KrylovPrecond<Real> krylov;
     sctl::Vector<Real> rhs = bg_flow_2peri(X0)*(pressure_drop/period_length);
     solver(&sigma, BIO, rhs, gmres_tol, gmres_max_iter, false, nullptr, &krylov);
@@ -1440,10 +1471,15 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
         CubeVolumeVisShifted<Real> vol_vis(10, 0.8, comm); // leave space away from planes to avoid close eval errors
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
         sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
-        // std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, 0);
-        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target_rotated(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode, ptcls_thetas, ptcls_phis);
-        X0 = std::get<0>(trg_tuple);
-        filtered_inds = std::get<1>(trg_tuple);
+        if (geom_mode == 0) {
+            std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+            X0 = std::get<0>(trg_tuple);
+            filtered_inds = std::get<1>(trg_tuple);
+        } else {
+            std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target_rotated(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode, ptcls_thetas, ptcls_phis);
+            X0 = std::get<0>(trg_tuple);
+            filtered_inds = std::get<1>(trg_tuple);
+        }
         
         LayerPotenOp0.SetTargetCoord(X0);
         sctl::Vector<Real> U;
@@ -1454,7 +1490,6 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
         size_loc[0] = X0.Dim();
         sctl::Vector<sctl::Long> size_all(1);
         comm.Allreduce((sctl::Iterator<sctl::Long>) size_loc.begin(), (sctl::Iterator<sctl::Long>) size_all.begin(), 1, sctl::CommOp::SUM);
-        // std::cout << "rank " << comm.Rank() << " size loc = " << size_loc[0] << ", size all is " << size_all[0] << std::endl;
         std::string filename = "Plane_ptcl_2_peri_U_exact_"+std::to_string(comm.Rank());
         std::string filename_out = "out/"+filename+".txt";
         std::string filename_vis = "vis/"+filename;
@@ -1511,7 +1546,7 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
             sctl::Vector<Real> avg_err_all(1);
             avg_err_all[0] = 0;
             comm.Allreduce((sctl::Iterator<Real>) avg_err_loc.begin(), (sctl::Iterator<Real>) avg_err_all.begin(), 1, sctl::CommOp::SUM);
-            std::cout << "on MPI process " << comm.Rank() << ", sum of err locally is " << avg_err << ", total error is " << avg_err_all[0] << std::endl;
+            // std::cout << "on MPI process " << comm.Rank() << ", sum of err locally is " << avg_err << ", total error is " << avg_err_all[0] << std::endl;
 
             long size_err = err.Dim();
             sctl::Vector<sctl::Long> size_err_loc(1);
@@ -1520,7 +1555,7 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
             size_err_all[0] = 0;
             comm.Allreduce((sctl::Iterator<sctl::Long>) size_err_loc.begin(), (sctl::Iterator<sctl::Long>) size_err_all.begin(), 1, sctl::CommOp::SUM);
 
-            std::cout << "size of error on process" << comm.Rank() << " is " << size_err << ", after collection total size is " << size_err_all[0] << std::endl;
+            // std::cout << "size of error on process" << comm.Rank() << " is " << size_err << ", after collection total size is " << size_err_all[0] << std::endl;
 
             avg_err = avg_err_all[0] / (1.0*size_err_all[0]);
 
@@ -1541,7 +1576,7 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
                 }
             }
             // Write visualization to VTK
-            vol_vis.WriteVTK("vis/Plane_ptcl_2_peri_U_err_", err_vis);
+            // vol_vis.WriteVTK("vis/Plane_ptcl_2_peri_U_err_", err_vis);
         }
     }
 
@@ -1554,42 +1589,91 @@ int main(int argc, char** argv) {
   {
     // sctl::Profile::Enable(true);
     sctl::Comm comm = sctl::Comm::World();
-    long test_mode = std::stol(argv[1]); // =0 for trefoil, =1 for 1-particle; =2 for conv div, =3 for trefoil with particle. TODO: =4 for 2peri plane with 1 particle
+    long test_mode = std::stol(argv[1]); // =0 for trefoil, =1 for particle; =2 for conv div, =3 for trefoil with particle. =4 for 2peri plane with particle(s)
     long peri_mode = std::stol(argv[2]); // 1-, 2-, or 3- periodic
-    std::cout << "Test mode: " << test_mode << ", peri mode: " << peri_mode << std::endl;
+    long Nptcl = std::stol(argv[3]); // Number of particles, for tests 1 and 4
+    long geom_mode = std::stol(argv[4]); // type of particles, for test 4.
+    std::cout << "Test mode: " << test_mode << "; peri mode (if test 1 for particles): " << peri_mode << "; Nptcl (if test 1 or test 4): " << Nptcl << "; geom mode (if test 4): " << geom_mode << std::endl;
 
-    sctl::Long Nptcl = 3;
+    sctl::Vector<sctl::Long> Nelem_lst, FourierOrder_lst;
 
-    sctl::Vector<sctl::Long> Nelem_lst;
-    if (test_mode==1) { // particle, doesn't need many panels -- but if using Nptcl = 25 will need more panels
-        for (int i=1; i<10; i += 2) {
-        // for (int i=1; i<4; i += 2) {
-            Nelem_lst.PushBack(2*i);
-        }
-    } else if (test_mode == 4) { // plane with loop
-        // Nelem_lst.PushBack(8);
-        // Nelem_lst.PushBack(16);
-        Nelem_lst.PushBack(32);
-    } else if (test_mode == 0 || test_mode == 3) { // trefoil needs more panels
+    if (test_mode == 0) { // trefoil empty
         Nelem_lst.PushBack(400);
         Nelem_lst.PushBack(600);
         Nelem_lst.PushBack(800);
-    } else { // for conv div channel
+
+        // FourierOrder_lst.PushBack(16);
+        // FourierOrder_lst.PushBack(32);
+        // FourierOrder_lst.PushBack(64);
+        FourierOrder_lst.PushBack(80);
+        FourierOrder_lst.PushBack(96); 
+    } else if (test_mode == 1) { // particle self conv
+        // if (Nptcl < 10) {
+        //     for (int i=1; i<4; i += 2) {
+        //         Nelem_lst.PushBack(2*i);
+        //     }
+
+        //     FourierOrder_lst.PushBack(4);
+        //     FourierOrder_lst.PushBack(16);
+        //     FourierOrder_lst.PushBack(32);
+        //     FourierOrder_lst.PushBack(64);
+        // } else { // larger parameters for the more dense system of 25 particles
+            for (int i=1; i<11; i += 2) {
+                Nelem_lst.PushBack(2*i);
+            }
+
+            // FourierOrder_lst.PushBack(16); // cannot achieve desired tolerance
+            FourierOrder_lst.PushBack(32);
+            FourierOrder_lst.PushBack(64);
+            FourierOrder_lst.PushBack(80);
+            FourierOrder_lst.PushBack(96);
+        // }
+
+        
+    } else if (test_mode == 2) { // convdiv with particles
         // Nelem_lst.PushBack(25);
         // Nelem_lst.PushBack(50);
         Nelem_lst.PushBack(100);
-    } 
-    
-    sctl::Vector<sctl::Long> FourierOrder_lst;
-    if (test_mode == 1) { // with particles
-        FourierOrder_lst.PushBack(16);
-        FourierOrder_lst.PushBack(32);
-        FourierOrder_lst.PushBack(64);
-    } else { // channels or plane with loops
+
         // FourierOrder_lst.PushBack(16);
         // FourierOrder_lst.PushBack(32);
-        FourierOrder_lst.PushBack(64);
+        // FourierOrder_lst.PushBack(64);
+        FourierOrder_lst.PushBack(80);
         FourierOrder_lst.PushBack(96); 
+    } else if (test_mode == 3) { // trefoil with particles
+        Nelem_lst.PushBack(400);
+        Nelem_lst.PushBack(600);
+        Nelem_lst.PushBack(800);
+
+        // FourierOrder_lst.PushBack(16);
+        // FourierOrder_lst.PushBack(32);
+        // FourierOrder_lst.PushBack(64);
+        FourierOrder_lst.PushBack(80);
+        FourierOrder_lst.PushBack(96); 
+    } else if (test_mode == 4) { // plane with particles
+        if (geom_mode == 0) {
+            for (int i=1; i<10; i += 2) {
+            // for (int i=1; i<4; i += 2) {
+                Nelem_lst.PushBack(2*i);
+            }
+
+            FourierOrder_lst.PushBack(16);
+            FourierOrder_lst.PushBack(32);
+            FourierOrder_lst.PushBack(64);
+            FourierOrder_lst.PushBack(80);
+            FourierOrder_lst.PushBack(96);
+        } else {
+            Nelem_lst.PushBack(8);
+            Nelem_lst.PushBack(16);
+            Nelem_lst.PushBack(32);
+            Nelem_lst.PushBack(80);
+
+            FourierOrder_lst.PushBack(16);
+            FourierOrder_lst.PushBack(32);
+            FourierOrder_lst.PushBack(64);
+            FourierOrder_lst.PushBack(80);
+            FourierOrder_lst.PushBack(96); 
+        }        
     }
     
     sctl::Long Nelem, FourierOrder;
@@ -1612,7 +1696,7 @@ int main(int argc, char** argv) {
                 } else if (test_mode==3) {
                     trefoil_ptcl_self_conv<Real>(Nelem, FourierOrder, true, comm, tol, gmres_tol);
                 } else if (test_mode==4) {
-                    plane_ptcl_self_conv<Real>(Nelem, FourierOrder, true, comm, tol, gmres_tol);
+                    plane_ptcl_self_conv<Real>(Nelem, FourierOrder, true, Nptcl, geom_mode, comm, tol, gmres_tol);
                 } else {
                     SCTL_ASSERT(false);
                 }
@@ -1634,7 +1718,7 @@ int main(int argc, char** argv) {
                 } else if (test_mode==3) {
                     trefoil_ptcl_self_conv<Real>(Nelem, FourierOrder, false, comm, tol, gmres_tol);
                 } else if (test_mode==4) {
-                    plane_ptcl_self_conv<Real>(Nelem, FourierOrder, false, comm, tol, gmres_tol);
+                    plane_ptcl_self_conv<Real>(Nelem, FourierOrder, false, Nptcl, geom_mode, comm, tol, gmres_tol);
                 } else {
                     SCTL_ASSERT(false);
                 }

@@ -70,159 +70,11 @@ template <class Real> void VolumeVis<Real>::GetVTUData(sctl::VTUData& vtu_data, 
   }
 }
 
-template <class Real> CubeVolumeVisShifted<Real>::CubeVolumeVisShifted(const sctl::Long N_, Real L, const sctl::Comm& comm_) : N(N_), comm(comm_) {
-  const sctl::Long pid = comm.Rank();
-  const sctl::Long Np = comm.Size();
-
-  const sctl::Long NN = sctl::pow<COORD_DIM-1,sctl::Long>(N);
-  const sctl::Long a = (N-1)*(pid+0)/Np;
-  const sctl::Long b = (N-1)*(pid+1)/Np;
-  N0 = b-a+1;
-  if (N0<2) return;
-
-  coord.ReInit(N0 * NN * COORD_DIM);
-  for (sctl::Long i = 0; i < N0; i++) {
-    for (sctl::Long j = 0; j < NN; j++) {
-      for (sctl::Long k = 0; k < COORD_DIM; k++) {
-        sctl::Long idx = ((i+a)*NN+j);
-        // coord[(i*NN+j)*COORD_DIM+k] = (((idx/sctl::pow<sctl::Long>(N,k)) % N)/(Real)(N-1)*2 - 1) * L;
-        coord[(i*NN+j)*COORD_DIM+k] = (((idx/sctl::pow<sctl::Long>(N,k)) % N)/(Real)(N-1) -0.5) * L + 0.5; // TODO: just for analytical solution test, assuming center at (0.5,0.5,0.5).
-      }
-    }
-  }
-}
-
-template <class Real> const sctl::Vector<Real>& CubeVolumeVisShifted<Real>::GetCoord() const {
-  return coord;
-}
-
-template <class Real> void CubeVolumeVisShifted<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
-  for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
-  for (const auto& x :     F) vtu_data.value.PushBack((float)x);
-  for (sctl::Long i = 0; i < N0-1; i++) {
-    for (sctl::Long j = 0; j < N-1; j++) {
-      for (sctl::Long k = 0; k < N-1; k++) {
-        auto idx = [this](sctl::Long i, sctl::Long j, sctl::Long k) {
-          return (i*N+j)*N+k;
-        };
-        vtu_data.connect.PushBack(idx(i+0,j+0,k+0));
-        vtu_data.connect.PushBack(idx(i+0,j+0,k+1));
-        vtu_data.connect.PushBack(idx(i+0,j+1,k+1));
-        vtu_data.connect.PushBack(idx(i+0,j+1,k+0));
-        vtu_data.connect.PushBack(idx(i+1,j+0,k+0));
-        vtu_data.connect.PushBack(idx(i+1,j+0,k+1));
-        vtu_data.connect.PushBack(idx(i+1,j+1,k+1));
-        vtu_data.connect.PushBack(idx(i+1,j+1,k+0));
-        vtu_data.offset.PushBack(vtu_data.connect.Dim());;
-        vtu_data.types.PushBack(12);
-      }
-    }
-  }
-}
-template <class Real> void CubeVolumeVisShifted<Real>::WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const {
-  sctl::VTUData vtu_data;
-  GetVTUData(vtu_data, F);
-  vtu_data.WriteVTK(fname, comm);
-}
-
-template <class Real> XsectionVis<Real>::XsectionVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm) : comm_(comm) {
-  Nelem = elem_lst.Size();
-  sctl::Vector<Real> s_param, sin_theta, cos_theta;
-  for (sctl::Long i = 0; i < s_order; i++) {
-    const Real t = i/(Real)(s_order-1);
-    s_param.PushBack(t);
-  }
-  for (sctl::Long i = 0; i < t_order; i++) {
-    const Real t = i/(Real)t_order;
-    sin_theta.PushBack(sctl::sin<Real>(2*sctl::const_pi<Real>()*t));
-    cos_theta.PushBack(sctl::cos<Real>(2*sctl::const_pi<Real>()*t));
-  }
-  for (sctl::Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
-    const Real t_order_inv = 1/(Real)t_order;
-    const Real r_order_inv = (1-1e-2)/(Real)(r_order-1); // make points further from surface to avoid stagnate points for mixing visualization.
-    sctl::Vector<Real> X_, Xc(COORD_DIM);
-    elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
-    for (sctl::Long i = 0; i < s_order; i++) {
-      Xc = 0;
-      for (sctl::Long j = 0; j < t_order; j++) {
-        for (sctl::Long l = 0; l < COORD_DIM; l++) {
-          Xc[l] += X_[(i*t_order+j)*COORD_DIM+l] * t_order_inv;
-        }
-      }
-      for (sctl::Long j = 0; j < t_order; j++) {
-        for (sctl::Long k = 0; k < r_order; k++) {
-          for (sctl::Long l = 0; l < COORD_DIM; l++) {
-            coord.PushBack((X_[(i*t_order+j)*COORD_DIM+l]-Xc[l])*k*r_order_inv + Xc[l]);
-          }
-        }
-      }
-    }
-  }
-}
-
-template <class Real> const sctl::Vector<Real>& XsectionVis<Real>::GetCoord() const {
-  return coord;
-}
-
-template <class Real> void XsectionVis<Real>::SetCoord(const sctl::Vector<Real> new_coord) {
-  coord = new_coord;
-}
-
-template <class Real> void XsectionVis<Real>::WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const {
-  sctl::VTUData vtu_data;
-  GetVTUData(vtu_data, F);
-  vtu_data.WriteVTK(fname, comm_);
-}
-
-template <class Real> void XsectionVis<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
-  for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
-  for (const auto& x :     F) vtu_data.value.PushBack((float)x);
-  for (sctl::Long l = 0; l < Nelem; l++) {
-    const sctl::Long offset = l * s_order*t_order*r_order;
-    for (sctl::Long i = 0; i < s_order-1; i++) {
-      for (sctl::Long j = 0; j < t_order; j++) {
-        for (sctl::Long k = 0; k < r_order-1; k++) {
-          auto idx = [this,&offset](sctl::Long i, sctl::Long j, sctl::Long k) {
-            return offset+(i*t_order+(j%t_order))*r_order+k;
-          };
-          vtu_data.connect.PushBack(idx(i+0,j+0,k+0));
-          vtu_data.connect.PushBack(idx(i+0,j+0,k+1));
-          vtu_data.connect.PushBack(idx(i+0,j+1,k+1));
-          vtu_data.connect.PushBack(idx(i+0,j+1,k+0));
-          vtu_data.connect.PushBack(idx(i+1,j+0,k+0));
-          vtu_data.connect.PushBack(idx(i+1,j+0,k+1));
-          vtu_data.connect.PushBack(idx(i+1,j+1,k+1));
-          vtu_data.connect.PushBack(idx(i+1,j+1,k+0));
-          vtu_data.offset.PushBack(vtu_data.connect.Dim());;
-          vtu_data.types.PushBack(12);
-        }
-      }
-    }
-  }
-}
-
-template <class Real> void StokesBIO<Real>::stokes_sl_volpot(sctl::Matrix<Real>& U, const sctl::Vector<Real>& X) {
-  const sctl::Long N = X.Dim() / 3;
-  SCTL_ASSERT(X.Dim() == N * 3);
-  if (U.Dim(0)!=3 || U.Dim(1)!=N*3) U.ReInit(3, N*3);
-  for (sctl::Long i = 0; i < N; i++) {
-    const auto x = X.begin() + i*3;
-    const Real rx_2 = x[1]*x[1] + x[2]*x[2];
-    const Real ry_2 = x[0]*x[0] + x[2]*x[2];
-    const Real rz_2 = x[0]*x[0] + x[1]*x[1];
-    U[0][i*3+0] = -rx_2/4; U[0][i*3+1] =       0; U[0][i*3+2] =       0;
-    U[1][i*3+0] =       0; U[1][i*3+1] = -ry_2/4; U[1][i*3+2] =       0;
-    U[2][i*3+0] =       0; U[2][i*3+1] =       0; U[2][i*3+2] = -rz_2/4;
-  }
-}
-
-
 template <class Real> StokesBIO<Real>::StokesBIO(const Real SL_scal, const Real DL_scal, const sctl::Comm comm)
   : comm_(comm), SL_scal_(SL_scal), DL_scal_(DL_scal), LayerPotenSL(ker_FxU, false, comm), LayerPotenDL(ker_DxU, false, comm) {
   LayerPotenSL.SetAccuracy(1e-14);
   LayerPotenDL.SetAccuracy(1e-14);
-  // LayerPotenSL.SetFMMKer(ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU);
-  LayerPotenSL.SetFMMKer(ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, stokes_sl_volpot);
+  LayerPotenSL.SetFMMKer(ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU);
   LayerPotenDL.SetFMMKer(ker_DxU, ker_DxU, ker_DxU, ker_FSxU, ker_FSxU, ker_FSxU, ker_FxU, ker_FxU);
 };
 
@@ -310,15 +162,6 @@ template <class Real> void StokesBIO<Real>::ComputePotential(sctl::Vector<Real>&
   else if (DL_scal_) U = Ud * DL_scal_;
   else U.SetZero();
 }
-
-template <class Real> void StokesBIO<Real>::ComputeSL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const {
-  LayerPotenSL.ComputePotential(U, F);
-}
-
-template <class Real> void StokesBIO<Real>::ComputeDL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const {
-  LayerPotenDL.ComputePotential(U, F);
-}
-
 
 template <class Real> void StokesBIO<Real>::SqrtScaling(sctl::Vector<Real>& U) const {
   LayerPotenDL.SqrtScaling(U);
@@ -421,21 +264,25 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   return std::make_tuple(elem_lst,NormalOrient_);
 };
 
-template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_conv_div(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real r1, const Real r2, const sctl::Comm& comm, sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const sctl::Long ptcl_ord){
+template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_conv_div(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real r1, const Real r2, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, sctl::Vector<Real>& ptcls_u0s, sctl::Vector<sctl::Long>& ptcls_ifprolate, const sctl::Long ptcl_ord, const sctl::Long N){
   comm_ = comm;
   sctl::Vector<Real> Xc, eps, orient;
   sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
   const sctl::Long geom_mode = 1; // hardcode to be spheroids
 
   auto get_r = [&r1, &r2](const Real& x) {
-    if (x < 0.1) {
+    Real cutoff1 = 0.25; // end of large radius left
+    Real cutoff2 = 0.35; // start of small radius left
+    Real cutoff3 = 0.65; // end of small radius right
+    Real cutoff4 = 0.75; // start of large radius right
+    if (x < cutoff1) {
       return 2*r1 + r2;
-    } else if (x < 0.3) {
-      return r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-0.1) / 0.2)+r1+r2;
-    } else if (x < 0.7) {
+    } else if (x < cutoff2) {
+      return r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-cutoff1) / (cutoff2-cutoff1))+r1+r2;
+    } else if (x < cutoff3) {
       return r2;
-    } else if (x < 0.9) {
-      return r1+r2 - r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-0.7) / 0.2);
+    } else if (x < cutoff4) {
+      return r1+r2 - r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-cutoff3) / (cutoff4-cutoff3));
     } else {
       return 2*r1 + r2;
     }
@@ -453,55 +300,37 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
       eps.PushBack(get_r(x));
 
       orient.PushBack(0);
-      orient.PushBack(0);
       orient.PushBack(1);
+      orient.PushBack(0);
     }
   }
   sctl::Long Nelem_ptcl_tot = 0;
   sctl::Vector<Real> ptcls_thetas;
   sctl::Vector<Real> ptcls_phis;
   if (ptcls.Dim()>0) {
-    // sctl::Long Nptcl = ptcls.Dim();
+    sctl::Long Nptcl = ptcls.Dim();
     // packed_sphs_conv_div(ptcls_Xcs, ptcls_rs, r1, r2); // Fit grid of small spheres inside the channel.
+    packed_spheroids_conv_div(ptcls_Xcs, ptcls_rs, ptcls_u0s, ptcls_thetas, ptcls_phis, ptcls_ifprolate, r1, r2, N);
+    // packed_spheres_conv_div(ptcls_Xcs, ptcls_rs, ptcls_thetas, ptcls_phis, r1, r2); // DEBUGGING VSLIP: use all spheres and no rotation
 
-    // Hardcoded 3 spheroids (currently of same aspect ratio)
-    sctl::Long Nptcl = 3;
-    ptcls_Xcs.ReInit(3*Nptcl);
-    ptcls_rs.ReInit(Nptcl);
-
-    ptcls_Xcs[0] = 0.15;
-    ptcls_Xcs[1] = 0.4;
-    ptcls_Xcs[2] = 0.5;
-    ptcls_rs[0] = 0.17;
-
-    ptcls_Xcs[3] = 0.43;
-    ptcls_Xcs[4] = 0.52;
-    ptcls_Xcs[5] = 0.5;
-    ptcls_rs[1] = 0.13;
-
-    ptcls_Xcs[6] = 0.8;
-    ptcls_Xcs[7] = 0.44;
-    ptcls_Xcs[8] = 0.45;
-    ptcls_rs[2] = 0.15;
-
-    ptcls_thetas.ReInit(Nptcl);
-    ptcls_phis.ReInit(Nptcl);
-    ptcls_thetas[0] = - sctl::const_pi<Real>() / 3.;
-    ptcls_thetas[1] = sctl::const_pi<Real>() / 10.;
-    ptcls_thetas[2] = 2. * sctl::const_pi<Real>() / 3.;
-    ptcls_phis[0] = sctl::const_pi<Real>() / 5.;
-    ptcls_phis[1] = 0;
-    ptcls_phis[2] = -sctl::const_pi<Real>() / 5.;
-    
     sctl::Vector<sctl::Long> ptcls_(ptcls_rs.Dim());
     ptcls_ = ptcl_ord;
     ptcls.Swap(ptcls_);
-    add_particles_rotated(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs, geom_mode, ptcls_thetas, ptcls_phis);
+    
+    // // DEBUGGING: remove rotation
+    // ptcls_thetas.ReInit(ptcls_rs.Dim());
+    // ptcls_phis.ReInit(ptcls_rs.Dim());
+    // ptcls_thetas.SetZero();
+    // ptcls_phis.SetZero();
+    // ///////////////////////////
+    
+    add_spheroids_rotated(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs, ptcls_u0s, ptcls_thetas, ptcls_phis, ptcls_ifprolate);
+    // add_particles(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs, 0); // CHOCO FEB 2026: DEBUG VSLIP with spheres
+    // add_particles_rotated(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs, 0, ptcls_thetas, ptcls_phis); 
     for (sctl::Long ptcl_i = 0; ptcl_i < ptcls.Dim(); ptcl_i++) {
       Nelem_ptcl_tot += ptcls[ptcl_i];
     }
   }
-  // std::cout << "size of Xc with ptcl: " << Xc.Dim() << std::endl;
   sctl::Vector<Real> NormalOrient;
   { // set NormalOrient 
     for (sctl::Long i = 0; i < Nelem + Nelem_ptcl_tot; i++) {
@@ -511,7 +340,168 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
     }
   }
   sctl::SlenderElemList<Real> elem_lst;
-  sctl::Vector<Real> NormalOrient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, NormalOrient);
+  sctl::Vector<Real> NormalOrient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, NormalOrient, true); 
+  return std::make_tuple(elem_lst,NormalOrient_,ptcls_thetas,ptcls_phis);
+}
+
+template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_conv_div_sph(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real r1, const Real r2, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const sctl::Long ptcl_ord){
+  comm_ = comm;
+  sctl::Vector<Real> Xc, eps, orient;
+  sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
+  const sctl::Long geom_mode = 0; // hardcode to be spheroids
+
+  auto get_r = [&r1, &r2](const Real& x) {
+    Real cutoff1 = 0.25; // end of large radius left
+    Real cutoff2 = 0.35; // start of small radius left
+    Real cutoff3 = 0.65; // end of small radius right
+    Real cutoff4 = 0.75; // start of large radius right
+    if (x < cutoff1) {
+      return 2*r1 + r2;
+    } else if (x < cutoff2) {
+      return r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-cutoff1) / (cutoff2-cutoff1))+r1+r2;
+    } else if (x < cutoff3) {
+      return r2;
+    } else if (x < cutoff4) {
+      return r1+r2 - r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-cutoff3) / (cutoff4-cutoff3));
+    } else {
+      return 2*r1 + r2;
+    }
+  };
+
+  for (sctl::Long i = 0; i < Nelem; i++) {
+    ElemOrderVec.PushBack(ElemOrder);
+    FourierOrderVec.PushBack(FourierOrder);
+    const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrderVec[i]);
+    for (sctl::Long j = 0; j < ElemOrderVec[i]; j++) {
+      const Real x = (i+nodes[j])/Nelem;
+      Xc.PushBack(x);
+      Xc.PushBack(0.5);
+      Xc.PushBack(0.5);
+      eps.PushBack(get_r(x));
+
+      orient.PushBack(0);
+      orient.PushBack(1);
+      orient.PushBack(0);
+    }
+  }
+  sctl::Long Nelem_ptcl_tot = 0;
+  sctl::Vector<Real> ptcls_thetas;
+  sctl::Vector<Real> ptcls_phis;
+  if (ptcls.Dim()>0) {
+    sctl::Long Nptcl = ptcls.Dim();
+    packed_sphs_conv_div(ptcls_Xcs, ptcls_rs, r1, r2); // Fit grid of small spheres inside the channel.
+    // packed_spheroids_conv_div(ptcls_Xcs, ptcls_rs, ptcls_u0s, ptcls_thetas, ptcls_phis, ptcls_ifprolate, r1, r2, N);
+    // packed_spheres_conv_div(ptcls_Xcs, ptcls_rs, ptcls_thetas, ptcls_phis, r1, r2); // DEBUGGING VSLIP: use all spheres and no rotation
+
+    sctl::Vector<sctl::Long> ptcls_(ptcls_rs.Dim());
+    ptcls_ = ptcl_ord;
+    ptcls.Swap(ptcls_);
+    
+    // // DEBUGGING: remove rotation
+    // ptcls_thetas.ReInit(ptcls_rs.Dim());
+    // ptcls_phis.ReInit(ptcls_rs.Dim());
+    // ptcls_thetas.SetZero();
+    // ptcls_phis.SetZero();
+    // ///////////////////////////
+    
+    // add_spheroids_rotated(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs, ptcls_u0s, ptcls_thetas, ptcls_phis, ptcls_ifprolate);
+    // add_particles(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs, 0); // CHOCO FEB 2026: DEBUG VSLIP with spheres
+    add_particles_rotated(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs, 0, ptcls_thetas, ptcls_phis); 
+    for (sctl::Long ptcl_i = 0; ptcl_i < ptcls.Dim(); ptcl_i++) {
+      Nelem_ptcl_tot += ptcls[ptcl_i];
+    }
+  }
+  sctl::Vector<Real> NormalOrient;
+  { // set NormalOrient 
+    for (sctl::Long i = 0; i < Nelem + Nelem_ptcl_tot; i++) {
+      for (sctl::Long j = 0; j < ElemOrder*FourierOrder*COORD_DIM; j++) {
+        NormalOrient.PushBack(i < Nelem ? 1 : -1);
+      }
+    }
+  }
+  sctl::SlenderElemList<Real> elem_lst;
+  sctl::Vector<Real> NormalOrient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, NormalOrient, true); 
+  return std::make_tuple(elem_lst,NormalOrient_,ptcls_thetas,ptcls_phis);
+}
+
+template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_conv_div_debug(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real r1, const Real r2, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, sctl::Vector<Real>& ptcls_u0s, sctl::Vector<sctl::Long>& ptcls_ifprolate, const sctl::Long ptcl_ord){
+  comm_ = comm;
+  sctl::Vector<Real> Xc, eps, orient;
+  sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
+
+  // auto get_r = [&r1, &r2](const Real& x) {
+  //   Real cutoff1 = 0.25; // end of large radius left
+  //   Real cutoff2 = 0.35; // start of small radius left
+  //   Real cutoff3 = 0.65; // end of small radius right
+  //   Real cutoff4 = 0.75; // start of large radius right
+  //   if (x < cutoff1) {
+  //     return 2*r1 + r2;
+  //   } else if (x < cutoff2) {
+  //     return r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-cutoff1) / (cutoff2-cutoff1))+r1+r2;
+  //   } else if (x < cutoff3) {
+  //     return r2;
+  //   } else if (x < cutoff4) {
+  //     return r1+r2 - r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-cutoff3) / (cutoff4-cutoff3));
+  //   } else {
+  //     return 2*r1 + r2;
+  //   }
+  // };
+
+  // for (sctl::Long i = 0; i < Nelem; i++) {
+  //   ElemOrderVec.PushBack(ElemOrder);
+  //   FourierOrderVec.PushBack(FourierOrder);
+  //   const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrderVec[i]);
+  //   for (sctl::Long j = 0; j < ElemOrderVec[i]; j++) {
+  //     const Real x = (i+nodes[j])/Nelem;
+  //     Xc.PushBack(x);
+  //     Xc.PushBack(0.5);
+  //     Xc.PushBack(0.5);
+  //     eps.PushBack(get_r(x));
+
+  //     orient.PushBack(0);
+  //     orient.PushBack(1);
+  //     orient.PushBack(0);
+  //   }
+  // }
+  sctl::Long Nelem_ptcl_tot = 0;
+  sctl::Vector<Real> ptcls_thetas;
+  sctl::Vector<Real> ptcls_phis;
+  if (ptcls.Dim()>0) {
+    // sctl::Long Nptcl = 25;
+    // std::string data_filename = "data/sphere_data_25_larger.txt";
+    // sctl::Matrix<Real> Xc_from_file(Nptcl,4);
+    // std::ifstream infile(data_filename);
+    // if (!infile) {
+    //     std::cerr << "Error opening file " << data_filename << std::endl;
+    //     SCTL_ASSERT(false);
+    // }
+    // for (sctl::Long row=0; row < Nptcl; row++) {
+    //   for (sctl::Long col=0; col < 4; col++) {
+    //     if (!(infile >> Xc_from_file(row,col))) {
+    //       std::cerr << "not enough entries in data file" << std::endl;
+    //     }
+    //   }
+    // }
+    // for (sctl::Long i=0; i<Nptcl; i++) {
+    //   ptcls_Xcs.PushBack(Xc_from_file(i,0));
+    //   ptcls_Xcs.PushBack(Xc_from_file(i,1));
+    //   ptcls_Xcs.PushBack(Xc_from_file(i,2));
+    //   ptcls_rs.PushBack(Xc_from_file(i,3));
+    //   ptcls.PushBack(Nelem);
+    // }
+    packed_sphs_conv_div(ptcls_Xcs, ptcls_rs, r1, r2); // Fit grid of small spheres inside the channel.
+    sctl::Vector<sctl::Long> ptcls_(ptcls_rs.Dim());
+    ptcls_ = ptcl_ord;
+    ptcls.Swap(ptcls_);
+    add_particles(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs, 0); // CHOCO FEB 2026: DEBUG VSLIP with spheres
+    for (sctl::Long ptcl_i = 0; ptcl_i < ptcls.Dim(); ptcl_i++) {
+      Nelem_ptcl_tot += ptcls[ptcl_i];
+    }
+  }
+  sctl::Vector<Real> NormalOrient(Nelem_ptcl_tot * 3 * ElemOrder * FourierOrder);
+  NormalOrient = -1.;
+  sctl::SlenderElemList<Real> elem_lst;
+  sctl::Vector<Real> NormalOrient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, NormalOrient); 
   return std::make_tuple(elem_lst,NormalOrient_,ptcls_thetas,ptcls_phis);
 }
 
@@ -997,7 +987,7 @@ template <class Real> void PeriodicGeom<Real>::add_particles(sctl::Vector<sctl::
           bacteria_geom(x, y, z, ex, ey, ez, eps_j, 2*theta, ptcl_r); // 2pi for circular particles.
         } else if (geom_mode == 3) {
           // loop
-          loop_geom(x, y, z, ex, ey, ez, eps_j, 2*theta, ptcl_r);
+          loop_geom(x, y, z, ex, ey, ez, eps_j, 2*theta, ptcl_r, 0.05);
         } else {
           SCTL_ASSERT(false); // not implemented
         }
@@ -1013,6 +1003,181 @@ template <class Real> void PeriodicGeom<Real>::add_particles(sctl::Vector<sctl::
       }
     }
   }
+}
+
+template <class Real> void PeriodicGeom<Real>::add_spheroids(sctl::Vector<sctl::Long>& ElemOrderVec, sctl::Vector<sctl::Long>& FourierOrderVec, sctl::Vector<Real>& Xc, sctl::Vector<Real>& eps, sctl::Vector<Real>& orient, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real>& ptcls_rs, const sctl::Vector<Real>& ptcls_Xcs, const sctl::Vector<Real>& ptcls_u0s, const sctl::Vector<sctl::Long>& ptcls_ifprolate) {
+  const auto prolate_geom = [](Real& x, Real& y, Real& z, Real& cylindrical_radius, const Real polar_angle, const Real size, const Real u0) {
+        SCTL_ASSERT(u0 > 1.); 
+        x = size * u0 * sctl::cos<Real>(polar_angle);
+        y = 0.;
+        z = 0.;
+        cylindrical_radius = size * sctl::sqrt<Real>(u0*u0 - 1) * sctl::sin<Real>(polar_angle);
+    };
+
+    const auto oblate_geom = [](Real& x, Real& y, Real& z, Real& cylindrical_radius, const Real polar_angle, const Real size, const Real u0) {
+        x = size * u0 * sctl::cos<Real>(polar_angle); 
+        y = 0.;
+        z = 0.;
+        cylindrical_radius = size * sctl::sqrt<Real>(u0*u0 + 1) * sctl::sin<Real>(polar_angle);
+    };
+  
+  sctl::Long Nptcl = ptcls.Dim();
+  std::cout << "in add particles, Nptcl is " << Nptcl << std::endl;
+  for (sctl::Long p=0; p<Nptcl; p++) {
+    const sctl::Long Nelem_sphere = ptcls[p];
+    Real ptcl_size = ptcls_rs[p];
+    Real ptcl_u0 = ptcls_u0s[p];
+    sctl::Long if_prolate_here = ptcls_ifprolate[p];
+    for (sctl::Long i = 0; i < Nelem_sphere; i++) { // add a sphere
+      ElemOrderVec.PushBack(ElemOrder);
+      FourierOrderVec.PushBack(FourierOrder);
+      const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrderVec[i]);
+      for (sctl::Long j = 0; j < ElemOrderVec[i]; j++) {
+        const Real theta = sctl::const_pi<Real>() * (i+nodes[j])/Nelem_sphere;
+        Real x,y,z,eps_j;
+        if (if_prolate_here) {
+            prolate_geom(x,y,z,eps_j,theta,ptcl_size,ptcl_u0);
+        } else {
+            oblate_geom(x,y,z,eps_j,theta,ptcl_size,ptcl_u0);
+        }
+        // std::cout << "x,y,z: " << x << ", " << y  << ", " << z << ", eps = " << eps_j << std::endl;
+
+        Xc.PushBack(ptcls_Xcs[p*3]+x);
+        Xc.PushBack(ptcls_Xcs[p*3+1]+y);
+        Xc.PushBack(ptcls_Xcs[p*3+2]+z);
+        eps.PushBack(eps_j);
+
+        orient.PushBack(0); // placeholders
+        orient.PushBack(0);
+        orient.PushBack(1);
+      }
+    }
+  }
+}
+
+template <class Real> void PeriodicGeom<Real>::add_spheroids_rotated(sctl::Vector<sctl::Long>& ElemOrderVec, sctl::Vector<sctl::Long>& FourierOrderVec, sctl::Vector<Real>& Xc, sctl::Vector<Real>& eps, sctl::Vector<Real>& orient, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real>& ptcls_rs, const sctl::Vector<Real>& ptcls_Xcs, const sctl::Vector<Real>& ptcls_u0s, const sctl::Vector<Real>& ptcls_thetas, const sctl::Vector<Real>& ptcls_phis, const sctl::Vector<sctl::Long>& ptcls_ifprolate) {
+  const auto prolate_geom = [](Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& cylindrical_radius, const Real polar_angle, const Real size, const Real u0) {
+        SCTL_ASSERT(u0 > 1.); 
+        x = size * u0 * sctl::cos<Real>(polar_angle);
+        y = 0.;
+        z = 0.;
+        cylindrical_radius = size * sctl::sqrt<Real>(u0*u0 - 1) * sctl::sin<Real>(polar_angle);
+        ex = 0.;
+        ey = 1.;
+        ez = 0.;
+    };
+
+    const auto oblate_geom = [](Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& cylindrical_radius, const Real polar_angle, const Real size, const Real u0) {
+        x = size * u0 * sctl::cos<Real>(polar_angle); 
+        y = 0.;
+        z = 0.;
+        cylindrical_radius = size * sctl::sqrt<Real>(u0*u0 + 1) * sctl::sin<Real>(polar_angle);
+        ex = 0.;
+        ey = 1.;
+        ez = 0.;
+    };
+  
+  sctl::Long Nptcl = ptcls.Dim();
+  // std::cout << "in add particles, Nptcl is " << Nptcl << std::endl;
+  for (sctl::Long p=0; p<Nptcl; p++) {
+    const sctl::Long Nelem_sphere = ptcls[p];
+    Real ptcl_size = ptcls_rs[p];
+    Real ptcl_u0 = ptcls_u0s[p];
+    const Real theta_rotate = ptcls_thetas[p];
+    const Real phi_rotate = ptcls_phis[p];
+    const Real cos_theta_rotate = sctl::cos<Real>(theta_rotate);
+    const Real sin_theta_rotate = sctl::sin<Real>(theta_rotate);
+    const Real cos_phi_rotate = sctl::cos<Real>(phi_rotate);
+    const Real sin_phi_rotate = sctl::sin<Real>(phi_rotate);
+    sctl::Long if_prolate_here = ptcls_ifprolate[p];
+    for (sctl::Long i = 0; i < Nelem_sphere; i++) { // add a sphere
+      ElemOrderVec.PushBack(ElemOrder);
+      FourierOrderVec.PushBack(FourierOrder);
+      const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrderVec[i]);
+      for (sctl::Long j = 0; j < ElemOrderVec[i]; j++) {
+        const Real theta = sctl::const_pi<Real>() * (i+nodes[j])/Nelem_sphere;
+        Real x,y,z,ex,ey,ez,eps_j;
+        if (if_prolate_here) {
+            prolate_geom(x,y,z,ex,ey,ez,eps_j,theta,ptcl_size,ptcl_u0);
+        } else {
+            oblate_geom(x,y,z,ex,ey,ez,eps_j,theta,ptcl_size,ptcl_u0);
+        }
+        Real x_rotated = cos_theta_rotate * cos_phi_rotate * x - sin_phi_rotate * y + sin_theta_rotate * cos_phi_rotate * z;
+        Real y_rotated = cos_theta_rotate * sin_phi_rotate * x + cos_phi_rotate * y + sin_theta_rotate * sin_phi_rotate * z;
+        Real z_rotated = -sin_theta_rotate * x + cos_theta_rotate * z;
+                
+        Real ex_rotated = cos_theta_rotate * cos_phi_rotate * ex - sin_phi_rotate * ey + sin_theta_rotate * cos_phi_rotate * ez;
+        Real ey_rotated = cos_theta_rotate * sin_phi_rotate * ex + cos_phi_rotate * ey + sin_theta_rotate * sin_phi_rotate * ez;
+        Real ez_rotated = -sin_theta_rotate * ex + cos_theta_rotate * ez;
+
+        Xc.PushBack(ptcls_Xcs[p*3]+x_rotated);
+        Xc.PushBack(ptcls_Xcs[p*3+1]+y_rotated);
+        Xc.PushBack(ptcls_Xcs[p*3+2]+z_rotated);
+        eps.PushBack(eps_j);
+
+        orient.PushBack(ex_rotated);
+        orient.PushBack(ey_rotated);
+        orient.PushBack(ez_rotated);
+      }
+    }
+  }
+}
+
+// 
+template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::loops_system(const sctl::Vector<sctl::Long> ptcls, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Vector<Real>& ptcls_Xcs, const sctl::Vector<Real>& ptcls_major_rs, const sctl::Vector<Real>& ptcls_minor_rs, const sctl::Vector<Real>& ptcls_thetas, const sctl::Vector<Real>& ptcls_phis, sctl::Comm& comm) {
+  comm_ = comm;
+  sctl::Long Nptcl = ptcls.Dim();
+  // std::cout << "in add particles, Nptcl is " << Nptcl << std::endl;
+
+  sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
+  sctl::Vector<Real> Xc, eps, orient;
+  for (sctl::Long p=0; p<Nptcl; p++) {
+    const sctl::Long Nelem_sphere = ptcls[p];
+    const Real theta_rotate = ptcls_thetas[p];
+    const Real phi_rotate = ptcls_phis[p];
+    const Real major_r = ptcls_major_rs[p];
+    const Real minor_r = ptcls_minor_rs[p];
+
+    const Real cos_theta_rotate = sctl::cos<Real>(theta_rotate);
+    const Real sin_theta_rotate = sctl::sin<Real>(theta_rotate);
+    const Real cos_phi_rotate = sctl::cos<Real>(phi_rotate);
+    const Real sin_phi_rotate = sctl::sin<Real>(phi_rotate);
+
+    for (sctl::Long i = 0; i < Nelem_sphere; i++) { // add a sphere
+      ElemOrderVec.PushBack(ElemOrder);
+      FourierOrderVec.PushBack(FourierOrder);
+      const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrder);
+      for (sctl::Long j = 0; j < ElemOrderVec[i]; j++) {
+        const Real theta = sctl::const_pi<Real>() * (i+nodes[j])/Nelem_sphere;
+        Real x, y, z, ex, ey, ez, eps_j;
+        loop_geom(x, y, z, ex, ey, ez, eps_j, 2*theta, major_r, minor_r);
+        // std::cout << "loop geom with major r " << major_r << ", minor r " << minor_r << ", eps_j = " << eps_j << std::endl;
+
+        Real x_rotated = cos_theta_rotate * cos_phi_rotate * x - sin_phi_rotate * y + sin_theta_rotate * cos_phi_rotate * z;
+        Real y_rotated = cos_theta_rotate * sin_phi_rotate * x + cos_phi_rotate * y + sin_theta_rotate * sin_phi_rotate * z;
+        Real z_rotated = -sin_theta_rotate * x + cos_theta_rotate * z;
+        Real ex_rotated = cos_theta_rotate * cos_phi_rotate * ex - sin_phi_rotate * ey + sin_theta_rotate * cos_phi_rotate * ez;
+        Real ey_rotated = cos_theta_rotate * sin_phi_rotate * ex + cos_phi_rotate * ey + sin_theta_rotate * sin_phi_rotate * ez;
+        Real ez_rotated = -sin_theta_rotate * ex + cos_theta_rotate * ez;
+
+        Xc.PushBack(ptcls_Xcs[p*3]+x_rotated);
+        Xc.PushBack(ptcls_Xcs[p*3+1]+y_rotated);
+        Xc.PushBack(ptcls_Xcs[p*3+2]+z_rotated);
+        eps.PushBack(eps_j);
+
+        orient.PushBack(ex_rotated); 
+        orient.PushBack(ey_rotated);
+        orient.PushBack(ez_rotated);
+      }
+    }
+  }
+  // std::cout << "size of Xc: " << Xc.Dim() << ", size of eps" << eps.Dim() << std::endl;
+
+  sctl::Vector<Real> NormalOrient(Xc.Dim() * FourierOrder);
+  NormalOrient = -1.;
+  sctl::SlenderElemList<Real> elem_lst;
+  sctl::Vector<Real> NormalOrient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, NormalOrient);
+  return std::make_tuple(elem_lst,NormalOrient_);
 }
 
 template <class Real> void PeriodicGeom<Real>::add_particles_rotated(sctl::Vector<sctl::Long>& ElemOrderVec, sctl::Vector<sctl::Long>& FourierOrderVec, sctl::Vector<Real>& Xc, sctl::Vector<Real>& eps, sctl::Vector<Real>& orient, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real>& ptcls_rs, const sctl::Vector<Real>& ptcls_Xcs, const int geom_mode, const sctl::Vector<Real> ptcls_thetas, const sctl::Vector<Real> ptcls_phis) {
@@ -1046,7 +1211,7 @@ template <class Real> void PeriodicGeom<Real>::add_particles_rotated(sctl::Vecto
           bacteria_geom(x, y, z, ex, ey, ez, eps_j, 2*theta, ptcl_r); // 2pi for circular particles.
         } else if (geom_mode == 3) {
           // loop
-          loop_geom(x, y, z, ex, ey, ez, eps_j, 2*theta, ptcl_r);
+          loop_geom(x, y, z, ex, ey, ez, eps_j, 2*theta, ptcl_r, 0.05);
         } else {
           SCTL_ASSERT(false); // not implemented
         }
@@ -1071,7 +1236,7 @@ template <class Real> void PeriodicGeom<Real>::add_particles_rotated(sctl::Vecto
   }
 }
 
-template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::InitElemList(sctl::SlenderElemList<Real>& elem_lst, const sctl::Vector<sctl::Long>& ElemOrder, const sctl::Vector<sctl::Long>& FourierOrder, const sctl::Vector<Real>& X, const sctl::Vector<Real>& R, const sctl::Vector<Real>& OrientVec, const sctl::Vector<Real>& NormalOrient) {
+template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::InitElemList(sctl::SlenderElemList<Real>& elem_lst, const sctl::Vector<sctl::Long>& ElemOrder, const sctl::Vector<sctl::Long>& FourierOrder, const sctl::Vector<Real>& X, const sctl::Vector<Real>& R, const sctl::Vector<Real>& OrientVec, const sctl::Vector<Real>& NormalOrient, bool use_orient) {
   const sctl::Long Nelem = ElemOrder.Dim();
   // std::cout << "Nelem is " << Nelem << std::endl;
   sctl::Long loc_elem_cnt, loc_elem_dsp;
@@ -1109,7 +1274,12 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::InitElemList(sctl::
   const sctl::Vector<Real> OrientVec_(cnt*COORD_DIM, (sctl::Iterator<Real>)OrientVec.begin() + dsp*COORD_DIM, false);
   const sctl::Vector<Real> NormalOrient_(cnt*FourierOrder[0]*COORD_DIM, (sctl::Iterator<Real>)NormalOrient.begin() + dsp*FourierOrder[0]*COORD_DIM, false); // TODO: this assumes all Fourier orders are the same.
 
-  elem_lst.template Init<Real>(LocElemOrder, LocFourierOrder, X_, R_);  
+  if (use_orient) {
+    elem_lst.template Init<Real>(LocElemOrder, LocFourierOrder, X_, R_, OrientVec_);  
+  } else {
+    elem_lst.template Init<Real>(LocElemOrder, LocFourierOrder, X_, R_);  
+  }
+  
 
   return NormalOrient_;
 }
@@ -1311,11 +1481,13 @@ template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> Pe
       if (geom_mode==0) {
         outside = (outside && outside_sphere(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0]));
       } else if (geom_mode==1) {
-        outside = (outside && outside_spheroid(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],1.1));
+        Real u0 = 1.1; // todo: take as input..
+        int if_prolate = 1;
+        outside = (outside && outside_spheroid(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],u0,if_prolate));
       } else if (geom_mode == 2) {
         outside = (outside && outside_bacteria(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0]));
       } else if (geom_mode == 3) {
-        outside = (outside && outside_loop(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],0.05,pr[0])); // ptcls_rs for loops store the size of the loop, so loop_rad, rather than the "thickness", which is hardcoded to be 0.025.
+        outside = (outside && outside_loop(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],0.05)); // ptcls_rs for loops store the size of the loop, so loop_rad, rather than the "thickness", which is hardcoded to be 0.025.
       } else {
         SCTL_ASSERT(false); // not implemented
       }
@@ -1353,11 +1525,13 @@ template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> Pe
       if (geom_mode==0) {
         outside = (outside && outside_sphere(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0]));
       } else if (geom_mode==1) {
-        outside = (outside && outside_spheroid_rotated(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],1.1,ptheta[0],pphi[0]));
+        Real u0 = 1.1;
+        int if_prolate = 1;
+        outside = (outside && outside_spheroid_rotated(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],u0,if_prolate,ptheta[0],pphi[0]));
       } else if (geom_mode == 2) {
         outside = (outside && outside_bacteria_rotated(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],ptheta[0],pphi[0]));
       } else if (geom_mode == 3) {
-        outside = (outside && outside_loop_rotated(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],0.05,pr[0],ptheta[0],pphi[0])); // hardcoded geometry r.n.
+        outside = (outside && outside_loop_rotated(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],0.05,ptheta[0],pphi[0])); // hardcoded geometry r.n.
       } else {
         SCTL_ASSERT(false); // not implemented
       }
@@ -1378,6 +1552,120 @@ template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> Pe
   return std::make_tuple(Xout,filtered_inds);
 }
 
+template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> PeriodicGeom<Real>::filter_spheroids(
+                                                                                                const sctl::Vector<Real> X, 
+                                                                                                const sctl::Vector<Real> r_all, 
+                                                                                                const sctl::Vector<Real> u0_all, 
+                                                                                                const sctl::Vector<Real> Xcenter_all, 
+                                                                                                const sctl::Vector<sctl::Long> if_prolate_all) 
+{
+    const sctl::Long N = X.Dim()/3; // number of targets
+    const sctl::Long Nptcl = r_all.Dim(); // number of particles
+    sctl::Vector<sctl::Long> filtered_inds(N); // indicate whether the target was inside particle or not.
+    filtered_inds.SetZero();
+    sctl::Vector<Real> Xout; // collection of targets outside all ptcls.
+    for (sctl::Long i = 0; i < N; i++) {
+        const auto x = X.begin() + i*3;
+        bool outside = true;
+        for (sctl::Long j = 0; j < Nptcl; j++) {
+            const auto pXc = Xcenter_all.begin() + j*3;
+            const auto pr = r_all.begin() + j;
+            const auto pu0 = u0_all.begin() + j;
+            const auto p_if_prolate = if_prolate_all.begin()+j;
+            outside = (outside && outside_spheroid(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],pu0[0],p_if_prolate[0]));
+            
+            if (!outside) {
+                filtered_inds[i] = 1; // =1 if inside.
+                break;  
+            }
+        }
+        if (outside) {
+            Xout.PushBack(x[0]);
+            Xout.PushBack(x[1]);
+            Xout.PushBack(x[2]);
+        }
+    }
+    return std::make_tuple(Xout,filtered_inds);
+}
+
+template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> PeriodicGeom<Real>::filter_spheroids_rotated(
+                                                                                                const sctl::Vector<Real> X, 
+                                                                                                const sctl::Vector<Real> r_all, 
+                                                                                                const sctl::Vector<Real> u0_all, 
+                                                                                                const sctl::Vector<Real> Xcenter_all, 
+                                                                                                const sctl::Vector<sctl::Long> if_prolate_all,
+                                                                                                const sctl::Vector<Real> theta_all, 
+                                                                                                const sctl::Vector<Real> phi_all) 
+{
+    const sctl::Long N = X.Dim()/3; // number of targets
+    const sctl::Long Nptcl = r_all.Dim(); // number of particles
+    sctl::Vector<sctl::Long> filtered_inds(N); // indicate whether the target was inside particle or not.
+    filtered_inds.SetZero();
+    sctl::Vector<Real> Xout; // collection of targets outside all ptcls.
+    for (sctl::Long i = 0; i < N; i++) {
+        const auto x = X.begin() + i*3;
+        bool outside = true;
+        for (sctl::Long j = 0; j < Nptcl; j++) {
+            const auto pXc = Xcenter_all.begin() + j*3;
+            const auto pr = r_all.begin() + j;
+            const auto pu0 = u0_all.begin() + j;
+            const auto ptheta = theta_all.begin() + j;
+            const auto pphi = phi_all.begin() + j;
+            const auto p_if_prolate = if_prolate_all.begin()+j;
+            outside = (outside && outside_spheroid_rotated(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],pu0[0],p_if_prolate[0],ptheta[0],pphi[0]));
+            
+            if (!outside) {
+                filtered_inds[i] = 1; // =1 if inside.
+                break;  
+            }
+        }
+        if (outside) {
+            Xout.PushBack(x[0]);
+            Xout.PushBack(x[1]);
+            Xout.PushBack(x[2]);
+        }
+    }
+    return std::make_tuple(Xout,filtered_inds);
+}
+
+template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> PeriodicGeom<Real>::filter_loops_rotated(
+                                                                                                const sctl::Vector<Real> X, 
+                                                                                                const sctl::Vector<Real> major_r_all, 
+                                                                                                const sctl::Vector<Real> minor_r_all, 
+                                                                                                const sctl::Vector<Real> Xcenter_all, 
+                                                                                                const sctl::Vector<Real> theta_all, 
+                                                                                                const sctl::Vector<Real> phi_all) 
+{
+    const sctl::Long N = X.Dim()/3; // number of targets
+    const sctl::Long Nptcl = major_r_all.Dim(); // number of particles
+    sctl::Vector<sctl::Long> filtered_inds(N); // indicate whether the target was inside particle or not.
+    filtered_inds.SetZero();
+    sctl::Vector<Real> Xout; // collection of targets outside all ptcls.
+    for (sctl::Long i = 0; i < N; i++) {
+        const auto x = X.begin() + i*3;
+        bool outside = true;
+        for (sctl::Long j = 0; j < Nptcl; j++) {
+            const auto pXc = Xcenter_all.begin() + j*3;
+            const auto major_r = major_r_all.begin() + j;
+            const auto minor_r = minor_r_all.begin() + j;
+            const auto ptheta = theta_all.begin() + j;
+            const auto pphi = phi_all.begin() + j;
+            outside = (outside && outside_loop_rotated(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],major_r[0],minor_r[0],ptheta[0],pphi[0]));
+            
+            if (!outside) {
+                filtered_inds[i] = 1; // =1 if inside.
+                break;  
+            }
+        }
+        if (outside) {
+            Xout.PushBack(x[0]);
+            Xout.PushBack(x[1]);
+            Xout.PushBack(x[2]);
+        }
+    }
+    return std::make_tuple(Xout,filtered_inds);
+}
+
 template <class Real> bool PeriodicGeom<Real>::outside_sphere(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real pr) {
   const Real d = (x1-pXc1)*(x1-pXc1) + (x2-pXc2)*(x2-pXc2) + (x3-pXc3)*(x3-pXc3);
   if (d < pr*pr*1.05) { // with buffer layer.
@@ -1387,26 +1675,36 @@ template <class Real> bool PeriodicGeom<Real>::outside_sphere(const Real x1, con
   }
 }
 
-template <class Real> bool PeriodicGeom<Real>::outside_spheroid(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real a, const Real u0) {
-  const Real A = a * sctl::sqrt(u0*u0-1);
+template <class Real> bool PeriodicGeom<Real>::outside_spheroid(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real a, const Real u0, const int if_prolate) {
+  const Real v1 = x1-pXc1;
+  const Real v2 = x2-pXc2;
+  const Real v3 = x3-pXc3;
+  const Real buffer = 1.25;
+
+  Real A;
+  if (if_prolate) {
+    A = a * sctl::sqrt(u0*u0-1);
+  } else {
+    A = a * sctl::sqrt(u0*u0+1);
+  }
   const Real C = a * u0;
   const Real A2inv = 1. / (A*A); // TODO: numerical instability?
   const Real C2inv = 1. / (C*C); 
-  const Real x1sq = (x1-pXc1)*(x1-pXc1);
-  const Real x2sq = (x2-pXc2)*(x2-pXc2);
-  const Real x3sq = (x3-pXc3)*(x3-pXc3);
-  if (x1sq * C2inv + (x2sq+x3sq) * A2inv < 1.05) { // with buffer layer.
+  const Real x1sq = v1*v1;
+  const Real x2sq = v2*v2;
+  const Real x3sq = v3*v3;
+  if (x1sq * C2inv + (x2sq+x3sq) * A2inv < buffer) { 
     return false;
   } else {
     return true;
   }
 }
 
-template <class Real> bool PeriodicGeom<Real>::outside_spheroid_rotated(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real a, const Real u0, const Real ptheta, const Real pphi) {
+template <class Real> bool PeriodicGeom<Real>::outside_spheroid_rotated(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real a, const Real u0, const int if_prolate, const Real ptheta, const Real pphi) {
   const Real v1 = x1-pXc1;
   const Real v2 = x2-pXc2;
   const Real v3 = x3-pXc3;
-  const Real buffer = 1.25;
+  const Real buffer = 1.05;
   
   // Counter rotate target -- R^{-1} = R^T
   const Real cos_theta_rotate = sctl::cos<Real>(ptheta);
@@ -1420,16 +1718,23 @@ template <class Real> bool PeriodicGeom<Real>::outside_spheroid_rotated(const Re
   // std::cout << "Rotation by theta = " << ptheta << ", phi = " << pphi << "; " << std::endl;
   // std::cout << "New rotated vector is " << v1_rotated<<", " << v2_rotated << ", " << v3_rotated << ". " << std::endl;
 
-  const Real A = a * sctl::sqrt(u0*u0-1);
+  Real A;
+  if (if_prolate) {
+    A = a * sctl::sqrt(u0*u0-1);
+  } else {
+    A = a * sctl::sqrt(u0*u0+1);
+  }
   const Real C = a * u0;
   const Real A2inv = 1. / (A*A); // TODO: numerical instability?
   const Real C2inv = 1. / (C*C); 
   const Real x1sq = v1_rotated*v1_rotated; // should be same as v1^2, etc
   const Real x2sq = v2_rotated*v2_rotated;
   const Real x3sq = v3_rotated*v3_rotated;
-  if (x1sq * C2inv + (x2sq+x3sq) * A2inv < buffer * 1.0) { // with buffer layer.
+  if (x1sq * C2inv + (x2sq+x3sq) * A2inv < buffer) { // with buffer layer.
+    // std::cout << "INSIDE spheroid centered at = " << pXc1 << ", " << pXc2 << ", " << pXc3 << "; major axis is " << x1sq * C2inv << ", minor: " << (x2sq+x3sq) * A2inv << std::endl;
     return false;
   } else {
+    // std::cout << "OUTSIDE spheroid centered at = " << pXc1 << ", " << pXc2 << ", " << pXc3 << "; major axis is " << x1sq * C2inv << ", minor: " << (x2sq+x3sq) * A2inv << std::endl;
     return true;
   }
 }
@@ -1444,16 +1749,16 @@ template <class Real> bool PeriodicGeom<Real>::outside_bacteria_rotated(const Re
   return true;
 }
 
-template <class Real> bool PeriodicGeom<Real>::outside_loop(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real pr, const Real loop_rad) {
+template <class Real> bool PeriodicGeom<Real>::outside_loop(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real major_r, const Real minor_r) {
   
   const Real v1 = x1-pXc1;
   const Real v2 = x2-pXc2;
   const Real v3 = x3-pXc3;
   const Real buffer = 1.25;
 
-  bool A = v1*v1 + v2*v2  > (loop_rad-pr*buffer)*(loop_rad-pr*buffer);
-  bool B = v1*v1 + v2*v2  < (loop_rad+pr*buffer)*(loop_rad+pr*buffer); // x-y direction within pr ring
-  bool C = v3 < pr * buffer && v3 > -pr * buffer; // z direction between [-pr, pr]
+  bool A = v1*v1 + v2*v2  > (major_r-minor_r*buffer)*(major_r-minor_r*buffer);
+  bool B = v1*v1 + v2*v2  < (major_r+minor_r*buffer)*(major_r+minor_r*buffer); // x-y direction within pr ring
+  bool C = v3 < minor_r * buffer && v3 > -minor_r * buffer; // z direction between [-pr, pr]
   bool inside = A && B && C; // includes more points than necessary to be "inside"
   // std::cout << "target at " << x1 << ", " << x2 << ", " << x3 << ", particle center at " << pXc1 << ", " << pXc2 << ", " << pXc3 << ". Large radius of loop is " << loop_rad << ", radius of the ringlet is " << pr << std::endl;
   // std::cout << "x,y distance ^2 to center: " << v1*v1+v2*v2 << ", radius min ^2 = " << (loop_rad-pr)*(loop_rad-pr) << ", max ^2 = " << (loop_rad+pr)*(loop_rad+pr) << std::endl;
@@ -1461,7 +1766,7 @@ template <class Real> bool PeriodicGeom<Real>::outside_loop(const Real x1, const
   return !inside;
 }
 
-template <class Real> bool PeriodicGeom<Real>::outside_loop_rotated(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real pr, const Real loop_rad, const Real ptheta, const Real pphi) {
+template <class Real> bool PeriodicGeom<Real>::outside_loop_rotated(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real major_r, const Real minor_r, const Real ptheta, const Real pphi) {
   const Real v1 = x1-pXc1;
   const Real v2 = x2-pXc2;
   const Real v3 = x3-pXc3;
@@ -1476,9 +1781,9 @@ template <class Real> bool PeriodicGeom<Real>::outside_loop_rotated(const Real x
   Real v2_rotated = - sin_phi_rotate * v1 + cos_phi_rotate * v2;
   Real v3_rotated = cos_phi_rotate * sin_theta_rotate * v1 + sin_phi_rotate * sin_theta_rotate * v2 + cos_theta_rotate * v3; 
 
-  bool A = v1_rotated*v1_rotated + v2_rotated*v2_rotated  > (loop_rad-pr*buffer)*(loop_rad-pr*buffer); // decrease inner radius to filter out more close eval points.
-  bool B = v1_rotated*v1_rotated + v2_rotated*v2_rotated  < (loop_rad+pr*buffer)*(loop_rad+pr*buffer); // x-y direction within pr ring
-  bool C = v3_rotated < pr * buffer && v3_rotated > -pr * buffer; // z direction between [-pr, pr]
+  bool A = v1_rotated*v1_rotated + v2_rotated*v2_rotated  > (major_r-minor_r*buffer)*(major_r-minor_r*buffer); // decrease inner radius to filter out more close eval points.
+  bool B = v1_rotated*v1_rotated + v2_rotated*v2_rotated  < (major_r+minor_r*buffer)*(major_r+minor_r*buffer); // x-y direction within pr ring
+  bool C = v3_rotated < minor_r * buffer && v3_rotated > -minor_r * buffer; // z direction between [-pr, pr]
   bool inside = A && B && C; // includes more points than necessary to be "inside"
   // std::cout << "target at " << x1 << ", " << x2 << ", " << x3 << ", particle center at " << pXc1 << ", " << pXc2 << ", " << pXc3 << ". Large radius of loop is " << loop_rad << ", radius of the ringlet is " << pr << std::endl;
   // std::cout << "x,y distance ^2 to center: " << v1_rotated*v1_rotated+v2_rotated*v2_rotated << ", radius min ^2 = " << (loop_rad-pr)*(loop_rad-pr) << ", max ^2 = " << (loop_rad+pr)*(loop_rad+pr) << std::endl;
@@ -1541,15 +1846,33 @@ template <class Real> void PeriodicGeom<Real>::packed_sphs_conv_div(sctl::Vector
   ptcls_Xcs.ReInit(0);
   ptcls_rs.ReInit(0);
 
+  // auto get_r = [&r1, &r2](const Real& x) {
+  //   if (x < 0.1) {
+  //     return 2*r1 + r2;
+  //   } else if (x < 0.3) {
+  //     return r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-0.1) / 0.2)+r1+r2;
+  //   } else if (x < 0.7) {
+  //     return r2;
+  //   } else if (x < 0.9) {
+  //     return r1+r2 - r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-0.7) / 0.2);
+  //   } else {
+  //     return 2*r1 + r2;
+  //   }
+  // };
+
   auto get_r = [&r1, &r2](const Real& x) {
-    if (x < 0.1) {
+    Real cutoff1 = 0.25; // end of large radius left
+    Real cutoff2 = 0.35; // start of small radius left
+    Real cutoff3 = 0.65; // end of small radius right
+    Real cutoff4 = 0.75; // start of large radius right
+    if (x < cutoff1) {
       return 2*r1 + r2;
-    } else if (x < 0.3) {
-      return r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-0.1) / 0.2)+r1+r2;
-    } else if (x < 0.7) {
+    } else if (x < cutoff2) {
+      return r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-cutoff1) / (cutoff2-cutoff1))+r1+r2;
+    } else if (x < cutoff3) {
       return r2;
-    } else if (x < 0.9) {
-      return r1+r2 - r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-0.7) / 0.2);
+    } else if (x < cutoff4) {
+      return r1+r2 - r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-cutoff3) / (cutoff4-cutoff3));
     } else {
       return 2*r1 + r2;
     }
@@ -1576,12 +1899,12 @@ template <class Real> void PeriodicGeom<Real>::packed_sphs_conv_div(sctl::Vector
 
         sctl::Long iter_cnt = 0;
         Real ptcl_r_loc = drand48() * ptcl_r;
-        while (iter_cnt < 30 && ptcl_r_loc >= 1e-5 && (Y*Y + Z*Z >= (r_channel-(2. * ptcl_r_loc))*(r_channel-(2. * ptcl_r_loc)))) {
+        while (iter_cnt < 30 && ptcl_r_loc >= 0.005 && (Y*Y + Z*Z >= (r_channel-(2. * ptcl_r_loc))*(r_channel-(2. * ptcl_r_loc)))) {
           // reduce radius until particle fits inside channel.
-          ptcl_r_loc *= 0.9;
+          ptcl_r_loc *= 0.95;
           iter_cnt += 1;
         } 
-        if (iter_cnt < 30 && ptcl_r_loc >= 0.01) {
+        if (iter_cnt < 30 && ptcl_r_loc >= 0.005) {
           ptcls_Xcs.PushBack(X);
           ptcls_Xcs.PushBack(Y + 0.5);
           ptcls_Xcs.PushBack(Z + 0.5);
@@ -1591,6 +1914,200 @@ template <class Real> void PeriodicGeom<Real>::packed_sphs_conv_div(sctl::Vector
       }
     } 
 
+  }
+}
+
+template <class Real> void PeriodicGeom<Real>::packed_spheroids_conv_div(sctl::Vector<Real>& ptcls_Xcs, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_u0s, sctl::Vector<Real>& ptcls_thetas, sctl::Vector<Real>& ptcls_phis, sctl::Vector<sctl::Long>& ptcls_ifprolate, const Real r1, const Real r2, const sctl::Long N) {
+  // const int N = 2560; // use spheroid system in unit box for a densely packed system
+  // const int N = 80;
+  const Real buffer = 1.15;
+
+  // Clear all inputting arrays for populating later
+  ptcls_Xcs.ReInit(0);
+  ptcls_rs.ReInit(0);
+  ptcls_u0s.ReInit(0);
+  ptcls_ifprolate.ReInit(0);
+
+  // Get original system from file
+  sctl::Vector<Real> Xcenter_all, u0_all, r_all, theta_all, phi_all;
+  sctl::Vector<sctl::Long> if_prolate_all;
+  std::string filename_Xcenter, filename_u0, filename_size, filename_ifprolate;
+  filename_Xcenter = "data/bie_spheroids/Xcenter_"+std::to_string(N)+".txt";
+  filename_u0 = "data/bie_spheroids/u0_"+std::to_string(N)+".txt";
+  filename_size = "data/bie_spheroids/size_"+std::to_string(N)+".txt";
+  filename_ifprolate = "data/bie_spheroids/ifprolate_"+std::to_string(N)+".txt";
+
+  const auto read_file_double = [](const std::string filename, sctl::Vector<Real>& Out, const sctl::Long expected_length) {
+    Out.ReInit(expected_length);
+    Out.SetZero();
+    
+    std::ifstream infile(filename);
+    if (!infile) {
+        std::cerr << "Error opening file " << filename << std::endl;
+        SCTL_ASSERT(false);
+    }
+
+    for (sctl::Long i=0; i<expected_length; i++ ) {
+        if (!(infile >> Out[i])) {
+            std::cerr << "File cut short at " << i << ", before expected length " << expected_length << std::endl;
+        }
+    }
+  };
+  const auto read_file_int = [](const std::string filename, sctl::Vector<sctl::Long>& Out, const sctl::Long expected_length) {
+    Out.ReInit(expected_length);
+    Out.SetZero();
+    
+    std::ifstream infile(filename);
+    if (!infile) {
+        std::cerr << "Error opening file " << filename << std::endl;
+        SCTL_ASSERT(false);
+    }
+
+    for (sctl::Long i=0; i<expected_length; i++ ) {
+        if (!(infile >> Out[i])) {
+            std::cerr << "File cut short at " << i << ", before expected length " << expected_length << std::endl;
+        }
+    }
+  };
+
+  read_file_double(filename_Xcenter, Xcenter_all, N * 3);
+  read_file_double(filename_u0, u0_all, N);
+  read_file_double(filename_size, r_all, N);
+  read_file_int(filename_ifprolate, if_prolate_all, N);
+
+  // Randomly give rotation angles
+  srand48(2);
+  for (sctl::Long i=0; i<N; i++) {
+      const Real theta_rotate = drand48() * sctl::const_pi<Real>() * 2.;
+      const Real phi_rotate = drand48() * sctl::const_pi<Real>();
+      // const Real theta_rotate = 0.;
+      // const Real phi_rotate = 0.;
+      theta_all.PushBack(theta_rotate);
+      phi_all.PushBack(phi_rotate);
+  }
+
+  // Conv-div channel
+  const auto get_r = [&r1, &r2](const Real& x) {
+    const Real cutoff1 = 0.25; // end of large radius left
+    const Real cutoff2 = 0.35; // start of small radius left
+    const Real cutoff3 = 0.65; // end of small radius right
+    const Real cutoff4 = 0.75; // start of large radius right
+    if (x < cutoff1) {
+      return 2*r1 + r2;
+    } else if (x < cutoff2) {
+      return r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-cutoff1) / (cutoff2-cutoff1))+r1+r2;
+    } else if (x < cutoff3) {
+      return r2;
+    } else if (x < cutoff4) {
+      return r1+r2 - r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-cutoff3) / (cutoff4-cutoff3));
+    } else {
+      return 2*r1 + r2;
+    }
+  };
+
+  // // Conv-div channel
+  // const auto get_r = [&r1, &r2](const Real& x) {
+  //   return 2*r1 + r2;
+  // };
+
+  // Populate arrays with only spheroids that are in the channel
+  for (sctl::Long n=0; n<N; n++) {
+    // Spheroid data
+    sctl::Vector<Real> Xc_here(3, (sctl::Iterator<Real>) Xcenter_all.begin() + n*3, false);
+    sctl::Vector<Real> u0_here(1, (sctl::Iterator<Real>) u0_all.begin() + n, false);
+    sctl::Vector<Real> r_here(1, (sctl::Iterator<Real>) r_all.begin() + n, false);
+    sctl::Vector<Real> theta_here(1, (sctl::Iterator<Real>) theta_all.begin() + n, false);
+    sctl::Vector<Real> phi_here(1, (sctl::Iterator<Real>) phi_all.begin() + n, false);
+    sctl::Vector<sctl::Long> if_prolate_here(1, (sctl::Iterator<sctl::Long>) if_prolate_all.begin() + n, false);
+
+    Real channel_r_here = get_r(Xc_here[0]);
+    Real major_axis;
+    if (if_prolate_here[0]) { // prolate, use C
+      major_axis = r_here[0] * u0_here[0];
+    } else { // oblate, use A
+      major_axis = r_here[0] * sctl::sqrt(u0_here[0]*u0_here[0]+1.);
+    }
+    Real Xc_r2 = (Xc_here[1]-0.5)*(Xc_here[1]-0.5) + (Xc_here[2]-0.5)*(Xc_here[2]-0.5);
+
+    if ((sctl::sqrt<Real>(Xc_r2) + major_axis)*buffer < channel_r_here) {
+      ptcls_Xcs.PushBack(Xc_here[0]);
+      ptcls_Xcs.PushBack(Xc_here[1]);
+      ptcls_Xcs.PushBack(Xc_here[2]);
+      ptcls_rs.PushBack(r_here[0]);
+      ptcls_u0s.PushBack(u0_here[0]);
+      ptcls_thetas.PushBack(theta_here[0]);
+      ptcls_phis.PushBack(phi_here[0]);
+      ptcls_ifprolate.PushBack(if_prolate_here[0]);
+    }
+  }
+}
+
+// CHOCO FEB 2026: DEBUG VSLIP using spheres instead of spheroids.
+template <class Real> void PeriodicGeom<Real>::packed_spheres_conv_div(sctl::Vector<Real>& ptcls_Xcs, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_thetas, sctl::Vector<Real>& ptcls_phis, const Real r1, const Real r2) {
+  const int N = 2000; 
+  const Real buffer = 1.15;
+
+  // Clear all inputting arrays for populating later
+  ptcls_Xcs.ReInit(0);
+  ptcls_rs.ReInit(0);
+  ptcls_thetas.ReInit(0);
+  ptcls_phis.ReInit(0);
+
+  // Get original system from file
+  sctl::Matrix<Real> Xc_from_file(N,4);
+  std::string data_filename = "data/sphere_data_"+std::to_string(N)+"_larger.txt";
+  std::ifstream infile(data_filename);
+  if (!infile) {
+      std::cerr << "Error opening file " << data_filename << std::endl;
+      SCTL_ASSERT(false);
+  }
+  for (sctl::Long row=0; row < N; row++) {
+    for (sctl::Long col=0; col < 4; col++) {
+      if (!(infile >> Xc_from_file(row,col))) {
+        std::cerr << "not enough entries in data file" << std::endl;
+      }
+    }
+  }
+
+  // Conv-div channel
+  const auto get_r = [&r1, &r2](const Real& x) {
+    const Real cutoff1 = 0.25; // end of large radius left
+    const Real cutoff2 = 0.35; // start of small radius left
+    const Real cutoff3 = 0.65; // end of small radius right
+    const Real cutoff4 = 0.75; // start of large radius right
+    if (x < cutoff1) {
+      return 2*r1 + r2;
+    } else if (x < cutoff2) {
+      return r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-cutoff1) / (cutoff2-cutoff1))+r1+r2;
+    } else if (x < cutoff3) {
+      return r2;
+    } else if (x < cutoff4) {
+      return r1+r2 - r1*sctl::cos<Real>(sctl::const_pi<Real>() * (x-cutoff3) / (cutoff4-cutoff3));
+    } else {
+      return 2*r1 + r2;
+    }
+  };
+
+  srand48(2);
+  for (sctl::Long i=0; i<N; i++) {
+    Real x1 = Xc_from_file(i,0);
+    Real x2 = Xc_from_file(i,1);
+    Real x3 = Xc_from_file(i,2);
+    Real r_here = Xc_from_file(i,3);
+    Real channel_r_here = get_r(x1);
+    Real Xc_r2 = (x2-0.5)*(x2-0.5) + (x3-0.5)*(x3-0.5);
+    // std::cout <<" particle " << i << ", centered at " << x1 << ","<<x2<<","<<x3<<", radius " << r_here << "; channel radius here is " << channel_r_here << std::endl;
+    if ((sctl::sqrt<Real>(Xc_r2) + r_here) * buffer < channel_r_here) {
+      ptcls_Xcs.PushBack(x1);
+      ptcls_Xcs.PushBack(x2);
+      ptcls_Xcs.PushBack(x3);
+      ptcls_rs.PushBack(r_here);
+
+      const Real theta_rotate = drand48() * sctl::const_pi<Real>() * 2.;
+      const Real phi_rotate = drand48() * sctl::const_pi<Real>();
+      ptcls_thetas.PushBack(theta_rotate);
+      ptcls_phis.PushBack(phi_rotate);
+    }
   }
 }
 
@@ -1668,15 +2185,14 @@ template <class Real> void PeriodicGeom<Real>::bacteria_geom(Real& x, Real& y, R
   else r = scal;
 };
 
-template <class Real> void PeriodicGeom<Real>::loop_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real loop_rad){
-  x = loop_rad * sctl::cos<Real>(theta);
-  y = loop_rad * sctl::sin<Real>(theta);
+template <class Real> void PeriodicGeom<Real>::loop_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real major_r, const Real minor_r){
+  x = major_r * sctl::cos<Real>(theta);
+  y = major_r * sctl::sin<Real>(theta);
   z = 0;
   ex = 0;
   ey = 0;
   ez = 1;
-  // r = 0.025;
-  r = 0.05;
+  r = minor_r;
 };
 
 template <class Real> void PeriodicGeom<Real>::sphere_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real loop_rad){
@@ -1685,10 +2201,11 @@ template <class Real> void PeriodicGeom<Real>::sphere_geom(Real& x, Real& y, Rea
   z = 0;
   r = loop_rad*sctl::sin<Real>(theta);
   ex = 0;
-  ey = 0;
-  ez = 1;
+  ey = 1;
+  ez = 0;
 }
 
+// DEPRECATED
 template <class Real> void PeriodicGeom<Real>::spheroid_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real loop_rad){
   Real u0 = 1.1;
   x = loop_rad * u0 * sctl::cos<Real>(theta);

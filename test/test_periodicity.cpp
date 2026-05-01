@@ -49,7 +49,7 @@ template <class Real> void test1peri_channel(sctl::Long Nelem_channel, sctl::Lon
     sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
     sctl::Vector<Real> NormalOrient, ptcls_thetas, ptcls_phis;
     sctl::Long peri_mode = 1;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div(Nelem_channel, ElemOrder, FourierOrder, 0.1, 0.2, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div_sph(Nelem_channel, ElemOrder, FourierOrder, 0.1, 0.2, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord);
     elem_lst0 = std::get<0>(build0);
     NormalOrient = std::get<1>(build0);
     ptcls_thetas = std::get<2>(build0);
@@ -652,8 +652,8 @@ template <class Real> void test3peri(sctl::Long Nelem, sctl::Long FourierOrder, 
     sctl::GMRES<Real> solver(comm);
     sctl::Vector<Real> sigma;
     LayerPotenOp0.SetTargetCoord(X0);
-    // solver(&sigma, BIO, eval_rhs(pressure_drop), gmres_tol);
-    solver(&sigma, BIO, eval_rhs2(X0), gmres_tol);
+    solver(&sigma, BIO, eval_rhs(pressure_drop), gmres_tol);
+    // solver(&sigma, BIO, eval_rhs2(X0), gmres_tol);
 
     {
         PeriodicGeom<Real> trg;    
@@ -668,8 +668,8 @@ template <class Real> void test3peri(sctl::Long Nelem, sctl::Long FourierOrder, 
         LayerPotenOp0.SetTargetCoord(X0);
         sctl::Vector<Real> U;
         BIO(&U, sigma);
-        // U -= eval_rhs(pressure_drop);
-        U -= eval_rhs2(X0);
+        U -= eval_rhs(pressure_drop);
+        // U -= eval_rhs2(X0);
 
         sctl::Vector<Real> U_vis(X0_all.Dim());
         U_vis = 0.;
@@ -696,7 +696,7 @@ template <class Real> void test3peri(sctl::Long Nelem, sctl::Long FourierOrder, 
             X0[Ntrg_nodeind * 3 + 0] = 0.;
             X0[Ntrg_nodeind * 3 + 1] = (yind+3)*gap;
             X0[Ntrg_nodeind * 3 + 2] = (zind+3)*gap;
-            X1[Ntrg_nodeind * 3 + 0] = 1.;
+            X1[Ntrg_nodeind * 3 + 0] = 0.9999999999;
             X1[Ntrg_nodeind * 3 + 1] = (yind+3)*gap;
             X1[Ntrg_nodeind * 3 + 2] = (zind+3)*gap;
         }
@@ -704,11 +704,11 @@ template <class Real> void test3peri(sctl::Long Nelem, sctl::Long FourierOrder, 
     sctl::Vector<Real> UX0(X0.Dim());
     LayerPotenOp0.SetTargetCoord(X0);
     BIO(&UX0,sigma);
+    UX0 -= eval_rhs(pressure_drop);
     sctl::Vector<Real> UX1(X1.Dim());
     LayerPotenOp0.SetTargetCoord(X1);
     BIO(&UX1,sigma);
-    // UX0 -= eval_rhs(pressure_drop);
-    // UX1 -= eval_rhs(pressure_drop);
+    UX1 -= eval_rhs(pressure_drop);
     std::cout << "============ X periodicity =================" << std::endl;
     sctl::Vector<Real> UdiffX = UX0-UX1;
     for (int i=0; i<UdiffX.Dim()/3; i++) {
@@ -724,16 +724,18 @@ template <class Real> void test3peri(sctl::Long Nelem, sctl::Long FourierOrder, 
             Y0[Ntrg_nodeind * 3 + 1] = 0.0;
             Y0[Ntrg_nodeind * 3 + 2] = (zind+3)*gap;
             Y1[Ntrg_nodeind * 3 + 0] = (xind+3)*gap;
-            Y1[Ntrg_nodeind * 3 + 1] = 1.;
+            Y1[Ntrg_nodeind * 3 + 1] = 0.9999999999;
             Y1[Ntrg_nodeind * 3 + 2] = (zind+3)*gap;
         }
     }
     sctl::Vector<Real> UY0(Y0.Dim());
     LayerPotenOp0.SetTargetCoord(Y0);
     BIO(&UY0,sigma);
+    UY0 -= eval_rhs(pressure_drop);
     sctl::Vector<Real> UY1(Y1.Dim());
     LayerPotenOp0.SetTargetCoord(Y1);
     BIO(&UY1,sigma);
+    UY1 -= eval_rhs(pressure_drop);
     std::cout << "============ Y periodicity =================" << std::endl;
     sctl::Vector<Real> UdiffY = UY0-UY1;
     for (int i=0; i<UdiffY.Dim()/3; i++) {
@@ -750,15 +752,17 @@ template <class Real> void test3peri(sctl::Long Nelem, sctl::Long FourierOrder, 
             Z0[Ntrg_nodeind * 3 + 2] = 0.0;
             Z1[Ntrg_nodeind * 3 + 0] = (xind+3)*gap;
             Z1[Ntrg_nodeind * 3 + 1] = (yind+3)*gap;
-            Z1[Ntrg_nodeind * 3 + 2] = 1.0;
+            Z1[Ntrg_nodeind * 3 + 2] = 0.9999999999;
         }
     }
     sctl::Vector<Real> UZ0(Z0.Dim());
     LayerPotenOp0.SetTargetCoord(Z0);
     BIO(&UZ0,sigma);
+    UZ0 -= eval_rhs(pressure_drop);
     sctl::Vector<Real> UZ1(Z1.Dim());
     LayerPotenOp0.SetTargetCoord(Z1);
     BIO(&UZ1,sigma);
+    UZ1 -= eval_rhs(pressure_drop);
     std::cout << "============ Z periodicity =================" << std::endl;
     sctl::Vector<Real> UdiffZ = UZ0-UZ1;
     for (int i=0; i<UdiffZ.Dim()/3; i++) {
