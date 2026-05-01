@@ -70,11 +70,157 @@ template <class Real> void VolumeVis<Real>::GetVTUData(sctl::VTUData& vtu_data, 
   }
 }
 
+template <class Real> CubeVolumeVisShifted<Real>::CubeVolumeVisShifted(const sctl::Long N_, Real L, const sctl::Comm& comm_) : N(N_), comm(comm_) {
+  const sctl::Long pid = comm.Rank();
+  const sctl::Long Np = comm.Size();
+
+  const sctl::Long NN = sctl::pow<COORD_DIM-1,sctl::Long>(N);
+  const sctl::Long a = (N-1)*(pid+0)/Np;
+  const sctl::Long b = (N-1)*(pid+1)/Np;
+  N0 = b-a+1;
+  if (N0<2) return;
+
+  coord.ReInit(N0 * NN * COORD_DIM);
+  for (sctl::Long i = 0; i < N0; i++) {
+    for (sctl::Long j = 0; j < NN; j++) {
+      for (sctl::Long k = 0; k < COORD_DIM; k++) {
+        sctl::Long idx = ((i+a)*NN+j);
+        // coord[(i*NN+j)*COORD_DIM+k] = (((idx/sctl::pow<sctl::Long>(N,k)) % N)/(Real)(N-1)*2 - 1) * L;
+        coord[(i*NN+j)*COORD_DIM+k] = (((idx/sctl::pow<sctl::Long>(N,k)) % N)/(Real)(N-1) -0.5) * L + 0.5; // TODO: just for analytical solution test, assuming center at (0.5,0.5,0.5).
+      }
+    }
+  }
+}
+
+template <class Real> const sctl::Vector<Real>& CubeVolumeVisShifted<Real>::GetCoord() const {
+  return coord;
+}
+
+template <class Real> void CubeVolumeVisShifted<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
+  for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
+  for (const auto& x :     F) vtu_data.value.PushBack((float)x);
+  for (sctl::Long i = 0; i < N0-1; i++) {
+    for (sctl::Long j = 0; j < N-1; j++) {
+      for (sctl::Long k = 0; k < N-1; k++) {
+        auto idx = [this](sctl::Long i, sctl::Long j, sctl::Long k) {
+          return (i*N+j)*N+k;
+        };
+        vtu_data.connect.PushBack(idx(i+0,j+0,k+0));
+        vtu_data.connect.PushBack(idx(i+0,j+0,k+1));
+        vtu_data.connect.PushBack(idx(i+0,j+1,k+1));
+        vtu_data.connect.PushBack(idx(i+0,j+1,k+0));
+        vtu_data.connect.PushBack(idx(i+1,j+0,k+0));
+        vtu_data.connect.PushBack(idx(i+1,j+0,k+1));
+        vtu_data.connect.PushBack(idx(i+1,j+1,k+1));
+        vtu_data.connect.PushBack(idx(i+1,j+1,k+0));
+        vtu_data.offset.PushBack(vtu_data.connect.Dim());;
+        vtu_data.types.PushBack(12);
+      }
+    }
+  }
+}
+template <class Real> void CubeVolumeVisShifted<Real>::WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const {
+  sctl::VTUData vtu_data;
+  GetVTUData(vtu_data, F);
+  vtu_data.WriteVTK(fname, comm);
+}
+
+template <class Real> XsectionVis<Real>::XsectionVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm) : comm_(comm) {
+  Nelem = elem_lst.Size();
+  sctl::Vector<Real> s_param, sin_theta, cos_theta;
+  for (sctl::Long i = 0; i < s_order; i++) {
+    const Real t = i/(Real)(s_order-1);
+    s_param.PushBack(t);
+  }
+  for (sctl::Long i = 0; i < t_order; i++) {
+    const Real t = i/(Real)t_order;
+    sin_theta.PushBack(sctl::sin<Real>(2*sctl::const_pi<Real>()*t));
+    cos_theta.PushBack(sctl::cos<Real>(2*sctl::const_pi<Real>()*t));
+  }
+  for (sctl::Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
+    const Real t_order_inv = 1/(Real)t_order;
+    const Real r_order_inv = (1-1e-2)/(Real)(r_order-1); // make points further from surface to avoid stagnate points for mixing visualization.
+    sctl::Vector<Real> X_, Xc(COORD_DIM);
+    elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
+    for (sctl::Long i = 0; i < s_order; i++) {
+      Xc = 0;
+      for (sctl::Long j = 0; j < t_order; j++) {
+        for (sctl::Long l = 0; l < COORD_DIM; l++) {
+          Xc[l] += X_[(i*t_order+j)*COORD_DIM+l] * t_order_inv;
+        }
+      }
+      for (sctl::Long j = 0; j < t_order; j++) {
+        for (sctl::Long k = 0; k < r_order; k++) {
+          for (sctl::Long l = 0; l < COORD_DIM; l++) {
+            coord.PushBack((X_[(i*t_order+j)*COORD_DIM+l]-Xc[l])*k*r_order_inv + Xc[l]);
+          }
+        }
+      }
+    }
+  }
+}
+
+template <class Real> const sctl::Vector<Real>& XsectionVis<Real>::GetCoord() const {
+  return coord;
+}
+
+template <class Real> void XsectionVis<Real>::SetCoord(const sctl::Vector<Real> new_coord) {
+  coord = new_coord;
+}
+
+template <class Real> void XsectionVis<Real>::WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const {
+  sctl::VTUData vtu_data;
+  GetVTUData(vtu_data, F);
+  vtu_data.WriteVTK(fname, comm_);
+}
+
+template <class Real> void XsectionVis<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
+  for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
+  for (const auto& x :     F) vtu_data.value.PushBack((float)x);
+  for (sctl::Long l = 0; l < Nelem; l++) {
+    const sctl::Long offset = l * s_order*t_order*r_order;
+    for (sctl::Long i = 0; i < s_order-1; i++) {
+      for (sctl::Long j = 0; j < t_order; j++) {
+        for (sctl::Long k = 0; k < r_order-1; k++) {
+          auto idx = [this,&offset](sctl::Long i, sctl::Long j, sctl::Long k) {
+            return offset+(i*t_order+(j%t_order))*r_order+k;
+          };
+          vtu_data.connect.PushBack(idx(i+0,j+0,k+0));
+          vtu_data.connect.PushBack(idx(i+0,j+0,k+1));
+          vtu_data.connect.PushBack(idx(i+0,j+1,k+1));
+          vtu_data.connect.PushBack(idx(i+0,j+1,k+0));
+          vtu_data.connect.PushBack(idx(i+1,j+0,k+0));
+          vtu_data.connect.PushBack(idx(i+1,j+0,k+1));
+          vtu_data.connect.PushBack(idx(i+1,j+1,k+1));
+          vtu_data.connect.PushBack(idx(i+1,j+1,k+0));
+          vtu_data.offset.PushBack(vtu_data.connect.Dim());;
+          vtu_data.types.PushBack(12);
+        }
+      }
+    }
+  }
+}
+
+template <class Real> void StokesBIO<Real>::stokes_sl_volpot(sctl::Matrix<Real>& U, const sctl::Vector<Real>& X) {
+  const sctl::Long N = X.Dim() / 3;
+  SCTL_ASSERT(X.Dim() == N * 3);
+  if (U.Dim(0)!=3 || U.Dim(1)!=N*3) U.ReInit(3, N*3);
+  for (sctl::Long i = 0; i < N; i++) {
+    const auto x = X.begin() + i*3;
+    const Real rx_2 = x[1]*x[1] + x[2]*x[2];
+    const Real ry_2 = x[0]*x[0] + x[2]*x[2];
+    const Real rz_2 = x[0]*x[0] + x[1]*x[1];
+    U[0][i*3+0] = -rx_2/4; U[0][i*3+1] =       0; U[0][i*3+2] =       0;
+    U[1][i*3+0] =       0; U[1][i*3+1] = -ry_2/4; U[1][i*3+2] =       0;
+    U[2][i*3+0] =       0; U[2][i*3+1] =       0; U[2][i*3+2] = -rz_2/4;
+  }
+}
+
 template <class Real> StokesBIO<Real>::StokesBIO(const Real SL_scal, const Real DL_scal, const sctl::Comm comm)
   : comm_(comm), SL_scal_(SL_scal), DL_scal_(DL_scal), LayerPotenSL(ker_FxU, false, comm), LayerPotenDL(ker_DxU, false, comm) {
   LayerPotenSL.SetAccuracy(1e-14);
   LayerPotenDL.SetAccuracy(1e-14);
-  LayerPotenSL.SetFMMKer(ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU);
+  LayerPotenSL.SetFMMKer(ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, stokes_sl_volpot);
   LayerPotenDL.SetFMMKer(ker_DxU, ker_DxU, ker_DxU, ker_FSxU, ker_FSxU, ker_FSxU, ker_FxU, ker_FxU);
 };
 
@@ -163,12 +309,21 @@ template <class Real> void StokesBIO<Real>::ComputePotential(sctl::Vector<Real>&
   else U.SetZero();
 }
 
+
+template <class Real> void StokesBIO<Real>::ComputeSL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const {
+  LayerPotenSL.ComputePotential(U, F);
+}
+
+template <class Real> void StokesBIO<Real>::ComputeDL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const {
+  LayerPotenDL.ComputePotential(U, F);
+}
+
 template <class Real> void StokesBIO<Real>::SqrtScaling(sctl::Vector<Real>& U) const {
-  LayerPotenDL.SqrtScaling(U);
+  LayerPotenSL.SqrtScaling(U);
 }
 
 template <class Real> void StokesBIO<Real>::InvSqrtScaling(sctl::Vector<Real>& U) const {
-  LayerPotenDL.InvSqrtScaling(U);
+  LayerPotenSL.InvSqrtScaling(U);
 }
 
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_straight(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real r, const sctl::Comm& comm, const sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
