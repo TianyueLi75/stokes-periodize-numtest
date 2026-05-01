@@ -283,9 +283,6 @@ template <class Real> class StokesBIO {
     // In 3-periodic, this allows adding a uniform volume potential to balance the total force density on the surface.
     static void stokes_sl_volpot(sctl::Matrix<Real>& U, const sctl::Vector<Real>& X);
 
-    // In 3-periodic, this allows adding a uniform volume potential to balance the total force density on the surface.
-    static void stokes_sl_volpot(sctl::Matrix<Real>& U, const sctl::Vector<Real>& X);
-
     const sctl::Stokes3D_FxU ker_FxU;
     const sctl::Stokes3D_DxU ker_DxU;
     const sctl::Stokes3D_FxUP ker_FxUP;
