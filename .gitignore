@@ -7,3 +7,4 @@ bin/*
 *.data
 *.sh
 data/*
+*.mat

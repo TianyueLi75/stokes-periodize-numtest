@@ -4,13 +4,14 @@ PVFMM_DIR ?= ./extern/pvfmm
 -include $(PVFMM_DIR)/MakeVariables
 
 # Directories for SCTL includes and quadrature tables
-SCTL_INCLUDE_DIR ?= $(PVFMM_DIR)/SCTL/include
+SCTL_INCLUDE_DIR ?= $(PVFMM_DIR)/SCTL/include # WITH FMM
+# SCTL_INCLUDE_DIR ?= ./extern/CSBQ/SCTL/include # NO FMM
 CSBQ_INCLUDE_DIR ?= ./extern/CSBQ/include
 SCTL_DATA_PATH ?= ./extern/CSBQ/data
 
 # Compiler settings
-CXX = $(CXX_PVFMM) # Requires g++-9 or newer, icpc (with gcc compatibility 7.5 or newer), or clang++ with llvm-10 or newer
-# CXX = mpicxx
+CXX = $(CXX_PVFMM) # WITH FMM
+# CXX = mpicxx # NO FMM
 CXXFLAGS = -std=c++17 -fopenmp # Need C++11 and OpenMP
 
 # Define the path for quadrature tables and enable quadruple precision (for reading quadrature tables)
@@ -82,12 +83,12 @@ OBJDIR = ./obj
 INCDIR = ./include
 TESTDIR = ./test
 
-TEST_BIN = \
-    $(BINDIR)/test \
-    $(BINDIR)/test1
+# TEST_BIN = \
+#     $(BINDIR)/test \
+#     $(BINDIR)/test1
 
-# Test target: build all test binaries
-test: $(TEST_BIN)
+# # Test target: build all test binaries
+# test: $(TEST_BIN)
 
 # Example script with visualizations in all periodicity
 examples: $(BINDIR)/examples
@@ -117,12 +118,11 @@ test1: $(BINDIR)/test1
 # [Deprecated] A particle in free space, direct sum periodicity
 test3_copies: $(BINDIR)/test3_copies
 
-# [Deprecated] Create proxy files for different order parameters
-test_proxy_mats: $(BINDIR)/test2_ptcl_periodize_mats
-test_proxy_order: $(BINDIR)/test2_ptcl_periodize_order
-
 # [Delete later]: manufacture solution tests for spheroid and loops
 test_particles: $(BINDIR)/test_spheroid_loop
+
+# [Delete later]: spheroid set
+vslip: $(BINDIR)/test_vslip
 
 # Rules for building binaries
 $(BINDIR)/%: $(OBJDIR)/%.o
