@@ -97,6 +97,9 @@ dispersion: $(BINDIR)/dispersion
 # Timing call in different periodicity
 timing: ${BINDIR}/test2
 
+# Timing call for precompute
+timing_precomp: ${BINDIR}/precompute_time
+
 # Test accuracy of particle periodic code by manufactured solutions
 test_manufactured_soln: $(BINDIR)/test2_ptcl_conv
 # Test self convergence of channel with or without particles
