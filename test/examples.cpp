@@ -1,108 +1,11 @@
-#include "utils.hpp"
+#include "utils_vis.hpp"
+#include "stokes_bio.hpp"
+#include "bio_operator.hpp"
+#include "utils_geom.hpp"
 #include "planeNaive.hpp"
+#include "utils_tests.cpp"
 
 // Test script for calculation and timing of 1, 2, and 3 periodic problems with background pressure flow. 
-
-/**
-    Takes the surface integral, populate into <I>, using weights <wts>   
-    Supporting functions for imposing net-force-zero densities during gmres solve.
-*/
-template <class Real> void SurfaceIntegral(sctl::Vector<Real>& I, const sctl::Vector<Real>& vals, const sctl::Vector<Real>& wts) {
-  const sctl::Long dof = vals.Dim() / wts.Dim();
-  SCTL_ASSERT(vals.Dim() == wts.Dim() * dof);
-  if (I.Dim() != dof) I.ReInit(dof);
-  I = 0;
-  for (sctl::Long i = 0; i < wts.Dim(); i++) {
-    for (sctl::Long j = 0; j < dof; j++) {
-      I[j] += vals[i*dof + j] * wts[i];
-    }
-  }
-}
-
-/**
-    Assuming <vals> is a dimension-fast-node-slow list of values, add <c0> to each node (if dimension matches).
-    Supporting functions for imposing net-force-zero densities during gmres solve.
-*/
-template <class Real> void AddConstVec(sctl::Vector<Real>& vals, const sctl::Vector<Real>& c0) {
-  const sctl::Long dof = c0.Dim();
-  const sctl::Long N = vals.Dim() / dof;
-  SCTL_ASSERT(vals.Dim() == N * dof);
-  for (sctl::Long i = 0; i < N; i++) {
-    for (sctl::Long j = 0; j < dof; j++) {
-      vals[i*dof + j] += c0[j];
-    }
-  }
-}
-
-template <class Real> sctl::Vector<Real> GetVslip(const sctl::Vector<Real>& ptcls_Xnsurf, const sctl::Vector<Real>& ptcls_Xcs, const sctl::Vector<Real>& ptcls_sizes, const sctl::Vector<Real>& ptcls_u0s, const sctl::Vector<Real>& ptcls_thetas, const sctl::Vector<Real>& ptcls_phis, const sctl::Vector<sctl::Long>& ptcls_ifprolate, const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder) {
-    const sctl::Long Nnodes_per_ptcl = Nelem * ElemOrder * FourierOrder;
-    const sctl::Long Nptcls = ptcls_sizes.Dim();
-
-    sctl::Vector<Real> Vslip(ptcls_Xnsurf.Dim());
-    srand48(1);
-    Vslip.SetZero();
-    for (sctl::Long i=0; i<Nptcls; i++) {
-        const Real a_here = ptcls_sizes[i];
-        const Real u0_here = ptcls_u0s[i];
-        const int if_prolate_here = ptcls_ifprolate[i];
-        sctl::Vector<Real> Vslip_here(3*Nnodes_per_ptcl, (sctl::Iterator<Real>) Vslip.begin() + 3*Nnodes_per_ptcl*i, false);
-        sctl::Vector<Real> center_here(3, (sctl::Iterator<Real>) ptcls_Xcs.begin() + 3*i, false);
-        const Real scalar = drand48()*0.8 + 0.1; // randomly scaled slip velocity by (0.1,0.9).
-        const Real theta_rotate = ptcls_thetas[i];
-        const Real phi_rotate = ptcls_phis[i];
-        const Real cos_theta_rotate = sctl::cos<Real>(theta_rotate);
-        const Real sin_theta_rotate = sctl::sin<Real>(theta_rotate);
-        const Real cos_phi_rotate = sctl::cos<Real>(phi_rotate);
-        const Real sin_phi_rotate = sctl::sin<Real>(phi_rotate);
-
-        for (sctl::Long panel=0; panel < Nelem; panel++) {
-            const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrder);
-
-            for (sctl::Long el=0; el<ElemOrder; el++) {
-                const Real theta = sctl::const_pi<Real>() * (panel+nodes[el])/Nelem;
-                const Real coeff = scalar * sctl::sin<Real>(theta); // sinusoidal slip magnitude, 0 at north and south poles
-
-                for (sctl::Long fl=0; fl<FourierOrder; fl++) {
-                    Real phi = 2. * sctl::const_pi<Real>() * fl / FourierOrder;
-                    const sctl::Long idx = panel*ElemOrder*FourierOrder + el*FourierOrder + fl;
-                    const sctl::Vector<Real> Xn_here(3, (sctl::Iterator<Real>) ptcls_Xnsurf.begin() + 3*Nnodes_per_ptcl*i + idx*3, false);
-
-                    Real t1_unrotated = a_here * u0_here * (-sctl::sin<Real>(theta));
-                    Real t2_unrotated, t3_unrotated;
-                    if (if_prolate_here) {
-                        t2_unrotated = a_here * sctl::sqrt<Real>(u0_here*u0_here-1) * sctl::cos<Real>(theta) * sctl::cos<Real>(phi);
-                        t3_unrotated = a_here * sctl::sqrt<Real>(u0_here*u0_here-1) * sctl::cos<Real>(theta) * sctl::sin<Real>(phi);
-                    } else {
-                        t2_unrotated = a_here * sctl::sqrt<Real>(u0_here*u0_here+1) * sctl::cos<Real>(theta) * sctl::cos<Real>(phi);
-                        t3_unrotated = a_here * sctl::sqrt<Real>(u0_here*u0_here+1) * sctl::cos<Real>(theta) * sctl::sin<Real>(phi);
-                    }
-                    
-                    Real mag2_tang = t1_unrotated*t1_unrotated + t2_unrotated*t2_unrotated + t3_unrotated*t3_unrotated;
-                    Real mag_tang = sctl::sqrt<Real>(mag2_tang);
-                    // tangential sinusoidal slip, spheroid-cetnered space
-                    sctl::Vector<Real> Vslip_here_unrotated(3);
-                    Vslip_here_unrotated[0] = coeff * t1_unrotated / mag_tang;
-                    Vslip_here_unrotated[1] = coeff * t2_unrotated / mag_tang;
-                    Vslip_here_unrotated[2] = coeff * t3_unrotated / mag_tang;
-                    // tagential slip, rotated
-                    sctl::Vector<Real> Vslip_here_rotated(3);
-                    Vslip_here_rotated[0] = cos_phi_rotate * cos_theta_rotate * Vslip_here_unrotated[0] - sin_phi_rotate * Vslip_here_unrotated[1] + cos_phi_rotate * sin_theta_rotate * Vslip_here_unrotated[2];
-                    Vslip_here_rotated[1] = sin_phi_rotate * cos_theta_rotate * Vslip_here_unrotated[0] + cos_phi_rotate * Vslip_here_unrotated[1] + sin_phi_rotate * sin_theta_rotate * Vslip_here_unrotated[2];
-                    Vslip_here_rotated[2] = - sin_theta_rotate * Vslip_here_unrotated[0] + cos_theta_rotate * Vslip_here_unrotated[2];
-
-                    Real vdotn = Vslip_here_rotated[0] * Xn_here[0] + Vslip_here_rotated[1] * Xn_here[1] + Vslip_here_rotated[2] * Xn_here[2];
-                    if (sctl::fabs(vdotn)>1e-8) {
-                        std::cout << "ERROR: tangent dot n is nonzero: " << vdotn << std::endl;
-                    }
-                    Vslip_here[idx*3+0] = Vslip_here_rotated[0];
-                    Vslip_here[idx*3+1] = Vslip_here_rotated[1];
-                    Vslip_here[idx*3+2] = Vslip_here_rotated[2];
-                }
-            }
-        }
-    }   
-    return Vslip;
-}
 
 /**
     Example of a converging-divering channel with some spheroids on the interior. Visualizations are stored in vis/examples/ folder.
@@ -168,32 +71,8 @@ template <class Real> void channel_with_particle(sctl::Comm comm) {
     LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, period_length); 
 
     // Define the boundary-integral operator: (I/2 + D + S)[sigma-sigma_mean] + sigma_mean
-    const auto BIO = [&wts,&surface_area,&elem_lst0,&LayerPotenOp0,&DL_scal,&NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        sctl::Vector<Real> sigma_mean, sigma0;
-        { 
-            sctl::Vector<Real> sigma_;
-            elem_lst0.GetFarFieldDensity(sigma_, sigma);
-            SurfaceIntegral(sigma_mean, sigma_, wts);
-            // MPI for total surface area
-            sctl::Vector<Real> sa_loc = sigma_mean;
-            sctl::Vector<Real> sa_all(3);
-            sa_all = 0;
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+1, (sctl::Iterator<Real>) sa_all.begin()+1, 1, sctl::CommOp::SUM);
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+2, (sctl::Iterator<Real>) sa_all.begin()+2, 1, sctl::CommOp::SUM);
-            sigma_mean = sa_all;
-            sigma_mean *= (1./surface_area);
-
-            sigma0 = sigma;
-            AddConstVec(sigma0, -sigma_mean);
-        }
-
-        U->SetZero();
-        LayerPotenOp0.ComputePotential(*U, sigma0);
-        if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
-
-        AddConstVec(*U, sigma_mean);
-    };
+    MeanCorrectedStokesBIOOperator<Real> BIO(LayerPotenOp0, NormalOrient, DL_scal, comm);
+    BIO.AddSurface(elem_lst0, wts, surface_area);
 
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
@@ -579,32 +458,8 @@ template <class Real> void particle_3peri(sctl::Comm comm) {
     LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XYZ, period_length);
 
     // Define the boundary-integral operator: (I/2 + D + S)[sigma-sigma_mean] + sigma_mean
-    const auto BIO = [&wts,&surface_area,&elem_lst0,&LayerPotenOp0,&DL_scal,&NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        sctl::Vector<Real> sigma_mean, sigma0;
-        { 
-            sctl::Vector<Real> sigma_;
-            elem_lst0.GetFarFieldDensity(sigma_, sigma);
-            SurfaceIntegral(sigma_mean, sigma_, wts);
-            //MPI
-            sctl::Vector<Real> sa_loc = sigma_mean;
-            sctl::Vector<Real> sa_all(3);
-            sa_all = 0;
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+1, (sctl::Iterator<Real>) sa_all.begin()+1, 1, sctl::CommOp::SUM);
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+2, (sctl::Iterator<Real>) sa_all.begin()+2, 1, sctl::CommOp::SUM);
-            sigma_mean = sa_all;
-            sigma_mean *= (1/surface_area);
-
-            sigma0 = sigma;
-            AddConstVec(sigma0, -sigma_mean);
-        }
-
-        U->SetZero();
-        LayerPotenOp0.ComputePotential(*U, sigma0);
-        if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
-
-        AddConstVec(*U, sigma_mean);
-    };
+    MeanCorrectedStokesBIOOperator<Real> BIO(LayerPotenOp0, NormalOrient, DL_scal, comm);
+    BIO.AddSurface(elem_lst0, wts, surface_area);
 
     const auto eval_rhs = [&LayerPotenOp0,surface_area,period_length](const Real pressure_drop) { // BIOpSL( -pressure_drop * cross_sectional_area / surface_area )
         sctl::Vector<Real> force_density(LayerPotenOp0.Dim(0)); force_density = 0;

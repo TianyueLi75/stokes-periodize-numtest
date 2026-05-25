@@ -1,5 +1,6 @@
 #include "periodize.hpp"
 #include "utils.hpp"
+#include "bio_operator.hpp"
 // Test script for calculation and timing of particle-only 1 and 3 periodic problems with background pressure flow. 
 
 /**
@@ -147,29 +148,6 @@ template <class Real> sctl::Vector<Real> vslip_direction(const sctl::Vector<Real
     return Utrg;
 }
 
-template <class Real> void SurfaceIntegral(sctl::Vector<Real>& I, const sctl::Vector<Real>& vals, const sctl::Vector<Real>& wts) {
-  const sctl::Long dof = vals.Dim() / wts.Dim();
-  SCTL_ASSERT(vals.Dim() == wts.Dim() * dof);
-  if (I.Dim() != dof) I.ReInit(dof);
-  I = 0;
-  for (sctl::Long i = 0; i < wts.Dim(); i++) {
-    for (sctl::Long j = 0; j < dof; j++) {
-      I[j] += vals[i*dof + j] * wts[i];
-    }
-  }
-}
-
-template <class Real> void AddConstVec(sctl::Vector<Real>& vals, const sctl::Vector<Real>& c0) {
-  const sctl::Long dof = c0.Dim();
-  const sctl::Long N = vals.Dim() / dof;
-  SCTL_ASSERT(vals.Dim() == N * dof);
-  for (sctl::Long i = 0; i < N; i++) {
-    for (sctl::Long j = 0; j < dof; j++) {
-      vals[i*dof + j] += c0[j];
-    }
-  }
-}
-
 /**
  * Set up slip velocities on spheres such that total hydro. force is 0 in each copy, 
  * using formula for drag on sphere traveling along direction with velocity U, 
@@ -304,7 +282,7 @@ template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder,
         sctl::Long Nptcl_slip = elem_lst0.Size() / Nelem; // Number of particles on current MPI process
         sctl::Vector<Real> ptcls_Xcs_slip(Nptcl_slip * 3, (sctl::Iterator<Real>)ptcls_Xcs.begin() + comm.Rank()*Nptcl_slip*3, true); // Assumes same number of particles on previous processes
         sctl::Vector<Real> ptcls_rs_slip(Nptcl_slip,  (sctl::Iterator<Real>)ptcls_rs.begin()+comm.Rank()*Nptcl_slip, true);
-        sctl::Vector<Real> Uslip = total_vslip(X0, ptcl_gridsize, Nptcl_slip, ptcls_Xcs_slip, ptcls_rs_slip); // Compute slip for only particles stored on current MPI process
+        Uslip = total_vslip(X0, ptcl_gridsize, Nptcl_slip, ptcls_Xcs_slip, ptcls_rs_slip); // Compute slip for only particles stored on current MPI process
         if (write_ref) {
             elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_vslip", Uslip, comm);
         }  
@@ -411,40 +389,44 @@ template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder,
 
     // =============== Boundary Integral Operators =======================================
     // BIO for periodic problems
-    const auto BIO = [&wts,&surface_area,&elem_lst0,&LayerPotenOp0,&DL_scal,&NormalOrient, &comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        sctl::Vector<Real> sigma_mean, sigma0;
-        { // compute sigma_mean and sigma0 = sigma - sigma_mean
-            sctl::Vector<Real> sigma_;
-            elem_lst0.GetFarFieldDensity(sigma_, sigma);
-            SurfaceIntegral(sigma_mean, sigma_, wts);
-            // MPI
-            sctl::Vector<Real> sa_loc = sigma_mean;
-            sctl::Vector<Real> sa_all(3);
-            sa_all = 0;
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+1, (sctl::Iterator<Real>) sa_all.begin()+1, 1, sctl::CommOp::SUM);
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+2, (sctl::Iterator<Real>) sa_all.begin()+2, 1, sctl::CommOp::SUM);
-            sigma_mean = sa_all;
-            sigma_mean *= (1/surface_area);
+    MeanCorrectedStokesBIOOperator<Real> BIO(LayerPotenOp0, NormalOrient, DL_scal, comm);
+    BIO.AddSurface(elem_lst0, wts, surface_area);
 
-            sigma0 = sigma;
-            AddConstVec(sigma0, -sigma_mean);
-
-            // // DEBUG: check that sigma-sigma_mean has surface integral = 0:
-            // sctl::Vector<Real> sigma1 = sigma_;
-            // AddConstVec(sigma1, -sigma_mean);
-            // sctl::Vector<Real> sigma_test_;
-            // SurfaceIntegral(sigma_test_, sigma1, wts);
-            // std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "<< sigma_test_[1] << ", " << sigma_test_[2] << ". "<< std::endl;
-        
-        }
-
-        U->SetZero();
-        LayerPotenOp0.ComputePotential(*U, sigma0);
-        if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
-
-        AddConstVec(*U, sigma_mean);
-    };
+    // // Old lambda-based BIO block retained for reference:
+    // const auto BIO = [&wts,&surface_area,&elem_lst0,&LayerPotenOp0,&DL_scal,&NormalOrient, &comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+    //     sctl::Vector<Real> sigma_mean, sigma0;
+    //     { // compute sigma_mean and sigma0 = sigma - sigma_mean
+    //         sctl::Vector<Real> sigma_;
+    //         elem_lst0.GetFarFieldDensity(sigma_, sigma);
+    //         SurfaceIntegral(sigma_mean, sigma_, wts);
+    //         // MPI
+    //         sctl::Vector<Real> sa_loc = sigma_mean;
+    //         sctl::Vector<Real> sa_all(3);
+    //         sa_all = 0;
+    //         comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
+    //         comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+1, (sctl::Iterator<Real>) sa_all.begin()+1, 1, sctl::CommOp::SUM);
+    //         comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+2, (sctl::Iterator<Real>) sa_all.begin()+2, 1, sctl::CommOp::SUM);
+    //         sigma_mean = sa_all;
+    //         sigma_mean *= (1/surface_area);
+    //
+    //         sigma0 = sigma;
+    //         AddConstVec(sigma0, -sigma_mean);
+    //
+    //         // // DEBUG: check that sigma-sigma_mean has surface integral = 0:
+    //         // sctl::Vector<Real> sigma1 = sigma_;
+    //         // AddConstVec(sigma1, -sigma_mean);
+    //         // sctl::Vector<Real> sigma_test_;
+    //         // SurfaceIntegral(sigma_test_, sigma1, wts);
+    //         // std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "<< sigma_test_[1] << ", " << sigma_test_[2] << ". "<< std::endl;
+    //     
+    //     }
+    //
+    //     U->SetZero();
+    //     LayerPotenOp0.ComputePotential(*U, sigma0);
+    //     if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
+    //
+    //     AddConstVec(*U, sigma_mean);
+    // };
 
     // // Apply A11inv to each panel of vec.
     // const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size, &comm](const sctl::Vector<Real>& vec) {

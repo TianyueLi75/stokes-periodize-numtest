@@ -3,40 +3,7 @@
 
 #include "periodize.hpp"
 #include "utils.hpp"
-
-/**
-* Compute the weighted sum of vals with weights wts.
-* vals: [x1,y1,z1, x2,y2,z2, ..., xN,yN,zN]
-* wts:  [w1, w2, ..., wN]
-* I: [mx, my, mz]
-*/
-template <class Real> void SurfaceIntegral(sctl::Vector<Real>& I, const sctl::Vector<Real>& vals, const sctl::Vector<Real>& wts) {
-    const sctl::Long dof = vals.Dim() / wts.Dim();
-    SCTL_ASSERT(vals.Dim() == wts.Dim() * dof);
-    if (I.Dim() != dof) I.ReInit(dof);
-    I = 0;
-    for (sctl::Long i = 0; i < wts.Dim(); i++) {
-        for (sctl::Long j = 0; j < dof; j++) {
-            I[j] += vals[i*dof + j] * wts[i];
-        }
-    }
-}
-
-/**
- * Add vector c0 to each point in vals.
- * vals: [x1,y1,z1, x2,y2,z2, ..., xN,yN,zN]
- * c0:   [cx,cy,cz]
- */
-template <class Real> void AddConstVec(sctl::Vector<Real>& vals, const sctl::Vector<Real>& c0) {
-    const sctl::Long dof = c0.Dim();
-    const sctl::Long N = vals.Dim() / dof;
-    SCTL_ASSERT(vals.Dim() == N * dof);
-    for (sctl::Long i = 0; i < N; i++) {
-        for (sctl::Long j = 0; j < dof; j++) {
-            vals[i*dof + j] += c0[j];
-        }
-    }
-}
+#include "bio_operator.hpp"
 
 /**
  * Background flow with unit pressure gradient along X-axis.
@@ -155,39 +122,43 @@ template <class Real> void test(const sctl::Comm& comm) {
     LayerPotenOp0.SetAccuracy(tol);
 
     // Define the boundary-integral operator: (I/2 + D + S)[sigma-sigma_mean] + sigma_mean
-    const auto BIO = [&wts,&surface_area,&elem_lst0,&LayerPotenOp0,&DL_scal,&NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        sctl::Vector<Real> sigma_mean, sigma0;
-        { // compute sigma_mean and sigma0 = sigma - sigma_mean
-            sctl::Vector<Real> sigma_;
-            elem_lst0.GetFarFieldDensity(sigma_, sigma);
-            SurfaceIntegral(sigma_mean, sigma_, wts);
-            //MPI
-            sctl::Vector<Real> sa_loc = sigma_mean;
-            sctl::Vector<Real> sa_all(3);
-            sa_all = 0;
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+1, (sctl::Iterator<Real>) sa_all.begin()+1, 1, sctl::CommOp::SUM);
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+2, (sctl::Iterator<Real>) sa_all.begin()+2, 1, sctl::CommOp::SUM);
-            sigma_mean = sa_all;
-            sigma_mean *= (1/surface_area);
+    MeanCorrectedStokesBIOOperator<Real> BIO(LayerPotenOp0, NormalOrient, DL_scal, comm, +1.0);
+    BIO.AddSurface(elem_lst0, wts, surface_area);
 
-            sigma0 = sigma;
-            AddConstVec(sigma0, -sigma_mean);
-
-            // DEBUG: check that sigma-sigma_mean has surface integral = 0:
-            sctl::Vector<Real> sigma1 = sigma_;
-            AddConstVec(sigma1, -sigma_mean);
-            sctl::Vector<Real> sigma_test_;
-            SurfaceIntegral(sigma_test_, sigma1, wts);
-            std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "  << sigma_test_[1] << ", "  << sigma_test_[2] << std::endl;
-        }
-
-        U->SetZero();
-        LayerPotenOp0.ComputePotential(*U, sigma0);
-        if (DL_scal && U->Dim() == sigma.Dim()) (*U) += sigma0*0.5*NormalOrient * DL_scal; // for double-layer
-
-        AddConstVec(*U, sigma_mean);
-    };
+    // Old lambda-based BIO block retained for reference:
+    // const auto BIO = [&wts,&surface_area,&elem_lst0,&LayerPotenOp0,&DL_scal,&NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+    //     sctl::Vector<Real> sigma_mean, sigma0;
+    //     { // compute sigma_mean and sigma0 = sigma - sigma_mean
+    //         sctl::Vector<Real> sigma_;
+    //         elem_lst0.GetFarFieldDensity(sigma_, sigma);
+    //         SurfaceIntegral(sigma_mean, sigma_, wts);
+    //         //MPI
+    //         sctl::Vector<Real> sa_loc = sigma_mean;
+    //         sctl::Vector<Real> sa_all(3);
+    //         sa_all = 0;
+    //         comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
+    //         comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+1, (sctl::Iterator<Real>) sa_all.begin()+1, 1, sctl::CommOp::SUM);
+    //         comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+2, (sctl::Iterator<Real>) sa_all.begin()+2, 1, sctl::CommOp::SUM);
+    //         sigma_mean = sa_all;
+    //         sigma_mean *= (1/surface_area);
+    //
+    //         sigma0 = sigma;
+    //         AddConstVec(sigma0, -sigma_mean);
+    //
+    //         // DEBUG: check that sigma-sigma_mean has surface integral = 0:
+    //         sctl::Vector<Real> sigma1 = sigma_;
+    //         AddConstVec(sigma1, -sigma_mean);
+    //         sctl::Vector<Real> sigma_test_;
+    //         SurfaceIntegral(sigma_test_, sigma1, wts);
+    //         std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "  << sigma_test_[1] << ", "  << sigma_test_[2] << std::endl;
+    //     }
+    //
+    //     U->SetZero();
+    //     LayerPotenOp0.ComputePotential(*U, sigma0);
+    //     if (DL_scal && U->Dim() == sigma.Dim()) (*U) += sigma0*0.5*NormalOrient * DL_scal; // for double-layer
+    //
+    //     AddConstVec(*U, sigma_mean);
+    // };
 
     const auto eval_rhs = [&LayerPotenOp0,surface_area,period_length,wts,&elem_lst0](const Real pressure_drop) { // BIOpSL( -pressure_drop * cross_sectional_area / surface_area )
         sctl::Vector<Real> force_density(LayerPotenOp0.Dim(0)); force_density = 0;

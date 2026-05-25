@@ -1,5 +1,6 @@
 #include "periodize.hpp"
 #include "utils.hpp"
+#include "bio_operator.hpp"
 
 /**
  * Background flow with unit pressure gradient along X-axis.
@@ -55,12 +56,9 @@ template <class Real> void test(sctl::Long Nelem, sctl::Long FourierOrder, sctl:
     // std::cout << "Rank " << comm.Rank() << " dim of Op is " << LayerPotenOp0.Dim(1) << ", " << LayerPotenOp0.Dim(0) << std::endl;
 
     // layer potential operator -- no periodicity assumed.
-    const auto BIO = [&LayerPotenOp0](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        // std::cout << "in BIO, dim sigma is" << sigma.Dim() <<", dim of U is " << U->Dim() << std::endl;
-        U->SetZero();
-        LayerPotenOp0.ComputePotential(*U, sigma);
-        (*U) += sigma*0.5;
-    };
+    sctl::Vector<Real> free_space_normal_orient(X0.Dim());
+    free_space_normal_orient = -1.;
+    MeanCorrectedStokesBIOOperator<Real> BIO(LayerPotenOp0, free_space_normal_orient, DL_scal, comm, +1.0);
 
     // Solve for sigma to satisfy no-slip boundary conditions: BIO(sigma) + bg_flow = 0
     sctl::Vector<Real> sigma;

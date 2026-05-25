@@ -1,298 +1,9 @@
-#ifndef _PERIODIZE_UTILS_HPP_
-#define _PERIODIZE_UTILS_HPP_
+#ifndef _UTILS_GEOM_HPP_
+#define _UTILS_GEOM_HPP_
 
 #include <csbq.hpp>
 #include <tuple>
 #include "sctl/fmm-wrapper.hpp"  // for ParticleFMM
-
-/**
- * Visualize volume inside SlenderElemList.
- */
-template <class Real> class VolumeVis {
-    static constexpr sctl::Integer COORD_DIM = 3;
-    // sparse target points in channel for example_1_self_convergence.
-    // static constexpr sctl::Integer s_order = 4;
-    // static constexpr sctl::Integer t_order = 10;
-    // static constexpr sctl::Integer r_order = 3; 
-    // static constexpr sctl::Integer s_order = 20;
-    // static constexpr sctl::Integer t_order = 60;
-    // static constexpr sctl::Integer r_order = 12;
-    static constexpr sctl::Integer s_order = 10;
-    static constexpr sctl::Integer t_order = 30;
-    static constexpr sctl::Integer r_order = 12;
-  public:
-
-    VolumeVis() = default;
-
-    /**
-     * @brief Construct a new VolumeVis object.
-     *
-     * @param elem_lst the geometry.
-     * @param comm MPI communicator.
-     * @param shortened whether to restrict to inner target points.
-     */
-    VolumeVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm = sctl::Comm::Self());
-
-    /**
-     * @brief Get the coordinates of the discretization points.
-     *
-     * @return const Vector<Real>& Vector containing the coordinates.
-     */
-    const sctl::Vector<Real>& GetCoord() const;
-
-    /**
-     * @brief Write the volume to a VTK file.
-     *
-     * @param fname File name.
-     * @param F Data associated with the discretization points.
-     */
-    void WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const;
-
-    /**
-     * @brief Get VTU data.
-     *
-     * @param vtu_data VTU data object.
-     * @param F Data associated with the discretization points.
-     */
-    void GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const;
-
-  private:
-
-    sctl::Comm comm_;
-    sctl::Long Nelem;
-    sctl::Vector<Real> coord;
-};
-
-template <class Real> class XsectionVis {
-    static constexpr sctl::Integer COORD_DIM = 3;
-    static constexpr sctl::Integer s_order = 4;
-    static constexpr sctl::Integer t_order = 16;
-    static constexpr sctl::Integer r_order = 5; 
-
-  public:
-    XsectionVis() = default;
-    XsectionVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm = sctl::Comm::Self());
-    const sctl::Vector<Real>& GetCoord() const;
-    void SetCoord(const sctl::Vector<Real> new_coord);
-    void WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const;
-    void GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const;
-  
-  private:
-
-    sctl::Comm comm_;
-    sctl::Long Nelem;
-    sctl::Vector<Real> coord;
-};
-
-/**
- * @brief Represents a uniformly discretized cube volume, shifted to have corner at origin.
- *
- * @tparam Real Data type for real numbers.
- */
-template <class Real> class CubeVolumeVisShifted {
-    static constexpr sctl::Integer COORD_DIM = 3;
-  public:
-
-    CubeVolumeVisShifted() = default;
-
-    /**
-     * @brief Construct a new CubeVolumeVis object.
-     *
-     * @param N_ Number of discretization points along one edge of the cube.
-     * @param L Length of one edge of the cube.
-     * @param comm MPI communicator.
-     */
-    CubeVolumeVisShifted(const sctl::Long N_, Real L, const sctl::Comm& comm = sctl::Comm::Self());
-
-    /**
-     * @brief Get the coordinates of the discretization points.
-     *
-     * @return const Vector<Real>& Vector containing the coordinates.
-     */
-    const sctl::Vector<Real>& GetCoord() const;
-
-    /**
-     * @brief Write the cube volume to a VTK file.
-     *
-     * @param fname File name.
-     * @param F Data associated with the discretization points.
-     */
-    void WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const;
-
-    /**
-     * @brief Get VTU data.
-     *
-     * @param vtu_data VTU data object.
-     * @param F Data associated with the discretization points.
-     */
-    void GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const;
-
-  private:
-
-    sctl::Long N, N0;
-    sctl::Comm comm;
-    sctl::Vector<Real> coord;
-};
-
-/**
- * PVFMM cannot handle combined field kernel. Compute SL and DL separately and add them.
- */
-template <class Real> class StokesBIO {
-  public:
-
-    StokesBIO() = delete;
-    StokesBIO(const StokesBIO&) = delete;
-    StokesBIO& operator= (const StokesBIO&) = delete;
-
-    StokesBIO(const Real SL_scal, const Real DL_scal, const sctl::Comm comm);
-
-    /**
-     * Set periodicity.
-     *
-     * @param[in] periodicity periodicity type (NONE, X, XY, XYZ).
-     *
-     * @param[in] period_length length of the periodic box in each dimension.
-     * Must be positive if periodicity is not NONE.
-     *
-     * @remark Periodicity only supported in 3D and with PVFMM.
-     */
-    void SetPeriodicity(sctl::Periodicity periodicity, Real period_length = 0);
-
-    /**
-     * Specify quadrature accuracy tolerance.
-     *
-     * @param[in] tol quadrature accuracy.
-     */
-    void SetAccuracy(Real tol);
-
-    /**
-     * Add an element-list.
-     *
-     * @param[in] elem_lst an object (of type ElemLstType, derived from the
-     * base class ElementListBase) that contains the description of a list of
-     * elements.
-     *
-     * @param[in] name a string name for this element list.
-     * 
-     * @param[in] sl, dl booleans for whether the element list object will be added to the SL and/or DL operator.
-     */
-    template <class ElemLstType> void AddElemList(const ElemLstType& elem_lst, const std::string& name = std::to_string(typeid(ElemLstType).hash_code()), const bool sl = true, const bool dl = true);
-
-    /**
-     * Get const reference to an element-list.
-     *
-     * @param[in] name name of the element-list to return.
-     *
-     * @return const reference to the element-list.
-     */
-    template <class ElemLstType> const ElemLstType& GetElemList(const std::string& name = std::to_string(typeid(ElemLstType).hash_code())) const;
-
-    /**
-     * Delete an element-list.
-     *
-     * @param[in] name name of the element-list to return.
-     */
-    void DeleteElemList(const std::string& name);
-
-    /**
-     * Delete an element-list.
-     */
-    template <class ElemLstType> void DeleteElemList();
-
-    /**
-     * Set target point coordinates.
-     *
-     * @param[in] Xtrg the coordinates of target points in array-of-struct
-     * order: {x_1, y_1, z_1, x_2, ..., x_n, y_n, z_n}
-     */
-    void SetTargetCoord(const sctl::Vector<Real>& Xtrg);
-
-    /**
-     * Set target point normals.
-     *
-     * @param[in] Xn_trg the coordinates of target points in array-of-struct
-     * order: {nx_1, ny_1, nz_1, nx_2, ..., nx_n, ny_n, nz_n}
-     */
-    void SetTargetNormal(const sctl::Vector<Real>& Xn_trg);
-
-    /**
-     * Get local dimension of the boundary integral operator. Dim(0) is the
-     * input dimension and Dim(1) is the output dimension.
-     */
-    sctl::Long Dim(sctl::Integer k) const;
-
-    /**
-     * Setup the boundary integral operator.
-     */
-    void Setup() const;
-
-    /**
-     * Clear setup data.
-     */
-    void ClearSetup() const;
-
-    /**
-     * Evaluate the boundary integral operator.
-     *
-     * @param[out] U the potential computed at each target point in
-     * array-of-struct order.
-     *
-     * @param[in] F the charge density at each surface discretization node in
-     * array-of-struct order.
-     */
-    void ComputePotential(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const;
-
-    /**
-     * Evaluate only the single-layer potential.
-     *
-     * @param[out] U the potential computed at each target point in
-     * array-of-struct order.
-     *
-     * @param[in] F the charge density at each surface discretization node in
-     * array-of-struct order.
-     */
-    void ComputeSL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const;
-
-    /**
-     * Evaluate only the double-layer potential.
-     *
-     * @param[out] U the potential computed at each target point in
-     * array-of-struct order.
-     *
-     * @param[in] F the charge density at each surface discretization node in
-     * array-of-struct order.
-     */
-    void ComputeDL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const;
-
-
-    /**
-     * Scale input vector by sqrt of the area of the element.
-     * TODO: replace by sqrt of surface quadrature weights (not sure if it makes a difference though)
-     */
-    void SqrtScaling(sctl::Vector<Real>& U) const;
-
-    /**
-     * Scale input vector by inv-sqrt of the area of the element.
-     * TODO: replace by inv-sqrt of surface quadrature weights (not sure if it makes a difference though)
-     */
-    void InvSqrtScaling(sctl::Vector<Real>& U) const;
-
-
-  private:
-
-    // In 3-periodic, this allows adding a uniform volume potential to balance the total force density on the surface.
-    static void stokes_sl_volpot(sctl::Matrix<Real>& U, const sctl::Vector<Real>& X);
-
-    const sctl::Stokes3D_FxU ker_FxU;
-    const sctl::Stokes3D_DxU ker_DxU;
-    const sctl::Stokes3D_FxUP ker_FxUP;
-    const sctl::Stokes3D_FSxU ker_FSxU;
-
-    const sctl::Comm comm_;
-    const Real SL_scal_, DL_scal_;
-    sctl::BoundaryIntegralOp<Real, sctl::Stokes3D_FxU> LayerPotenSL;
-    sctl::BoundaryIntegralOp<Real, sctl::Stokes3D_DxU> LayerPotenDL;
-};
 
 /**
  * Geometry set up for different test channels with or without particles inside.
@@ -333,7 +44,8 @@ template <class Real> class PeriodicGeom {
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build_conv_div_sph(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real r1, const Real r2, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const sctl::Long ptcl_ord);
 
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trefoil(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const sctl::Long ptcl_ord, const int geom_mode);
-    
+    std::tuple<bool, Real, Real, Real> in_trefoil(Real a, Real b, Real c);
+
     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> many_ptcls1(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode);
 
     // 3 spheres in unit cube
@@ -442,17 +154,13 @@ template <class Real> class PeriodicGeom {
 
     void sphere_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real loop_rad);
     void spheroid_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real loop_rad);
-    void bacteria_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real loop_rad);
     void loop_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real major_r, const Real minor_r); // major_r gives size of overall ring, minor_r gives radius of cross section
 
     bool outside_sphere(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real pr);
     bool outside_spheroid(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real a, const Real u0, const int if_prolate);
-    bool outside_bacteria(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real pr);
     bool outside_loop(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real major_r, const Real minor_r);
     bool outside_spheroid_rotated(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real a, const Real u0, const int if_prolate, const Real ptheta, const Real pphi);
-    bool outside_bacteria_rotated(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real pr, const Real ptheta, const Real pphi);
     bool outside_loop_rotated(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real major_r, const Real minor_r, const Real ptheta, const Real pphi);
-    // void GetDistribution(sctl::Long& elem_cnt_, sctl::Long& elem_dsp_, sctl::Vector<sctl::Long> node_dsp_);
 
     sctl::Vector<Real> exact_field_fmm(const sctl::Vector<Real>& Xtrg, const sctl::Vector<Real>& Xsrc, const sctl::Vector<Real>& sigma, const sctl::Long Ncopy, const sctl::Integer peri_mode);
 
@@ -465,7 +173,6 @@ template <class Real> class PeriodicGeom {
 
   };
 
+#include <utils_geom.cpp>
 
-#include <utils.cpp>
-
-#endif // _PERIODIZE_UTILS_HPP_
+#endif 
