@@ -1,5 +1,5 @@
 #include "periodize.hpp"
-#include "utils.hpp"
+#include "utils_geom.hpp"
 #include "bio_operator.hpp"
 // Test script for calculation and timing of particle-only 1 and 3 periodic problems with background pressure flow. 
 

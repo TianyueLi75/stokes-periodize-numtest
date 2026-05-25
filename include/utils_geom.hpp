@@ -4,6 +4,8 @@
 #include <csbq.hpp>
 #include <tuple>
 #include "sctl/fmm-wrapper.hpp"  // for ParticleFMM
+#include "utils_geom_helpers.hpp"
+#include "utils_geom_profiles.hpp"
 
 /**
  * Geometry set up for different test channels with or without particles inside.
@@ -90,7 +92,11 @@ template <class Real> class PeriodicGeom {
     sctl::Vector<Real> form_targets(const sctl::Long r_ord, const sctl::Long azi_ord, const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm);
 
     /**
-     * Given a list of target X, and particle location information, filter out targets inside particles. 
+     * Shared public geometry predicates for filtering targets inside particles.
+     * The implementation in utils_geom.cpp routes the rotated and non-rotated
+     * paths through the same internal helper logic so the public API stays thin.
+     *
+     * Given a list of target X, and particle location information, filter out targets inside particles.
      * Returns a vector of exterior targets, and a list of booleans indicating whether original target was inside a particle.
      *
      * @param[in] X vector containing original target points.

@@ -1,5 +1,5 @@
 #include "periodize.hpp"
-#include "utils.hpp"
+#include "utils_geom.hpp"
 #include "bio_operator.hpp"
 
 template <class Real> sctl::Vector<Real> GetVslip_spheres(const sctl::Vector<Real>& ptcls_Xnsurf, const sctl::Vector<Real>& ptcls_Xcs, const sctl::Vector<Real>& ptcls_thetas, const sctl::Vector<Real>& ptcls_phis, const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder) {
