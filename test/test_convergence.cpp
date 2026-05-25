@@ -1,227 +1,14 @@
-// export OMP_NUM_THREADS=16; time make DEBUG=0 -B bin/test1 && time mpirun -n 1 --map-by slot:pe=$OMP_NUM_THREADS ./bin/test1
-
-#include "periodize.hpp"
-#include "utils.hpp"
 #include "planeNaive.hpp"
+#include "utils_vis.hpp"
+#include "stokes_bio.hpp"
+#include "bio_operator.hpp"
+#include "utils_geom.hpp"
+#include "utils_tests.cpp"
 
 /**
  * Background flow with unit pressure gradient along X-axis.
  */
-template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
-    const sctl::Long N = X.Dim()/3;
-    sctl::Vector<Real> U(N*3);
-    for (sctl::Long i = 0; i < N; i++) {
-        const auto x = X.begin() + i*3;
-        U[i*3+0] = - ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
-        U[i*3+1] = 0;
-        U[i*3+2] = 0;
-    }
-    return U;
-}
 
-template <class Real> void SurfaceIntegral(sctl::Vector<Real>& I, const sctl::Vector<Real>& vals, const sctl::Vector<Real>& wts) {
-  const sctl::Long dof = vals.Dim() / wts.Dim();
-  SCTL_ASSERT(vals.Dim() == wts.Dim() * dof);
-  if (I.Dim() != dof) I.ReInit(dof);
-  I = 0;
-  for (sctl::Long i = 0; i < wts.Dim(); i++) {
-    for (sctl::Long j = 0; j < dof; j++) {
-      I[j] += vals[i*dof + j] * wts[i];
-    }
-  }
-}
-
-template <class Real> void AddConstVec(sctl::Vector<Real>& vals, const sctl::Vector<Real>& c0) {
-  const sctl::Long dof = c0.Dim();
-  const sctl::Long N = vals.Dim() / dof;
-  SCTL_ASSERT(vals.Dim() == N * dof);
-  for (sctl::Long i = 0; i < N; i++) {
-    for (sctl::Long j = 0; j < dof; j++) {
-      vals[i*dof + j] += c0[j];
-    }
-  }
-}
-
-template <class Real> sctl::Long precond_ptcl(sctl::Matrix<Real>& PrecondMat0, sctl::Matrix<Real>& PrecondMat1, const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real SL_scal, const Real DL_scal, sctl::Comm comm) {
-    // Store preconditioner matrix, or make new if not present.
-    std::string precond0_file = "data/precond0_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
-    std::string precond1_file = "data/precond1_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
-    PrecondMat0.template Read<Real>(precond0_file.c_str());
-
-    const Real tol = 1e-15; // this may be different from the tol with which some of the earlier files were made.
-
-    sctl::Long A11size;
-
-    comm.Barrier();
-    if (PrecondMat0.Dim(0) || PrecondMat0.Dim(1)) {
-        std::cout << " successfully read file " << precond0_file << std::endl;
-        PrecondMat1.template Read<Real>(precond1_file.c_str());
-        A11size = PrecondMat0.Dim(1);
-    } else {
-        std::cout << " Making precond files " << std::endl;
-        PeriodicGeom<Real> obj;
-        sctl::Vector<sctl::Long> ptcls_pre;
-        sctl::Vector<Real> ptcls_Xcs_pre, ptcls_rs_pre;
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, 0);
-        sctl::SlenderElemList<Real> elem_lst_precond = std::get<0>(build_precond);
-        sctl::Vector<Real> X0_precond; // target coordinates
-        elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
-        StokesBIO Precond_bio(SL_scal, DL_scal, comm.Self());
-        Precond_bio.SetAccuracy(tol); // set quadrature accuracy
-        Precond_bio.AddElemList(elem_lst_precond);
-        Precond_bio.SetTargetCoord(X0_precond);
-        const auto BIO_1ptcl = [&DL_scal,&Precond_bio](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-            U->SetZero();
-            Precond_bio.ComputePotential(*U, sigma);
-            (*U) += sigma * 0.5 * DL_scal;
-        };
-        A11size = 3*ElemOrder*FourierOrder*Nelem;
-        sctl::Vector<sctl::Vector<Real>> PrecondMat(A11size);
-        sctl::Vector<Real> SigmaCol_precond(A11size);
-        for (sctl::Long col=0; col < A11size; col ++) {
-            SigmaCol_precond = 0.;
-            SigmaCol_precond[col] = 1.;
-            BIO_1ptcl(PrecondMat.begin() + col,SigmaCol_precond);
-        }
-        sctl::Matrix<Real> A11(A11size,A11size);
-        for (long col=0; col < A11size; col++) {
-            for (long row = 0; row < A11size; row++) {
-                A11(row,col) = PrecondMat[col][row];
-            }
-        }      
-        sctl::Matrix<Real> Usvd, VT, S, SforInv;
-        sctl::Matrix<Real> A11forSVD = sctl::Matrix<Real>(A11);
-        A11forSVD.SVD(Usvd, S, VT);
-        SforInv = sctl::Matrix<Real>(S);
-        sctl::Matrix<Real> Sinv = SforInv.pinv(tol);
-
-        PrecondMat0 = VT.Transpose();
-        PrecondMat1 = Sinv * Usvd.Transpose();
-        if (!comm.Rank()) {
-            PrecondMat0.template Write<Real>(precond0_file.c_str());
-            PrecondMat1.template Write<Real>(precond1_file.c_str());
-        }
-    }
-
-    return A11size;
-}
-
-/*
-    Channel_radius for different geometries implemented in utils.cpp:
-        straight: (param) 0.2
-        sinusoidal: (param) 0.1
-        conv div: (param, avg) 0.15
-        spiral: (param) 0.05
-        trefoil: (fixed) 0.035 
-*/
-// Note: physical length of cylinder precond panel is based on the number of elements on the whole channel, but the discretization only has one panel on the precond cylinder.
-template <class Real> sctl::Long precond_channel(sctl::Matrix<Real>& PrecondMat0, sctl::Matrix<Real>& PrecondMat1, const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real channel_radius, const Real SL_scal, const Real DL_scal, sctl::Comm comm) {
-    // Store preconditioner matrix, or make new if not present.
-    std::string precond0_file = "data/precond0_cyln_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
-    std::string precond1_file = "data/precond1_cyln_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
-    PrecondMat0.template Read<Real>(precond0_file.c_str());
-
-    const Real tol = 1e-15; // this may be different from the tol with which some of the earlier files were made.
-
-    sctl::Long A11size;
-
-    comm.Barrier();
-    if (PrecondMat0.Dim(0) || PrecondMat0.Dim(1)) {
-        std::cout << " successfully read file " << precond0_file << std::endl;
-        PrecondMat1.template Read<Real>(precond1_file.c_str());
-        A11size = PrecondMat0.Dim(1);
-    } else {
-        std::cout << " Making precond files " << std::endl;
-        sctl::Vector<Real> Xc_precond, eps_precond; 
-        sctl::Vector<sctl::Long> ElemOrderVec_precond(1), FourierOrderVec_precond(1);
-        ElemOrderVec_precond[0] = ElemOrder;
-        FourierOrderVec_precond[0] = FourierOrder;
-        const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrder);
-        for (sctl::Long j = 0; j < ElemOrder; j++) { // loop over panel nodes
-            const Real x = (nodes[j]) / Nelem; // size of precond panel should be same as one panel on pipe
-            Xc_precond.PushBack(x+0.5); //  shift panel to center of unit box, arbitrary.
-            Xc_precond.PushBack(0.5); 
-            Xc_precond.PushBack(0.5); 
-            eps_precond.PushBack(channel_radius); 
-        }
-        sctl::SlenderElemList<Real> elem_lst_precond(ElemOrderVec_precond, FourierOrderVec_precond, Xc_precond, eps_precond);
-        sctl::Vector<Real> X0_precond; // target coordinates
-        elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
-        StokesBIO Precond_bio(SL_scal, DL_scal, comm.Self());
-        Precond_bio.SetAccuracy(tol); // set quadrature accuracy
-        Precond_bio.AddElemList(elem_lst_precond);
-        Precond_bio.SetTargetCoord(X0_precond);
-        const auto BIO_1ptcl = [&DL_scal,&Precond_bio](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-            U->SetZero();
-            Precond_bio.ComputePotential(*U, sigma);
-            (*U) += sigma * 0.5 * DL_scal;
-        };
-        A11size = 3*ElemOrder*FourierOrder;
-        sctl::Vector<sctl::Vector<Real>> PrecondMat(A11size);
-        sctl::Vector<Real> SigmaCol_precond(A11size);
-        for (sctl::Long col=0; col < A11size; col ++) {
-            SigmaCol_precond = 0.;
-            SigmaCol_precond[col] = 1.;
-            BIO_1ptcl(PrecondMat.begin() + col,SigmaCol_precond);
-        }
-        sctl::Matrix<Real> A11(A11size,A11size);
-        for (long col=0; col < A11size; col++) {
-            for (long row = 0; row < A11size; row++) {
-                A11(row,col) = PrecondMat[col][row];
-            }
-        }      
-        sctl::Matrix<Real> Usvd, VT, S, SforInv;
-        sctl::Matrix<Real> A11forSVD = sctl::Matrix<Real>(A11);
-        A11forSVD.SVD(Usvd, S, VT);
-        SforInv = sctl::Matrix<Real>(S);
-        sctl::Matrix<Real> Sinv = SforInv.pinv(tol);
-
-        PrecondMat0 = VT.Transpose();
-        PrecondMat1 = Sinv * Usvd.Transpose();
-        if (!comm.Rank()) {
-            PrecondMat0.template Write<Real>(precond0_file.c_str());
-            PrecondMat1.template Write<Real>(precond1_file.c_str());
-        }
-    }
-
-    return A11size;
-}
-
-/**
- Differences between solutions possibly a constant, so remove mean from error before taking max relative errors.
-*/
-template <class Real> void renormalize_error(sctl::Vector<Real>& err, sctl::Comm comm) {
-    sctl::Long Nnodes = err.Dim()/3;
-    // Subtract mean to remove constant difference
-    sctl::Vector<Real> sum_err(3);
-    sum_err = 0.;
-    for (sctl::Long i=0; i<Nnodes; i++) {
-        for (sctl::Long k=0; k<3; k++) {
-            sum_err[k] += err[i*3+k];
-        }
-    }
-    //MPI
-    sctl::Vector<Real> sum_err_loc = sum_err;
-    sctl::Vector<Real> sum_err_all(3);
-    sum_err_all = 0;
-    comm.Allreduce((sctl::Iterator<Real>) sum_err_loc.begin(), (sctl::Iterator<Real>) sum_err_all.begin(), 1, sctl::CommOp::SUM);
-    comm.Allreduce((sctl::Iterator<Real>) sum_err_loc.begin()+1, (sctl::Iterator<Real>) sum_err_all.begin()+1, 1, sctl::CommOp::SUM);
-    comm.Allreduce((sctl::Iterator<Real>) sum_err_loc.begin()+2, (sctl::Iterator<Real>) sum_err_all.begin()+2, 1, sctl::CommOp::SUM);
-    sum_err = sum_err_all;
-
-    sctl::Vector<sctl::Long> Nnodes_loc(1);
-    Nnodes_loc[0] = Nnodes;
-    sctl::Vector<sctl::Long> Nnodes_all(1); 
-    Nnodes_all[0] = 0;
-    comm.Allreduce((sctl::Iterator<Real>) Nnodes_loc.begin(), (sctl::Iterator<Real>) Nnodes_all.begin(), 1, sctl::CommOp::SUM);
-    // avg err
-    sctl::Vector<Real> avg_err = sum_err / Nnodes_all[0];
-    AddConstVec(err,-avg_err); // relative error with offset: max ((Ucalc - C) - Uexact) / Uexact, since C = Ucalc_exact - Uexact ~ E[Ucalc - Uexact]
-    // std::cout << "avg err: " << avg_err[0] << ", " << avg_err[1] << ", " << avg_err[2] << std::endl;
-    // for (int i=0; i<err.Dim()/3; i++) {
-    //     std::cout << "err after subtracting avg err: " << std::setprecision(10) << err[i*3+0] << ", " << err[i*3+1] << ", " << err[i*3+2] << ". " << std::endl;
-    // }
-}
 
 // Trefoil knot channel without particles
 template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Comm comm, const Real tol, const Real gmres_tol) {
@@ -327,6 +114,18 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
         if (DL_scal && U->Dim() == sigma0.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
 
         AddConstVec(*U, sigma_mean);
+    };
+
+    const auto bg_flow = [](const sctl::Vector<Real>& X) {
+        const sctl::Long N = X.Dim()/3;
+        sctl::Vector<Real> U(N*3);
+        for (sctl::Long i = 0; i < N; i++) {
+            const auto x = X.begin() + i*3;
+            U[i*3+0] = - ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
+            U[i*3+1] = 0;
+            U[i*3+2] = 0;
+        }
+        return U;
     };
 
     // // Apply A11inv to each panel of a vector.
@@ -848,6 +647,18 @@ template <class Real> void convdiv_self_conv(sctl::Long Nelem, sctl::Long Fourie
         AddConstVec(*U, sigma_mean);
     };
 
+    const auto bg_flow = [](const sctl::Vector<Real>& X) {
+        const sctl::Long N = X.Dim()/3;
+        sctl::Vector<Real> U(N*3);
+        for (sctl::Long i = 0; i < N; i++) {
+            const auto x = X.begin() + i*3;
+            U[i*3+0] = - ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
+            U[i*3+1] = 0;
+            U[i*3+2] = 0;
+        }
+        return U;
+    };
+
     // // Apply A11inv to each panel of a vector.
     // // Look at global panel index and determine whether belongs to a particle or the channel. ASSUMES no particles are split up among processors.
     // const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size,&PrecondMat0_ptcl,&PrecondMat1_ptcl,&A11size_ptcl,&Nelem,&loc_elem_cnt,&loc_elem_dsp,&Nptcl](const sctl::Vector<Real>& vec) {
@@ -1148,6 +959,18 @@ template <class Real> void trefoil_ptcl_self_conv(sctl::Long Nelem, sctl::Long F
         if (DL_scal && U->Dim() == sigma0.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
 
         AddConstVec(*U, sigma_mean);
+    };
+
+    const auto bg_flow = [](const sctl::Vector<Real>& X) {
+        const sctl::Long N = X.Dim()/3;
+        sctl::Vector<Real> U(N*3);
+        for (sctl::Long i = 0; i < N; i++) {
+            const auto x = X.begin() + i*3;
+            U[i*3+0] = - ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
+            U[i*3+1] = 0;
+            U[i*3+2] = 0;
+        }
+        return U;
     };
 
     // // Apply A11inv to each panel of a vector.

@@ -1,331 +1,3 @@
-template <class Real> VolumeVis<Real>::VolumeVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm) : comm_(comm) {
-  Nelem = elem_lst.Size();
-  sctl::Vector<Real> s_param, sin_theta, cos_theta;
-  for (sctl::Long i = 0; i < s_order; i++) {
-    const Real t = i/(Real)(s_order-1);
-    s_param.PushBack(t);
-  }
-  for (sctl::Long i = 0; i < t_order; i++) {
-    const Real t = i/(Real)t_order;
-    sin_theta.PushBack(sctl::sin<Real>(2*sctl::const_pi<Real>()*t));
-    cos_theta.PushBack(sctl::cos<Real>(2*sctl::const_pi<Real>()*t));
-  }
-  for (sctl::Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
-    const Real t_order_inv = 1/(Real)t_order;
-    const Real r_order_inv = (1-1e-3)/(Real)(r_order-1);
-    sctl::Vector<Real> X_, Xc(COORD_DIM);
-    elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
-    for (sctl::Long i = 0; i < s_order; i++) {
-      Xc = 0;
-      for (sctl::Long j = 0; j < t_order; j++) {
-        for (sctl::Long l = 0; l < COORD_DIM; l++) {
-          Xc[l] += X_[(i*t_order+j)*COORD_DIM+l] * t_order_inv;
-        }
-      }
-      for (sctl::Long j = 0; j < t_order; j++) {
-        for (sctl::Long k = 0; k < r_order; k++) {
-          for (sctl::Long l = 0; l < COORD_DIM; l++) {
-            coord.PushBack((X_[(i*t_order+j)*COORD_DIM+l]-Xc[l])*k*r_order_inv + Xc[l]);
-          }
-        }
-      }
-    }
-  }
-}
-
-template <class Real> const sctl::Vector<Real>& VolumeVis<Real>::GetCoord() const {
-  return coord;
-}
-
-template <class Real> void VolumeVis<Real>::WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const {
-  sctl::VTUData vtu_data;
-  GetVTUData(vtu_data, F);
-  vtu_data.WriteVTK(fname, comm_);
-}
-
-template <class Real> void VolumeVis<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
-  for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
-  for (const auto& x :     F) vtu_data.value.PushBack((float)x);
-  for (sctl::Long l = 0; l < Nelem; l++) {
-    const sctl::Long offset = l * s_order*t_order*r_order;
-    for (sctl::Long i = 0; i < s_order-1; i++) {
-      for (sctl::Long j = 0; j < t_order; j++) {
-        for (sctl::Long k = 0; k < r_order-1; k++) {
-          auto idx = [this,&offset](sctl::Long i, sctl::Long j, sctl::Long k) {
-            return offset+(i*t_order+(j%t_order))*r_order+k;
-          };
-          vtu_data.connect.PushBack(idx(i+0,j+0,k+0));
-          vtu_data.connect.PushBack(idx(i+0,j+0,k+1));
-          vtu_data.connect.PushBack(idx(i+0,j+1,k+1));
-          vtu_data.connect.PushBack(idx(i+0,j+1,k+0));
-          vtu_data.connect.PushBack(idx(i+1,j+0,k+0));
-          vtu_data.connect.PushBack(idx(i+1,j+0,k+1));
-          vtu_data.connect.PushBack(idx(i+1,j+1,k+1));
-          vtu_data.connect.PushBack(idx(i+1,j+1,k+0));
-          vtu_data.offset.PushBack(vtu_data.connect.Dim());;
-          vtu_data.types.PushBack(12);
-        }
-      }
-    }
-  }
-}
-
-template <class Real> CubeVolumeVisShifted<Real>::CubeVolumeVisShifted(const sctl::Long N_, Real L, const sctl::Comm& comm_) : N(N_), comm(comm_) {
-  const sctl::Long pid = comm.Rank();
-  const sctl::Long Np = comm.Size();
-
-  const sctl::Long NN = sctl::pow<COORD_DIM-1,sctl::Long>(N);
-  const sctl::Long a = (N-1)*(pid+0)/Np;
-  const sctl::Long b = (N-1)*(pid+1)/Np;
-  N0 = b-a+1;
-  if (N0<2) return;
-
-  coord.ReInit(N0 * NN * COORD_DIM);
-  for (sctl::Long i = 0; i < N0; i++) {
-    for (sctl::Long j = 0; j < NN; j++) {
-      for (sctl::Long k = 0; k < COORD_DIM; k++) {
-        sctl::Long idx = ((i+a)*NN+j);
-        // coord[(i*NN+j)*COORD_DIM+k] = (((idx/sctl::pow<sctl::Long>(N,k)) % N)/(Real)(N-1)*2 - 1) * L;
-        coord[(i*NN+j)*COORD_DIM+k] = (((idx/sctl::pow<sctl::Long>(N,k)) % N)/(Real)(N-1) -0.5) * L + 0.5; // TODO: just for analytical solution test, assuming center at (0.5,0.5,0.5).
-      }
-    }
-  }
-}
-
-template <class Real> const sctl::Vector<Real>& CubeVolumeVisShifted<Real>::GetCoord() const {
-  return coord;
-}
-
-template <class Real> void CubeVolumeVisShifted<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
-  for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
-  for (const auto& x :     F) vtu_data.value.PushBack((float)x);
-  for (sctl::Long i = 0; i < N0-1; i++) {
-    for (sctl::Long j = 0; j < N-1; j++) {
-      for (sctl::Long k = 0; k < N-1; k++) {
-        auto idx = [this](sctl::Long i, sctl::Long j, sctl::Long k) {
-          return (i*N+j)*N+k;
-        };
-        vtu_data.connect.PushBack(idx(i+0,j+0,k+0));
-        vtu_data.connect.PushBack(idx(i+0,j+0,k+1));
-        vtu_data.connect.PushBack(idx(i+0,j+1,k+1));
-        vtu_data.connect.PushBack(idx(i+0,j+1,k+0));
-        vtu_data.connect.PushBack(idx(i+1,j+0,k+0));
-        vtu_data.connect.PushBack(idx(i+1,j+0,k+1));
-        vtu_data.connect.PushBack(idx(i+1,j+1,k+1));
-        vtu_data.connect.PushBack(idx(i+1,j+1,k+0));
-        vtu_data.offset.PushBack(vtu_data.connect.Dim());;
-        vtu_data.types.PushBack(12);
-      }
-    }
-  }
-}
-template <class Real> void CubeVolumeVisShifted<Real>::WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const {
-  sctl::VTUData vtu_data;
-  GetVTUData(vtu_data, F);
-  vtu_data.WriteVTK(fname, comm);
-}
-
-template <class Real> XsectionVis<Real>::XsectionVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm) : comm_(comm) {
-  Nelem = elem_lst.Size();
-  sctl::Vector<Real> s_param, sin_theta, cos_theta;
-  for (sctl::Long i = 0; i < s_order; i++) {
-    const Real t = i/(Real)(s_order-1);
-    s_param.PushBack(t);
-  }
-  for (sctl::Long i = 0; i < t_order; i++) {
-    const Real t = i/(Real)t_order;
-    sin_theta.PushBack(sctl::sin<Real>(2*sctl::const_pi<Real>()*t));
-    cos_theta.PushBack(sctl::cos<Real>(2*sctl::const_pi<Real>()*t));
-  }
-  for (sctl::Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
-    const Real t_order_inv = 1/(Real)t_order;
-    const Real r_order_inv = (1-1e-2)/(Real)(r_order-1); // make points further from surface to avoid stagnate points for mixing visualization.
-    sctl::Vector<Real> X_, Xc(COORD_DIM);
-    elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
-    for (sctl::Long i = 0; i < s_order; i++) {
-      Xc = 0;
-      for (sctl::Long j = 0; j < t_order; j++) {
-        for (sctl::Long l = 0; l < COORD_DIM; l++) {
-          Xc[l] += X_[(i*t_order+j)*COORD_DIM+l] * t_order_inv;
-        }
-      }
-      for (sctl::Long j = 0; j < t_order; j++) {
-        for (sctl::Long k = 0; k < r_order; k++) {
-          for (sctl::Long l = 0; l < COORD_DIM; l++) {
-            coord.PushBack((X_[(i*t_order+j)*COORD_DIM+l]-Xc[l])*k*r_order_inv + Xc[l]);
-          }
-        }
-      }
-    }
-  }
-}
-
-template <class Real> const sctl::Vector<Real>& XsectionVis<Real>::GetCoord() const {
-  return coord;
-}
-
-template <class Real> void XsectionVis<Real>::SetCoord(const sctl::Vector<Real> new_coord) {
-  coord = new_coord;
-}
-
-template <class Real> void XsectionVis<Real>::WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const {
-  sctl::VTUData vtu_data;
-  GetVTUData(vtu_data, F);
-  vtu_data.WriteVTK(fname, comm_);
-}
-
-template <class Real> void XsectionVis<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
-  for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
-  for (const auto& x :     F) vtu_data.value.PushBack((float)x);
-  for (sctl::Long l = 0; l < Nelem; l++) {
-    const sctl::Long offset = l * s_order*t_order*r_order;
-    for (sctl::Long i = 0; i < s_order-1; i++) {
-      for (sctl::Long j = 0; j < t_order; j++) {
-        for (sctl::Long k = 0; k < r_order-1; k++) {
-          auto idx = [this,&offset](sctl::Long i, sctl::Long j, sctl::Long k) {
-            return offset+(i*t_order+(j%t_order))*r_order+k;
-          };
-          vtu_data.connect.PushBack(idx(i+0,j+0,k+0));
-          vtu_data.connect.PushBack(idx(i+0,j+0,k+1));
-          vtu_data.connect.PushBack(idx(i+0,j+1,k+1));
-          vtu_data.connect.PushBack(idx(i+0,j+1,k+0));
-          vtu_data.connect.PushBack(idx(i+1,j+0,k+0));
-          vtu_data.connect.PushBack(idx(i+1,j+0,k+1));
-          vtu_data.connect.PushBack(idx(i+1,j+1,k+1));
-          vtu_data.connect.PushBack(idx(i+1,j+1,k+0));
-          vtu_data.offset.PushBack(vtu_data.connect.Dim());;
-          vtu_data.types.PushBack(12);
-        }
-      }
-    }
-  }
-}
-
-template <class Real> void StokesBIO<Real>::stokes_sl_volpot(sctl::Matrix<Real>& U, const sctl::Vector<Real>& X) {
-  const sctl::Long N = X.Dim() / 3;
-  SCTL_ASSERT(X.Dim() == N * 3);
-  if (U.Dim(0)!=3 || U.Dim(1)!=N*3) U.ReInit(3, N*3);
-  for (sctl::Long i = 0; i < N; i++) {
-    const auto x = X.begin() + i*3;
-    const Real rx_2 = x[1]*x[1] + x[2]*x[2];
-    const Real ry_2 = x[0]*x[0] + x[2]*x[2];
-    const Real rz_2 = x[0]*x[0] + x[1]*x[1];
-    U[0][i*3+0] = -rx_2/4; U[0][i*3+1] =       0; U[0][i*3+2] =       0;
-    U[1][i*3+0] =       0; U[1][i*3+1] = -ry_2/4; U[1][i*3+2] =       0;
-    U[2][i*3+0] =       0; U[2][i*3+1] =       0; U[2][i*3+2] = -rz_2/4;
-  }
-}
-
-template <class Real> StokesBIO<Real>::StokesBIO(const Real SL_scal, const Real DL_scal, const sctl::Comm comm)
-  : comm_(comm), SL_scal_(SL_scal), DL_scal_(DL_scal), LayerPotenSL(ker_FxU, false, comm), LayerPotenDL(ker_DxU, false, comm) {
-  LayerPotenSL.SetAccuracy(1e-14);
-  LayerPotenDL.SetAccuracy(1e-14);
-  LayerPotenSL.SetFMMKer(ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, stokes_sl_volpot);
-  LayerPotenDL.SetFMMKer(ker_DxU, ker_DxU, ker_DxU, ker_FSxU, ker_FSxU, ker_FSxU, ker_FxU, ker_FxU);
-};
-
-template <class Real> void StokesBIO<Real>::SetPeriodicity(sctl::Periodicity periodicity, Real period_length) {
-  LayerPotenSL.SetPeriodicity(periodicity, period_length);
-  LayerPotenDL.SetPeriodicity(periodicity, period_length);
-}
-
-template <class Real> void StokesBIO<Real>::SetAccuracy(Real tol) {
-  LayerPotenSL.SetAccuracy(tol);
-  LayerPotenDL.SetAccuracy(tol);
-}
-
-template <class Real> template <class ElemLstType> void StokesBIO<Real>::AddElemList(const ElemLstType& elem_lst, const std::string& name, bool sl, bool dl) {
-  // std::cout << "Adding element list with size: " << elem_lst.Size() << std::endl;
-    
-  if (sl) {
-    LayerPotenSL.AddElemList(elem_lst, name);
-  }
-  if (dl) {
-    LayerPotenDL.AddElemList(elem_lst, name);
-  }
-}
-
-template <class Real> template <class ElemLstType> const ElemLstType& StokesBIO<Real>::GetElemList(const std::string& name) const {
-  return LayerPotenDL.template GetElemList<ElemLstType>(name);
-}
-
-template <class Real> void StokesBIO<Real>::DeleteElemList(const std::string& name) {
-  LayerPotenSL.DeleteElemList(name);
-  LayerPotenDL.DeleteElemList(name);
-}
-
-template <class Real> template <class ElemLstType> void StokesBIO<Real>::DeleteElemList() {
-  LayerPotenSL.template DeleteElemList<ElemLstType>();
-  LayerPotenDL.template DeleteElemList<ElemLstType>();
-}
-
-template <class Real> void StokesBIO<Real>::SetTargetCoord(const sctl::Vector<Real>& Xtrg) {
-  LayerPotenSL.SetTargetCoord(Xtrg);
-  LayerPotenDL.SetTargetCoord(Xtrg);
-}
-
-template <class Real> void StokesBIO<Real>::SetTargetNormal(const sctl::Vector<Real>& Xn_trg) {
-  LayerPotenSL.SetTargetNormal(Xn_trg);
-  LayerPotenDL.SetTargetNormal(Xn_trg);
-}
-
-template <class Real> sctl::Long StokesBIO<Real>::Dim(sctl::Integer k) const {
-  return LayerPotenDL.Dim(k);
-}
-
-template <class Real> void StokesBIO<Real>::Setup() const {
-  if (SL_scal_) LayerPotenSL.Setup();
-  if (DL_scal_) LayerPotenDL.Setup();
-}
-
-template <class Real> void StokesBIO<Real>::ClearSetup() const {
-  LayerPotenSL.ClearSetup();
-  LayerPotenDL.ClearSetup();
-}
-
-template <class Real> void StokesBIO<Real>::ComputePotential(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const {
-  sctl::Vector<Real> Us, Ud;
-  if (SL_scal_ && LayerPotenSL.Dim(0)) {
-    if (LayerPotenSL.Dim(0) != F.Dim()) {
-      sctl::Vector<Real> subF(LayerPotenSL.Dim(0), (sctl::Iterator<Real>) F.begin(), true);
-      LayerPotenSL.ComputePotential(Us, subF);
-    } else {
-      LayerPotenSL.ComputePotential(Us, F);
-    }
-  } else {
-    Us.ReInit(LayerPotenSL.Dim(1));
-    Us.SetZero();
-  }
-  if (DL_scal_ && LayerPotenDL.Dim(0)) {
-    LayerPotenDL.ComputePotential(Ud, F);
-  } else {
-    Ud.ReInit(LayerPotenDL.Dim(1));
-    Ud.SetZero();
-  }
-
-  if (SL_scal_ && DL_scal_) U = Us * SL_scal_ + Ud * DL_scal_;
-  else if (SL_scal_) U = Us * SL_scal_;
-  else if (DL_scal_) U = Ud * DL_scal_;
-  else U.SetZero();
-}
-
-
-template <class Real> void StokesBIO<Real>::ComputeSL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const {
-  LayerPotenSL.ComputePotential(U, F);
-}
-
-template <class Real> void StokesBIO<Real>::ComputeDL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const {
-  LayerPotenDL.ComputePotential(U, F);
-}
-
-template <class Real> void StokesBIO<Real>::SqrtScaling(sctl::Vector<Real>& U) const {
-  LayerPotenSL.SqrtScaling(U);
-}
-
-template <class Real> void StokesBIO<Real>::InvSqrtScaling(sctl::Vector<Real>& U) const {
-  LayerPotenSL.InvSqrtScaling(U);
-}
-
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_straight(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real r, const sctl::Comm& comm, const sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
   comm_ = comm;
   sctl::Vector<Real> Xc, eps, orient;
@@ -643,6 +315,65 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   sctl::SlenderElemList<Real> elem_lst;
   sctl::Vector<Real> NormalOrient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, NormalOrient);
   return std::make_tuple(elem_lst,NormalOrient_);
+}
+
+template <class Real> std::tuple<bool, Real, Real, Real> PeriodicGeom<Real>::in_trefoil(Real a, Real b, Real c) {
+    Real r_min = 0.01;
+    Real r_max = 0.04;
+
+    if (a>1+1e-5 || a < -1e-5) { // shift x to within [0,1].
+        a = a - std::floor(a);
+    }
+
+    auto get_r = [&r_min,&r_max](const Real& x) {
+        Real angle = sctl::const_pi<Real>() * (16.*x - 28./3.); // =8*(t-pi/6), t = (x-0.5)*2pi
+        return r_min + (r_max - r_min) * (0.5 * sctl::sin<Real>(angle) + 0.5);
+    };
+
+    auto get_xyz = [](const Real& x) {
+        const Real xminus = x-0.5;
+        const Real x4pi = 4.*sctl::const_pi<Real>()*xminus;
+        const Real x8pi = 2.*x4pi;
+        const Real xminus2 = xminus * xminus;
+        const Real xminus5 = xminus2 * xminus2 * xminus;
+        Real xcoeff = xminus2 * 4. - 1.;
+        xcoeff = xcoeff / 5.;
+        Real x_ = 0.5 * xminus * sctl::cos<Real>(x4pi) + 8. * xminus5 + 0.5;
+        Real y_ = sctl::sin<Real>(x4pi) * xcoeff + 0.5;
+        Real z_ = sctl::sin<Real>(x8pi) * xcoeff + 0.5;
+
+        return std::make_tuple(x_,y_,z_);
+    };
+
+    Real min_dist2 = 10.;
+    Real closest_x = 0.;
+    const int N = 4000; // resolution of the sampling
+    for (int i = 0; i <= N; i++) {
+        Real x = (Real)i / N; // TODO: account for distributed memory for x \in (a,b) instead of (0,1).
+        std::tuple<Real,Real,Real> xchere = get_xyz(x);
+        Real cx = std::get<0>(xchere);
+        Real cy = std::get<1>(xchere);
+        Real cz = std::get<2>(xchere);
+
+        Real dx = cx - a;
+        Real dy = cy - b;
+        Real dz = cz - c;
+
+        Real dist2 = dx*dx + dy*dy + dz*dz;
+
+        if (dist2 < min_dist2) {
+            min_dist2 = dist2;
+            closest_x = x;
+        }
+    }
+
+    Real r = get_r(closest_x);
+    bool is_in_trefoil = (min_dist2 <= r*r);
+    std::tuple<Real,Real,Real> closest_xyz = get_xyz(closest_x);
+    Real xc = std::get<0>(closest_xyz);
+    Real yc = std::get<1>(closest_xyz);
+    Real zc = std::get<2>(closest_xyz);
+    return std::make_tuple(is_in_trefoil, xc, yc, zc);
 }
 
 template <class Real> sctl::SlenderElemList<Real> PeriodicGeom<Real>::free_ptcls(const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs){
@@ -1101,9 +832,6 @@ template <class Real> void PeriodicGeom<Real>::add_particles(sctl::Vector<sctl::
           // spheroid
           spheroid_geom(x, y, z, ex, ey, ez, eps_j, theta, ptcl_r);
 
-        } else if (geom_mode == 2) {
-          // bacteria
-          bacteria_geom(x, y, z, ex, ey, ez, eps_j, 2*theta, ptcl_r); // 2pi for circular particles.
         } else if (geom_mode == 3) {
           // loop
           loop_geom(x, y, z, ex, ey, ez, eps_j, 2*theta, ptcl_r, 0.05);
@@ -1325,9 +1053,6 @@ template <class Real> void PeriodicGeom<Real>::add_particles_rotated(sctl::Vecto
         } else if (geom_mode == 1) {
           // spheroid
           spheroid_geom(x, y, z, ex, ey, ez, eps_j, theta, ptcl_r);
-        } else if (geom_mode == 2) {
-          // bacteria
-          bacteria_geom(x, y, z, ex, ey, ez, eps_j, 2*theta, ptcl_r); // 2pi for circular particles.
         } else if (geom_mode == 3) {
           // loop
           loop_geom(x, y, z, ex, ey, ez, eps_j, 2*theta, ptcl_r, 0.05);
@@ -1603,8 +1328,6 @@ template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> Pe
         Real u0 = 1.1; // todo: take as input..
         int if_prolate = 1;
         outside = (outside && outside_spheroid(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],u0,if_prolate));
-      } else if (geom_mode == 2) {
-        outside = (outside && outside_bacteria(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0]));
       } else if (geom_mode == 3) {
         outside = (outside && outside_loop(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],0.05)); // ptcls_rs for loops store the size of the loop, so loop_rad, rather than the "thickness", which is hardcoded to be 0.025.
       } else {
@@ -1647,8 +1370,6 @@ template <class Real> std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> Pe
         Real u0 = 1.1;
         int if_prolate = 1;
         outside = (outside && outside_spheroid_rotated(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],u0,if_prolate,ptheta[0],pphi[0]));
-      } else if (geom_mode == 2) {
-        outside = (outside && outside_bacteria_rotated(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],ptheta[0],pphi[0]));
       } else if (geom_mode == 3) {
         outside = (outside && outside_loop_rotated(x[0],x[1],x[2],pXc[0],pXc[1],pXc[2],pr[0],0.05,ptheta[0],pphi[0])); // hardcoded geometry r.n.
       } else {
@@ -1856,16 +1577,6 @@ template <class Real> bool PeriodicGeom<Real>::outside_spheroid_rotated(const Re
     // std::cout << "OUTSIDE spheroid centered at = " << pXc1 << ", " << pXc2 << ", " << pXc3 << "; major axis is " << x1sq * C2inv << ", minor: " << (x2sq+x3sq) * A2inv << std::endl;
     return true;
   }
-}
-
-template <class Real> bool PeriodicGeom<Real>::outside_bacteria(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real pr) {
-  //TODO
-  return true;
-}
-
-template <class Real> bool PeriodicGeom<Real>::outside_bacteria_rotated(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real pr, const Real ptheta, const Real pphi) {
-  //TODO
-  return true;
 }
 
 template <class Real> bool PeriodicGeom<Real>::outside_loop(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real major_r, const Real minor_r) {
@@ -2280,29 +1991,6 @@ template <class Real> void PeriodicGeom<Real>::packed_sphs_trefoil(sctl::Vector<
     }
   }
 }
-
-
-template <class Real> void PeriodicGeom<Real>::bacteria_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real loop_rad){
-  Real t = theta/sctl::const_pi<Real>()-1; // -1:1
-  Real aspect = sctl::const_pi<Real>()*3/2+1;
-
-  Real L = aspect-1+sctl::const_pi<Real>()/2;
-  Real scal = loop_rad/(1+L-sctl::const_pi<Real>()/2);
-  // Real scal = loop_rad/(1+L-sctl::const_pi<Real>()/2) * 0.7;
-  if (L*(1+t) < sctl::const_pi<Real>()/2) z = scal * (-sctl::cos<Real>(L*(1+t)) - L+sctl::const_pi<Real>()/2);
-  else if (L*(1-t) < sctl::const_pi<Real>()/2) z = scal * (sctl::cos<Real>(L*(1-t)) + L-sctl::const_pi<Real>()/2);
-  else z = scal * L * t;
-
-  y = 0;
-  x = 0;
-  ex = 1/sctl::sqrt<Real>(3.);
-  ey = 1/sctl::sqrt<Real>(3.);
-  ez = 1/sctl::sqrt<Real>(3.);
-
-  if (L*(1+t) < sctl::const_pi<Real>()/2) r = scal * sctl::sin<Real>(L*(1+t));
-  else if (L*(1-t) < sctl::const_pi<Real>()/2) r = scal * sctl::sin<Real>(L*(1-t));
-  else r = scal;
-};
 
 template <class Real> void PeriodicGeom<Real>::loop_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real major_r, const Real minor_r){
   x = major_r * sctl::cos<Real>(theta);
