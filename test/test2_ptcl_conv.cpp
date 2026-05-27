@@ -1,20 +1,19 @@
-#include "utils_geom.hpp"
-#include "bio_operator.hpp"
+/*
+    Manufactured solutions test on singly-periodic array of spherical suspensions. 
+*/
 
-/**
- * Background flow with unit pressure gradient along X-axis.
- */
-template <class Real> sctl::Vector<Real> bg_flow(const sctl::Vector<Real>& X) {
-    const sctl::Long N = X.Dim()/3;
-    sctl::Vector<Real> U(N*3);
-    for (sctl::Long i = 0; i < N; i++) {
-        const auto x = X.begin() + i*3;
-        U[i*3+0] = - ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
-        U[i*3+1] = 0;
-        U[i*3+2] = 0;
-    }
-    return U;
-}
+// Boundary integral operators and their periodization
+#include "stokes_bio.hpp" 
+#include "bio_operator.hpp" 
+
+// Geometry for tests
+#include "utils_geom.hpp"
+
+// Other util functions
+#include "utils_tests.cpp" 
+
+// Visualization
+#include "utils_vis.hpp" 
 
 // Loop over copies and add consecutively, to reduce memory requirements. Perhaps do 2D planes at a time.
 template <class Real> sctl::Vector<Real> exact_field(const sctl::Vector<Real>& Xtrg, const sctl::Vector<Real>& Xsrc, const sctl::Vector<Real>& sigma, const sctl::Long Ncopy) {
@@ -107,14 +106,14 @@ template <class Real> void manufactured_soln_1peri(sctl::Long Nelem, sctl::Long 
 
     // Create point charges at random locations close to particle center, by a distance of at most 0.2r.
     sctl::Long Ncharge;
-    // if (Nptcl < 150) {
-    //     // two equal and opposite charges per particle
-    //     Ncharge = 2*Nptcl;
-    // } else {
-    //     // only first 150 particles get charges inside. (arbitrary, to limit true solution timing)
-    //     Ncharge = 2*150;
-    // }
-    Ncharge = 2;
+    if (Nptcl < 150) {
+        // two equal and opposite charges per particle
+        Ncharge = 2*Nptcl;
+    } else {
+        // only first 150 particles get charges inside. (arbitrary, to limit true solution timing)
+        Ncharge = 2*150;
+    }
+    // Ncharge = 2;
     // Currently one Stokeslet doublet per particle (for a simple net-force-zero scenario)
     sctl::Vector<Real> Xsrc(Ncharge*3);
     sctl::Vector<Real> Stokeslet_sigma(Ncharge*3);
@@ -150,134 +149,15 @@ template <class Real> void manufactured_soln_1peri(sctl::Long Nelem, sctl::Long 
     LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, period_length);
 
     // periodized layer potential operator
-    MeanCorrectedStokesBIOOperator<Real> BIO(LayerPotenOp0, NormalOrient, DL_scal, comm);
-    BIO.AddSurface(elem_lst0, wts, surface_area);
-
-    // // Old lambda-based BIO block retained for reference:
-    // const auto BIO = [&wts,&surface_area,&elem_lst0,&DL_scal,&LayerPotenOp0,&X0,NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //     sctl::Vector<Real> sigma_mean, sigma0;
-    //     { // compute sigma_mean and sigma0 = sigma - sigma_mean
-    //         sctl::Vector<Real> sigma_;
-    //         elem_lst0.GetFarFieldDensity(sigma_, sigma);
-    //         SurfaceIntegral(sigma_mean, sigma_, wts);
-    //         //MPI
-    //         sctl::Vector<Real> sa_loc = sigma_mean;
-    //         sctl::Vector<Real> sa_all(3);
-    //         sa_all = 0;
-    //         comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
-    //         comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+1, (sctl::Iterator<Real>) sa_all.begin()+1, 1, sctl::CommOp::SUM);
-    //         comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+2, (sctl::Iterator<Real>) sa_all.begin()+2, 1, sctl::CommOp::SUM);
-    //         sigma_mean = sa_all;
-    //         sigma_mean *= (1/surface_area);
-    //
-    //         sigma0 = sigma;
-    //         AddConstVec(sigma0, -sigma_mean);
-    //
-    //         // // DEBUG: check that sigma-sigma_mean has surface integral = 0:
-    //         // sctl::Vector<Real> sigma1 = sigma_;
-    //         // AddConstVec(sigma1, -sigma_mean);
-    //         // sctl::Vector<Real> sigma_test_;
-    //         // SurfaceIntegral(sigma_test_, sigma1, wts);
-    //         // std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "<< sigma_test_[1] << ", " << sigma_test_[2] << ". "<< std::endl;
-    //
-    //     }
-    //     
-    //     U->SetZero();
-    //     LayerPotenOp0.ComputePotential(*U, sigma0);
-    //     if (DL_scal && U->Dim() == sigma0.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
-    // 
-    //     AddConstVec(*U, sigma_mean);
-    // };
-
-    // // =============== PRECONDITIONING =======================================
-    // // Store preconditioner matrix, or make new if not present.
-    // std::string precond0_file = "data/precond0_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
-    // std::string precond1_file = "data/precond1_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
-    // sctl::Matrix<Real> PrecondMat0, PrecondMat1;
-    // PrecondMat0.template Read<Real>(precond0_file.c_str());
-
-    // sctl::Long A11size;
-
-    // comm.Barrier();
-    // if (PrecondMat0.Dim(0) || PrecondMat0.Dim(1)) {
-    //     std::cout << " successfully read file." << std::endl;
-    //     PrecondMat1.template Read<Real>(precond1_file.c_str());
-    //     A11size = PrecondMat0.Dim(1);
-    // } else {
-    //     std::cout << " Making precond files " << std::endl;
-    //     sctl::Vector<sctl::Long> ptcls_pre;
-    //     sctl::Vector<Real> ptcls_Xcs_pre, ptcls_rs_pre;
-    //     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, geom_mode);
-    //     sctl::SlenderElemList<Real> elem_lst_precond = std::get<0>(build_precond);
-    //     sctl::Vector<Real> X0_precond; // target coordinates
-    //     elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
-    //     StokesBIO Precond_bio(SL_scal, DL_scal, comm.Self());
-    //     Precond_bio.SetAccuracy(tol); // set quadrature accuracy
-    //     Precond_bio.AddElemList(elem_lst_precond);
-    //     Precond_bio.SetTargetCoord(X0_precond);
-    //     const auto BIO_1ptcl = [&DL_scal,&Precond_bio](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //         U->SetZero();
-    //         Precond_bio.ComputePotential(*U, sigma);
-    //         (*U) += sigma * 0.5 * DL_scal;
-    //     };
-    //     A11size = 3*ElemOrder*FourierOrder*Nelem;
-    //     sctl::Vector<sctl::Vector<Real>> PrecondMat(A11size);
-    //     sctl::Vector<Real> SigmaCol_precond(A11size);
-    //     for (sctl::Long col=0; col < A11size; col ++) {
-    //         SigmaCol_precond = 0.;
-    //         SigmaCol_precond[col] = 1.;
-    //         BIO_1ptcl(PrecondMat.begin() + col,SigmaCol_precond);
-    //     }
-    //     sctl::Matrix<Real> A11(A11size,A11size);
-    //     for (long col=0; col < A11size; col++) {
-    //         for (long row = 0; row < A11size; row++) {
-    //             A11(row,col) = PrecondMat[col][row];
-    //         }
-    //     }      
-    //     sctl::Matrix<Real> Usvd, VT, S, SforInv;
-    //     sctl::Matrix<Real> A11forSVD = sctl::Matrix<Real>(A11);
-    //     A11forSVD.SVD(Usvd, S, VT);
-    //     SforInv = sctl::Matrix<Real>(S);
-    //     sctl::Matrix<Real> Sinv = SforInv.pinv(1e-16);
-
-    //     PrecondMat0 = VT.Transpose();
-    //     PrecondMat1 = Sinv * Usvd.Transpose();
-    //     if (!comm.Rank()) {
-    //         PrecondMat0.template Write<Real>(precond0_file.c_str());
-    //         PrecondMat1.template Write<Real>(precond1_file.c_str());
-    //     }
-    // }
-    
-
-    // // Apply A11inv to each panel of vec.
-    // const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size, &comm](const sctl::Vector<Real>& vec) {
-    //     sctl::Long N = vec.Dim();
-    //     sctl::Long Nptcl = N / A11size; 
-    //     sctl::Vector<Real> AinvVec(N);
-    //     for (sctl::Long i=0; i<Nptcl; i++) {
-    //         // for each particle, apply A11inv.
-    //         sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-    //         sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
-    //         for (sctl::Long j=0; j<A11size; j++) {
-    //             AinvVec[i*A11size + j] = AinvVecMat(j,0);
-    //         }
-    //     }
-    //     return AinvVec;
-    // };
-
-    // const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //     sctl::Vector<Real> Uloc;
-    //     BIO(&Uloc,sigma);
-    //     // LEFT PRECONDITIONER: u -> A11inv*u
-    //     (*U) = AinvApply(Uloc);
-    // };
+    MeanCorrectedStokesBIOOperator<Real, sctl::SlenderElemList<Real>> BIO(LayerPotenOp0, NormalOrient, DL_scal, comm);
+    BIO.AddSurface(elem_lst0);
 
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
     // sctl::Vector<Real> A11invF = AinvApply(field_on_surf);
 
     sctl::Vector<Real> sigma;
-    // solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    // solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond); // TODO: use preconditioned BIO
     solver(&sigma,BIO,field_on_surf,gmres_tol, -1, false, nullptr, &krylov_precond); 
 
     PeriodicGeom<Real> trg;    
@@ -295,11 +175,6 @@ template <class Real> void manufactured_soln_1peri(sctl::Long Nelem, sctl::Long 
     sctl::Vector<Real> field_on_trg = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy);
     // get max abs error
     sctl::Vector<Real> err = U - field_on_trg;
-
-    // // DEBUGGING: just print the errors to check whether x,y,z dependence, constant, etc.
-    // for (int i=0; i<err.Dim()/3; i++) {
-    //     std::cout << "err: " << std::setprecision(10) << err[i*3+0] << ", " << err[i*3+1] << ", " << err[i*3+2] << ". " << std::endl;
-    // }
 
     // Subtract mean to remove constant difference
     sctl::Vector<Real> sum_err(3);
@@ -327,10 +202,6 @@ template <class Real> void manufactured_soln_1peri(sctl::Long Nelem, sctl::Long 
     // avg err
     sctl::Vector<Real> avg_err = sum_err / err_size_all[0];
     AddConstVec(err,-avg_err); // relative error with offset: max ((Ucalc - C) - Uexact) / Uexact, since C = Ucalc_exact - Uexact ~ E[Ucalc - Uexact]
-    // std::cout << "avg err: " << avg_err[0] << ", " << avg_err[1] << ", " << avg_err[2] << std::endl;
-    // for (int i=0; i<err.Dim()/3; i++) {
-    //     std::cout << "err after subtracting avg err: " << std::setprecision(10) << err[i*3+0] << ", " << err[i*3+1] << ", " << err[i*3+2] << ". " << std::endl;
-    // }
 
     double max_err = 0;
     Real max_u = 0.;

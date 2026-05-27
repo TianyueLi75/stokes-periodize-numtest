@@ -1,12 +1,30 @@
-#include "utils_tests.cpp"
-#include "planeNaive.hpp"
-#include "bio_operator.hpp"
-#include "utils_geom.hpp"
-#include "stokes_bio.hpp"
-#include "utils_vis.hpp"
+/*
+    Tests scripts in all three periodicity on the solution's periodicity.
+*/
 
-// Test script for calculation and timing of 1, 2, and 3 periodic problems with background pressure flow. 
-template <class Real> void test1peri_channel(sctl::Long Nelem_channel, sctl::Long FourierOrder, sctl::Comm comm, sctl::Long Nptcl, Real gmres_tol, Real tol) {
+// Boundary integral operators and their periodization
+#include "stokes_bio.hpp" 
+#include "bio_operator.hpp" 
+
+// Geometry for tests
+#include "planeNaive.hpp"
+#include "utils_geom.hpp"
+
+// Other util functions
+#include "utils_tests.cpp" 
+
+// Visualization
+#include "utils_vis.hpp" 
+
+
+template <class Real> void test1peri_channel(
+    const sctl::Long Nelem_channel, 
+    const sctl::Long FourierOrder, 
+    sctl::Comm comm, 
+    sctl::Long Nptcl, 
+    const Real gmres_tol, 
+    const Real tol) 
+    {
 
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
@@ -23,29 +41,29 @@ template <class Real> void test1peri_channel(sctl::Long Nelem_channel, sctl::Lon
     }
     sctl::Vector<Real> ptcls_Xcs, ptcls_rs, NormalOrient, ptcls_thetas, ptcls_phis;
     sctl::SlenderElemList<Real> elem_lst0;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div_sph(Nelem_channel, ElemOrder, FourierOrder, 0.1, 0.2, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord);
+    // std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div_sph(Nelem_channel, ElemOrder, FourierOrder, 0.1, 0.2, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord);
+    // TODO: try with easy set up to check periodicity.
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_straight(Nelem_channel, ElemOrder, FourierOrder, 0.3, comm, ptcls, ptcls_rs, ptcls_Xcs, 0);
     elem_lst0 = std::get<0>(build0);
     NormalOrient = std::get<1>(build0);
-    ptcls_thetas = std::get<2>(build0);
-    ptcls_phis = std::get<3>(build0);
 
     sctl::Vector<Real> X0; 
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
-    Real surface_area;
-    sctl::Vector<Real> wts;
-    { // get wts and surface area
-        sctl::Vector<Real> X, Xn, dist_far, surface_area_;
-        sctl::Vector<sctl::Long> element_wise_node_cnt;
-        elem_lst0.GetFarFieldNodes(X, Xn, wts, dist_far, element_wise_node_cnt, 1);
-        SurfaceIntegral(surface_area_, wts*0+1, wts);
-        // surface_area = surface_area_[0];
-        sctl::Vector<Real> sa_loc(1);
-        sa_loc[0] = surface_area_[0];
-        sctl::Vector<Real> sa_all(1);
-        sa_all[0] = 0;
-        comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
-        surface_area = sa_all[0];
-    }
+    // Real surface_area;
+    // sctl::Vector<Real> wts;
+    // { // get wts and surface area
+    //     sctl::Vector<Real> X, Xn, dist_far, surface_area_;
+    //     sctl::Vector<sctl::Long> element_wise_node_cnt;
+    //     elem_lst0.GetFarFieldNodes(X, Xn, wts, dist_far, element_wise_node_cnt, 1);
+    //     SurfaceIntegral(surface_area_, wts*0+1, wts);
+    //     // surface_area = surface_area_[0];
+    //     sctl::Vector<Real> sa_loc(1);
+    //     sa_loc[0] = surface_area_[0];
+    //     sctl::Vector<Real> sa_all(1);
+    //     sa_all[0] = 0;
+    //     comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
+    //     surface_area = sa_all[0];
+    // }
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); 
     LayerPotenOp0.AddElemList(elem_lst0);
@@ -54,26 +72,14 @@ template <class Real> void test1peri_channel(sctl::Long Nelem_channel, sctl::Lon
     LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, period_length);
 
     // Define the boundary-integral operator: (I/2 + D + S)[sigma-sigma_mean] + sigma_mean
-    MeanCorrectedStokesBIOOperator<Real> BIO(LayerPotenOp0, NormalOrient, DL_scal, comm);
-    BIO.AddSurface(elem_lst0, wts, surface_area);
+    MeanCorrectedStokesBIOOperator<Real, sctl::SlenderElemList<Real>> BIO(LayerPotenOp0, NormalOrient, DL_scal, comm);
+    BIO.AddSurface(elem_lst0);
 
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
 
-    const auto bg_flow = [](const sctl::Vector<Real>& X) {
-        const sctl::Long N = X.Dim()/3;
-        sctl::Vector<Real> U(N*3);
-        for (sctl::Long i = 0; i < N; i++) {
-            const auto x = X.begin() + i*3;
-            U[i*3+0] = - ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5)) / 4;
-            U[i*3+1] = 0;
-            U[i*3+2] = 0;
-        }
-        return U;
-    };
-
     sctl::Vector<Real> sigma;
-    solver(&sigma, BIO, bg_flow(X0) * (pressure_drop/period_length), gmres_tol, -1, false, nullptr, &krylov_precond);
+    solver(&sigma, BIO, bg_flow_1peri(X0) * (pressure_drop/period_length), gmres_tol, -1, false, nullptr, &krylov_precond);
 
     Real channel_radius = 0.15;
     sctl::Long Ntrg_side = 5;
@@ -99,8 +105,8 @@ template <class Real> void test1peri_channel(sctl::Long Nelem_channel, sctl::Lon
     sctl::Vector<Real> UX1(X1.Dim());
     LayerPotenOp0.SetTargetCoord(X1);
     BIO(&UX1,sigma);
-    UX0 -= bg_flow(X0) * (pressure_drop/period_length);
-    UX1 -= bg_flow(X1) * (pressure_drop/period_length);
+    UX0 -= bg_flow_1peri(X0) * (pressure_drop/period_length);
+    UX1 -= bg_flow_1peri(X1) * (pressure_drop/period_length);
     std::cout << "============ X periodicity =================" << std::endl;
     sctl::Vector<Real> UdiffX = UX0-UX1;
     for (int i=0; i<UdiffX.Dim()/3; i++) {
@@ -249,22 +255,12 @@ template <class Real> void test2peri_plane(sctl::Long Nelem, sctl::Long FourierO
 
         AddConstVec(*U, sigma_mean);
     };
-
-    const auto bg_flow = [](const sctl::Vector<Real>& X) {
-        const sctl::Long N = X.Dim()/3;
-        sctl::Vector<Real> U(N*3);
-        for (sctl::Long i = 0; i < N; i++) {
-            const auto x = X.begin() + i*3;
-            U[i*3+0] = - 0.5 * ((x[2]-0.5)*(x[2]-0.5)); // 2-periodic flow between plates.
-            U[i*3+1] = 0.;
-            U[i*3+2] = 0.;
-        }
-        return U;
-    };
+    // MeanCorrectedStokesBIOOperator<Real, sctl::SlenderElemList> BIO(LayerPotenOp0, NormalOrient, DL_scal, comm);
+    // BIO.AddSurface(elem_lst0);
 
     sctl::GMRES<Real> solver(comm);
     sctl::Vector<Real> sigma;
-    solver(&sigma,BIO, bg_flow(X0) * (pressure_drop/period_length), gmres_tol);
+    solver(&sigma,BIO, bg_flow_2peri(X0) * (pressure_drop/period_length), gmres_tol);
 
     sctl::Long Ntrg_side = 5;
     Real gap = 1./(Ntrg_side+5); 
@@ -289,8 +285,8 @@ template <class Real> void test2peri_plane(sctl::Long Nelem, sctl::Long FourierO
     sctl::Vector<Real> UX1(X1.Dim());
     LayerPotenOp0.SetTargetCoord(X1);
     BIO(&UX1,sigma);
-    UX0 -= bg_flow(X0) * (pressure_drop/period_length);
-    UX1 -= bg_flow(X1) * (pressure_drop/period_length);
+    UX0 -= bg_flow_2peri(X0) * (pressure_drop/period_length);
+    UX1 -= bg_flow_2peri(X1) * (pressure_drop/period_length);
     std::cout << "============ X periodicity =================" << std::endl;
     sctl::Vector<Real> UdiffX = UX0-UX1;
     for (int i=0; i<UdiffX.Dim()/3; i++) {
@@ -379,8 +375,8 @@ template <class Real> void test3peri(sctl::Long Nelem, sctl::Long FourierOrder, 
     LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XYZ, period_length);
 
     // Define the boundary-integral operator: (I/2 + D + S)[sigma-sigma_mean] + sigma_mean
-    MeanCorrectedStokesBIOOperator<Real> BIO(LayerPotenOp0, NormalOrient, DL_scal, comm);
-    BIO.AddSurface(elem_lst0, wts, surface_area);
+    MeanCorrectedStokesBIOOperator<Real, sctl::SlenderElemList<Real>> BIO(LayerPotenOp0, NormalOrient, DL_scal, comm);
+    BIO.AddSurface(elem_lst0);
 
     const auto eval_rhs = [&LayerPotenOp0,surface_area,period_length](const Real pressure_drop) { // BIOpSL( -pressure_drop * cross_sectional_area / surface_area )
         sctl::Vector<Real> force_density(LayerPotenOp0.Dim(0)); force_density = 0;
