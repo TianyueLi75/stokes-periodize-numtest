@@ -4,8 +4,6 @@
 #include <csbq.hpp>
 #include <tuple>
 #include "sctl/fmm-wrapper.hpp"  // for ParticleFMM
-#include "utils_geom_helpers.hpp"
-#include "utils_geom_profiles.hpp"
 
 /**
  * Geometry set up for different test channels with or without particles inside.
@@ -177,7 +175,29 @@ template <class Real> class PeriodicGeom {
   //   sctl::Vector<sctl::Long> node_dsp;
     mutable sctl::ParticleFMM<Real,COORD_DIM> fmm;
 
-  };
+    sctl::Vector<Real> make_normal_orient(const sctl::Long channel_panels,
+                                                const sctl::Long particle_panels,
+                                                const sctl::Long ElemOrder,
+                                                const sctl::Long FourierOrder,
+                                                const Real channel_sign = 1.,
+                                                const Real particle_sign = -1.);
+
+    std::tuple<sctl::SlenderElemList<Real>, sctl::Vector<Real>> build_elem_list(
+                                                                  PeriodicGeom<Real>& geom,
+                                                                  const sctl::Vector<sctl::Long>& ElemOrderVec,
+                                                                  const sctl::Vector<sctl::Long>& FourierOrderVec,
+                                                                  const sctl::Vector<Real>& Xc,
+                                                                  const sctl::Vector<Real>& eps,
+                                                                  const sctl::Vector<Real>& orient,
+                                                                  const sctl::Vector<Real>& normal_orient,
+                                                                  const bool use_orient = false);
+
+    Real conv_div_radius(const Real x, const Real r1, const Real r2);
+    Real trefoil_radius(const Real x, const Real r_min, const Real r_max);
+    std::tuple<Real, Real, Real> trefoil_xyz(const Real x);
+
+};
+
 
 #include <utils_geom.cpp>
 

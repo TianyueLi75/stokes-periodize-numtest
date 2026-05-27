@@ -35,9 +35,11 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
       Nelem_ptcl_tot += ptcls[ptcl_i];
     }
   }
-  const auto [elem_lst, normal_orient] = build_elem_list<Real>(*this, ElemOrderVec, FourierOrderVec, Xc, eps, orient,
-                                                               make_normal_orient<Real>(Nelem, Nelem_ptcl_tot, ElemOrder, FourierOrder));
-  return std::make_tuple(elem_lst, normal_orient);
+
+  sctl::Vector<Real> normal_orient = make_normal_orient(Nelem, Nelem_ptcl_tot, ElemOrder, FourierOrder);
+  sctl::SlenderElemList<Real> elem_lst;
+  const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient);
+  return std::make_tuple(elem_lst, normal_orient_);
 };
 
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_sinusoidal(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real r, const Real mag, const sctl::Comm& comm, const sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
@@ -69,10 +71,10 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
       Nelem_ptcl_tot += ptcls[ptcl_i];
     }
   }
-  // std::cout << "size of Xc with ptcl: " << Xc.Dim() << std::endl;
-  const auto [elem_lst, normal_orient] = build_elem_list<Real>(*this, ElemOrderVec, FourierOrderVec, Xc, eps, orient,
-                                                               make_normal_orient<Real>(Nelem, Nelem_ptcl_tot, ElemOrder, FourierOrder));
-  return std::make_tuple(elem_lst, normal_orient);
+  sctl::Vector<Real> normal_orient = make_normal_orient(Nelem, Nelem_ptcl_tot, ElemOrder, FourierOrder);
+  sctl::SlenderElemList<Real> elem_lst;
+  const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient);
+  return std::make_tuple(elem_lst, normal_orient_);
 };
 
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_conv_div(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real r1, const Real r2, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, sctl::Vector<Real>& ptcls_u0s, sctl::Vector<sctl::Long>& ptcls_ifprolate, const sctl::Long ptcl_ord, const sctl::Long N){
@@ -89,7 +91,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
       Xc.PushBack(x);
       Xc.PushBack(0.5);
       Xc.PushBack(0.5);
-      eps.PushBack(geom_profiles::conv_div_radius<Real>(x, r1, r2));
+      eps.PushBack(conv_div_radius(x, r1, r2));
 
       orient.PushBack(0);
       orient.PushBack(1);
@@ -122,10 +124,11 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
       Nelem_ptcl_tot += ptcls[ptcl_i];
     }
   }
-  const auto [elem_lst, normal_orient] = build_elem_list<Real>(*this, ElemOrderVec, FourierOrderVec, Xc, eps, orient,
-                                                               make_normal_orient<Real>(Nelem, Nelem_ptcl_tot, ElemOrder, FourierOrder),
-                                                               true);
-  return std::make_tuple(elem_lst, normal_orient, ptcls_thetas, ptcls_phis);
+  sctl::Vector<Real> normal_orient = make_normal_orient(Nelem, Nelem_ptcl_tot, ElemOrder, FourierOrder);
+  sctl::SlenderElemList<Real> elem_lst;
+  const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient, true);
+  return std::make_tuple(elem_lst, normal_orient_, ptcls_thetas, ptcls_phis);
+
 }
 
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_conv_div_sph(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real r1, const Real r2, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const sctl::Long ptcl_ord){
@@ -142,7 +145,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
       Xc.PushBack(x);
       Xc.PushBack(0.5);
       Xc.PushBack(0.5);
-      eps.PushBack(geom_profiles::conv_div_radius<Real>(x, r1, r2));
+      eps.PushBack(conv_div_radius(x, r1, r2));
 
       orient.PushBack(0);
       orient.PushBack(1);
@@ -164,10 +167,11 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
       Nelem_ptcl_tot += ptcls[ptcl_i];
     }
   }
-  const auto [elem_lst, normal_orient] = build_elem_list<Real>(*this, ElemOrderVec, FourierOrderVec, Xc, eps, orient,
-                                                               make_normal_orient<Real>(Nelem, Nelem_ptcl_tot, ElemOrder, FourierOrder),
-                                                               true);
-  return std::make_tuple(elem_lst, normal_orient, ptcls_thetas, ptcls_phis);
+
+  sctl::Vector<Real> normal_orient = make_normal_orient(Nelem, Nelem_ptcl_tot, ElemOrder, FourierOrder);
+  sctl::SlenderElemList<Real> elem_lst;
+  const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient, true);
+  return std::make_tuple(elem_lst, normal_orient_, ptcls_thetas, ptcls_phis);
 }
 
 
@@ -184,11 +188,11 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
     const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrderVec[i]);
     for (sctl::Long j = 0; j < ElemOrderVec[i]; j++) {
       const Real x = (i+nodes[j])/Nelem;
-      const auto [x_trefoil, y_trefoil, z_trefoil] = geom_profiles::trefoil_xyz<Real>(x);
+      const auto [x_trefoil, y_trefoil, z_trefoil] = trefoil_xyz(x);
       Xc.PushBack(x_trefoil);
       Xc.PushBack(y_trefoil);
       Xc.PushBack(z_trefoil);
-      eps.PushBack(geom_profiles::trefoil_radius<Real>(x, r_min, r_max));
+      eps.PushBack(trefoil_radius(x, r_min, r_max));
 
       orient.PushBack(0);
       orient.PushBack(0);
@@ -208,9 +212,10 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
     }
   }
 
-  const auto [elem_lst, normal_orient] = build_elem_list<Real>(*this, ElemOrderVec, FourierOrderVec, Xc, eps, orient,
-                                                               make_normal_orient<Real>(Nelem, Nelem_ptcl_tot, ElemOrder, FourierOrder));
-  return std::make_tuple(elem_lst, normal_orient);
+  sctl::Vector<Real> normal_orient = make_normal_orient(Nelem, Nelem_ptcl_tot, ElemOrder, FourierOrder);
+  sctl::SlenderElemList<Real> elem_lst;
+  const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient);
+  return std::make_tuple(elem_lst, normal_orient_);
 }
 
 template <class Real> std::tuple<bool, Real, Real, Real> PeriodicGeom<Real>::in_trefoil(Real a, Real b, Real c) {
@@ -226,7 +231,7 @@ template <class Real> std::tuple<bool, Real, Real, Real> PeriodicGeom<Real>::in_
     const int N = 4000; // resolution of the sampling
     for (int i = 0; i <= N; i++) {
         Real x = (Real)i / N; // TODO: account for distributed memory for x \in (a,b) instead of (0,1).
-        const auto [cx, cy, cz] = geom_profiles::trefoil_xyz<Real>(x);
+        const auto [cx, cy, cz] = trefoil_xyz(x);
 
         Real dx = cx - a;
         Real dy = cy - b;
@@ -240,9 +245,9 @@ template <class Real> std::tuple<bool, Real, Real, Real> PeriodicGeom<Real>::in_
         }
     }
 
-    const Real r = geom_profiles::trefoil_radius<Real>(closest_x, r_min, r_max);
+    const Real r = trefoil_radius(closest_x, r_min, r_max);
     const bool is_in_trefoil = (min_dist2 <= r*r);
-    const auto [xc, yc, zc] = geom_profiles::trefoil_xyz<Real>(closest_x);
+    const auto [xc, yc, zc] = trefoil_xyz(closest_x);
     return std::make_tuple(is_in_trefoil, xc, yc, zc);
 }
 
@@ -256,9 +261,10 @@ template <class Real> sctl::SlenderElemList<Real> PeriodicGeom<Real>::free_ptcls
   for (sctl::Long ptcl_i = 0; ptcl_i < ptcls.Dim(); ptcl_i++) {
     Nelem_ptcl_tot += ptcls[ptcl_i];
   }
-  const auto [elem_lst, normal_orient] = build_elem_list<Real>(*this, ElemOrderVec, FourierOrderVec, Xc, eps, orient,
-                                                               make_normal_orient<Real>(0, Nelem_ptcl_tot, ElemOrder, FourierOrder));
-  std::cout << "Comm.Rank = " << comm.Rank() << " size of elem here is " << elem_lst.Size() << std::endl;
+
+  sctl::Vector<Real> normal_orient = make_normal_orient(0, Nelem_ptcl_tot, ElemOrder, FourierOrder);
+  sctl::SlenderElemList<Real> elem_lst;
+  const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient);
   return elem_lst;
 }
 
@@ -284,9 +290,10 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   for (sctl::Long ptcl_i = 0; ptcl_i < ptcls.Dim(); ptcl_i++) {
     Nelem_ptcl_tot += ptcls[ptcl_i];
   }
-  const auto [elem_lst, normal_orient] = build_elem_list<Real>(*this, ElemOrderVec, FourierOrderVec, Xc, eps, orient,
-                                                               make_normal_orient<Real>(0, Nelem_ptcl_tot, ElemOrder, FourierOrder));
-  return std::make_tuple(elem_lst, normal_orient);
+  sctl::Vector<Real> normal_orient = make_normal_orient(0, Nelem_ptcl_tot, ElemOrder, FourierOrder);
+  sctl::SlenderElemList<Real> elem_lst;
+  const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient);
+  return std::make_tuple(elem_lst, normal_orient_);
 }
 
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_ptcls3(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
@@ -320,9 +327,10 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   for (sctl::Long ptcl_i = 0; ptcl_i < ptcls.Dim(); ptcl_i++) {
     Nelem_ptcl_tot += ptcls[ptcl_i];
   }
-  const auto [elem_lst, normal_orient] = build_elem_list<Real>(*this, ElemOrderVec, FourierOrderVec, Xc, eps, orient,
-                                                               make_normal_orient<Real>(0, Nelem_ptcl_tot, ElemOrder, FourierOrder));
-  return std::make_tuple(elem_lst, normal_orient);
+  sctl::Vector<Real> normal_orient = make_normal_orient(0, Nelem_ptcl_tot, ElemOrder, FourierOrder);
+  sctl::SlenderElemList<Real> elem_lst;
+  const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient);
+  return std::make_tuple(elem_lst, normal_orient_);
 }
 
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_spheroids3(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs){
@@ -369,9 +377,10 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
   for (sctl::Long ptcl_i = 0; ptcl_i < ptcls.Dim(); ptcl_i++) {
     Nelem_ptcl_tot += ptcls[ptcl_i];
   }
-  const auto [elem_lst, normal_orient] = build_elem_list<Real>(*this, ElemOrderVec, FourierOrderVec, Xc, eps, orient,
-                                                               make_normal_orient<Real>(0, Nelem_ptcl_tot, ElemOrder, FourierOrder));
-  return std::make_tuple(elem_lst, normal_orient, ptcls_thetas, ptcls_phis);
+  sctl::Vector<Real> normal_orient = make_normal_orient(0, Nelem_ptcl_tot, ElemOrder, FourierOrder);
+  sctl::SlenderElemList<Real> elem_lst;
+  const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient);
+  return std::make_tuple(elem_lst, normal_orient_, ptcls_thetas, ptcls_phis);
 }
 
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_loops3(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs){
@@ -418,9 +427,10 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
   for (sctl::Long ptcl_i = 0; ptcl_i < ptcls.Dim(); ptcl_i++) {
     Nelem_ptcl_tot += ptcls[ptcl_i];
   }
-  const auto [elem_lst, normal_orient] = build_elem_list<Real>(*this, ElemOrderVec, FourierOrderVec, Xc, eps, orient,
-                                                               make_normal_orient<Real>(0, Nelem_ptcl_tot, ElemOrder, FourierOrder));
-  return std::make_tuple(elem_lst, normal_orient, ptcls_thetas, ptcls_phis);
+  sctl::Vector<Real> normal_orient = make_normal_orient(0, Nelem_ptcl_tot, ElemOrder, FourierOrder);
+  sctl::SlenderElemList<Real> elem_lst;
+  const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient);
+  return std::make_tuple(elem_lst, normal_orient_, ptcls_thetas, ptcls_phis);
 }
 
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_ptcls2(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, const sctl::Long Nptcl, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
@@ -459,9 +469,10 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   for (sctl::Long ptcl_i = 0; ptcl_i < ptcls.Dim(); ptcl_i++) {
     Nelem_ptcl_tot += ptcls[ptcl_i];
   }
-  const auto [elem_lst, normal_orient] = build_elem_list<Real>(*this, ElemOrderVec, FourierOrderVec, Xc, eps, orient,
-                                                               make_normal_orient<Real>(0, Nelem_ptcl_tot, ElemOrder, FourierOrder));
-  return std::make_tuple(elem_lst, normal_orient);
+  sctl::Vector<Real> normal_orient = make_normal_orient(0, Nelem_ptcl_tot, ElemOrder, FourierOrder);
+  sctl::SlenderElemList<Real> elem_lst;
+  const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient);
+  return std::make_tuple(elem_lst, normal_orient_);
 }
 
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_only_ptcls(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real box_sidelen, const sctl::Comm& comm, const sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
@@ -495,9 +506,10 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
       Nelem_ptcl_tot += ptcls[ptcl_i];
     }
   }
-  const auto [elem_lst, normal_orient] = build_elem_list<Real>(*this, ElemOrderVec, FourierOrderVec, Xc, eps, orient,
-                                                               make_normal_orient<Real>(0, Nelem_ptcl_tot, ElemOrder, FourierOrder));
-  return std::make_tuple(elem_lst, normal_orient);
+  sctl::Vector<Real> normal_orient = make_normal_orient(0, Nelem_ptcl_tot, ElemOrder, FourierOrder);
+  sctl::SlenderElemList<Real> elem_lst;
+  const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient);
+  return std::make_tuple(elem_lst, normal_orient_);
 }
 
 namespace {
@@ -555,8 +567,8 @@ void append_particle_nodes(sctl::Vector<sctl::Long>& ElemOrderVec,
   ElemOrderVec.PushBack(ElemOrder);
   FourierOrderVec.PushBack(FourierOrder);
 
-  const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrderVec.back());
-  for (sctl::Long j = 0; j < ElemOrderVec.back(); j++) {
+  const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrder);
+  for (sctl::Long j = 0; j < ElemOrder; j++) {
     const Real theta = sctl::const_pi<Real>() * (panel_index + nodes[j]) / Nelem_sphere;
     LocalGeomSample<Real> sample = sample_local(theta);
 
@@ -575,7 +587,7 @@ void append_particle_nodes(sctl::Vector<sctl::Long>& ElemOrderVec,
   }
 }
 
-t} // namespace
+} // namespace
 
 template <class Real> void PeriodicGeom<Real>::add_particles(sctl::Vector<sctl::Long>& ElemOrderVec, sctl::Vector<sctl::Long>& FourierOrderVec, sctl::Vector<Real>& Xc, sctl::Vector<Real>& eps, sctl::Vector<Real>& orient, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real>& ptcls_rs, const sctl::Vector<Real>& ptcls_Xcs, const int geom_mode) {
   sctl::Long Nptcl = ptcls.Dim();
@@ -756,11 +768,16 @@ template <class Real> sctl::SlenderElemList<Real> PeriodicGeom<Real>::spheroid_s
         }
     }
 
-    sctl::Vector<Real> NormalOrient(Xc.Dim() * FourierOrder);
-    NormalOrient = -1.;
+    // sctl::Vector<Real> NormalOrient(Xc.Dim() * FourierOrder);
+    // NormalOrient = -1.;
+    // sctl::SlenderElemList<Real> elem_lst;
+    // sctl::Vector<Real> NormalOrient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, NormalOrient, true);
+    // (void)NormalOrient_;
+    // return elem_lst;
+
+    sctl::Vector<Real> normal_orient = make_normal_orient(0, Nelem_ptcl * Nptcls, ElemOrder, FourierOrder);
     sctl::SlenderElemList<Real> elem_lst;
-    sctl::Vector<Real> NormalOrient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, NormalOrient, true);
-    (void)NormalOrient_;
+    const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient, true);
     return elem_lst;
 
 }
@@ -771,16 +788,18 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
 
   sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
   sctl::Vector<Real> Xc, eps, orient;
+  sctl::Long Nelem_ptcl_tot = 0;
   for (sctl::Long p = 0; p < Nptcl; p++) {
-    const sctl::Long Nelem_sphere = ptcls[p];
+    const sctl::Long Nelem_loop = ptcls[p];
+    Nelem_ptcl_tot += Nelem_loop;
     const Real theta_rotate = ptcls_thetas[p];
     const Real phi_rotate = ptcls_phis[p];
     const Real major_r = ptcls_major_rs[p];
     const Real minor_r = ptcls_minor_rs[p];
 
-    for (sctl::Long i = 0; i < Nelem_sphere; i++) {
+    for (sctl::Long i = 0; i < Nelem_loop; i++) {
       append_particle_nodes<Real>(ElemOrderVec, FourierOrderVec, Xc, eps, orient,
-                                 ElemOrder, FourierOrder, i, Nelem_sphere,
+                                 ElemOrder, FourierOrder, i, Nelem_loop,
                                  ptcls_Xcs[p * 3], ptcls_Xcs[p * 3 + 1], ptcls_Xcs[p * 3 + 2],
                                  true, theta_rotate, phi_rotate,
                                  [=](const Real theta) {
@@ -799,11 +818,15 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
     }
   }
 
-  sctl::Vector<Real> NormalOrient(Xc.Dim() * FourierOrder);
-  NormalOrient = -1.;
+  // sctl::Vector<Real> NormalOrient(Xc.Dim() * FourierOrder);
+  // NormalOrient = -1.;
+  // sctl::SlenderElemList<Real> elem_lst;
+  // sctl::Vector<Real> NormalOrient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, NormalOrient);
+  // return std::make_tuple(elem_lst, NormalOrient_);
+  sctl::Vector<Real> normal_orient = make_normal_orient(0, Nelem_ptcl_tot, ElemOrder, FourierOrder);
   sctl::SlenderElemList<Real> elem_lst;
-  sctl::Vector<Real> NormalOrient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, NormalOrient);
-  return std::make_tuple(elem_lst, NormalOrient_);
+  const auto normal_orient_ = InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient);
+  return std::make_tuple(elem_lst, normal_orient_);
 }
 
 template <class Real> void PeriodicGeom<Real>::add_particles_rotated(sctl::Vector<sctl::Long>& ElemOrderVec, sctl::Vector<sctl::Long>& FourierOrderVec, sctl::Vector<Real>& Xc, sctl::Vector<Real>& eps, sctl::Vector<Real>& orient, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real>& ptcls_rs, const sctl::Vector<Real>& ptcls_Xcs, const int geom_mode, const sctl::Vector<Real> ptcls_thetas, const sctl::Vector<Real> ptcls_phis) {
@@ -1062,7 +1085,7 @@ std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> filter_targets_generic(
   return std::make_tuple(Xout, filtered_inds);
 }
 
-t} // namespace
+} // namespace
 
 template <class Real> std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> PeriodicGeom<Real>::filter_target(const sctl::Vector<Real> X, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real> ptcls_rs, const sctl::Vector<Real> ptcls_Xcs, const int geom_mode) {
   const sctl::Long Nptcl = ptcls.Dim();
@@ -1217,7 +1240,7 @@ inline Real spheroid_axis_length(const Real a, const Real u0, const int if_prola
   return if_prolate ? a * sctl::sqrt(u0 * u0 - 1) : a * sctl::sqrt(u0 * u0 + 1);
 }
 
-t} // namespace
+} // namespace
 
 template <class Real> bool PeriodicGeom<Real>::outside_sphere(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real pr) {
   const Real d = (x1 - pXc1) * (x1 - pXc1) + (x2 - pXc2) * (x2 - pXc2) + (x3 - pXc3) * (x3 - pXc3);
@@ -1336,7 +1359,7 @@ template <class Real> void PeriodicGeom<Real>::packed_sphs_conv_div(sctl::Vector
 
   for (Real x=dx; x < 1.-dx; x+=dx) {
     Real X = x;
-    Real r_channel = geom_profiles::conv_div_radius<Real>(x, r1, r2);
+    Real r_channel = conv_div_radius(x, r1, r2);
     sctl::Long k = 0;
     for (Real z=-r_channel+(2. * ptcl_r); z<r_channel - (2. * ptcl_r); z += dz) {
       sctl::Long row = 0;
@@ -1446,7 +1469,7 @@ template <class Real> void PeriodicGeom<Real>::packed_spheroids_conv_div(sctl::V
     sctl::Vector<Real> phi_here(1, (sctl::Iterator<Real>) phi_all.begin() + n, false);
     sctl::Vector<sctl::Long> if_prolate_here(1, (sctl::Iterator<sctl::Long>) if_prolate_all.begin() + n, false);
 
-    Real channel_r_here = geom_profiles::conv_div_radius<Real>(Xc_here[0], r1, r2);
+    Real channel_r_here = conv_div_radius(Xc_here[0], r1, r2);
     Real major_axis;
     if (if_prolate_here[0]) { // prolate, use C
       major_axis = r_here[0] * u0_here[0];
@@ -1501,7 +1524,7 @@ template <class Real> void PeriodicGeom<Real>::packed_spheres_conv_div(sctl::Vec
     Real x2 = Xc_from_file(i,1);
     Real x3 = Xc_from_file(i,2);
     Real r_here = Xc_from_file(i,3);
-    Real channel_r_here = geom_profiles::conv_div_radius<Real>(x1, r1, r2);
+    Real channel_r_here = conv_div_radius(x1, r1, r2);
     Real Xc_r2 = (x2-0.5)*(x2-0.5) + (x3-0.5)*(x3-0.5);
     // std::cout <<" particle " << i << ", centered at " << x1 << ","<<x2<<","<<x3<<", radius " << r_here << "; channel radius here is " << channel_r_here << std::endl;
     if ((sctl::sqrt<Real>(Xc_r2) + r_here) * buffer < channel_r_here) {
@@ -1530,13 +1553,13 @@ template <class Real> void PeriodicGeom<Real>::packed_sphs_trefoil(sctl::Vector<
   const Real dtheta = sctl::const_pi<Real>() / 3.; // 2pi/6 so 6 spheres in theta direction
 
   for (Real x = dx; x < 1. - dx; x += dx) {
-    const Real r_channel = geom_profiles::trefoil_radius<Real>(x, r_min, r_max);
+    const Real r_channel = trefoil_radius(x, r_min, r_max);
     for (Real r = dr; r < r_channel - 1.2 * ptcl_r; r += dr) {
       for (Real theta = dtheta; theta < 2 * sctl::const_pi<Real>() - dtheta; theta += dtheta) {
         const Real Y = r * sctl::cos<Real>(theta);
         const Real Z = r * sctl::sin<Real>(theta);
         const Real ptcl_r_loc = (drand48() * 0.4 + 0.5) * ptcl_r;
-        const auto [x_trefoil, y_trefoil, z_trefoil] = geom_profiles::trefoil_xyz<Real>(x);
+        const auto [x_trefoil, y_trefoil, z_trefoil] = trefoil_xyz(x);
         if (ptcl_r_loc >= 1e-5) {
           ptcls_Xcs.PushBack(x_trefoil);
           ptcls_Xcs.PushBack(Y + y_trefoil);
@@ -1634,4 +1657,78 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::exact_field_fmm(con
       fmm.Eval(U, "Trg");
     }
     return U;
+}
+
+template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::make_normal_orient(const sctl::Long channel_panels,
+                                                const sctl::Long particle_panels,
+                                                const sctl::Long ElemOrder,
+                                                const sctl::Long FourierOrder,
+                                                const Real channel_sign,
+                                                const Real particle_sign) {
+      sctl::Vector<Real> normal_orient;
+      const sctl::Long channel_nodes = channel_panels * ElemOrder * FourierOrder;
+      const sctl::Long particle_nodes = particle_panels * ElemOrder * FourierOrder;
+
+      for (sctl::Long i = 0; i < channel_nodes * 3; i++) {
+          normal_orient.PushBack(channel_sign);
+      }
+      for (sctl::Long i = 0; i < particle_nodes * 3; i++) {
+          normal_orient.PushBack(particle_sign);
+      }
+
+      return normal_orient;
+  }
+
+// template <class Real> std::tuple<sctl::SlenderElemList<Real>, sctl::Vector<Real>> PeriodicGeom<Real>::build_elem_list(
+//       PeriodicGeom<Real>& geom,
+//       const sctl::Vector<sctl::Long>& ElemOrderVec,
+//       const sctl::Vector<sctl::Long>& FourierOrderVec,
+//       const sctl::Vector<Real>& Xc,
+//       const sctl::Vector<Real>& eps,
+//       const sctl::Vector<Real>& orient,
+//       const sctl::Vector<Real>& normal_orient,
+//       const bool use_orient = false) {
+//       sctl::SlenderElemList<Real> elem_lst;
+//       const auto normal_orient_ = geom.InitElemList(elem_lst, ElemOrderVec, FourierOrderVec, Xc, eps, orient, normal_orient, use_orient);
+//       return std::make_tuple(elem_lst, normal_orient_);
+//   }
+
+template <class Real> Real PeriodicGeom<Real>::conv_div_radius(const Real x, const Real r1, const Real r2) {
+    const Real cutoff1 = 0.25;
+    const Real cutoff2 = 0.35;
+    const Real cutoff3 = 0.65;
+    const Real cutoff4 = 0.75;
+
+    if (x < cutoff1) {
+        return 2 * r1 + r2;
+    } else if (x < cutoff2) {
+        return r1 * sctl::cos<Real>(sctl::const_pi<Real>() * (x - cutoff1) / (cutoff2 - cutoff1)) + r1 + r2;
+    } else if (x < cutoff3) {
+        return r2;
+    } else if (x < cutoff4) {
+        return r1 + r2 - r1 * sctl::cos<Real>(sctl::const_pi<Real>() * (x - cutoff3) / (cutoff4 - cutoff3));
+    }
+
+    return 2 * r1 + r2;
+}
+
+template <class Real> Real PeriodicGeom<Real>::trefoil_radius(const Real x, const Real r_min, const Real r_max) {
+    const Real angle = sctl::const_pi<Real>() * (16. * x - 28. / 3.);
+    return r_min + (r_max - r_min) * (0.5 * sctl::sin<Real>(angle) + 0.5);
+}
+
+template <class Real> std::tuple<Real, Real, Real> PeriodicGeom<Real>::trefoil_xyz(const Real x) {
+    const Real xminus = x - 0.5;
+    const Real x4pi = 4. * sctl::const_pi<Real>() * xminus;
+    const Real x8pi = 2. * x4pi;
+    const Real xminus2 = xminus * xminus;
+    const Real xminus5 = xminus2 * xminus2 * xminus;
+    Real xcoeff = xminus2 * 4. - 1.;
+    xcoeff = xcoeff / 5.;
+
+    const Real x_ = 0.5 * xminus * sctl::cos<Real>(x4pi) + 8. * xminus5 + 0.5;
+    const Real y_ = sctl::sin<Real>(x4pi) * xcoeff + 0.5;
+    const Real z_ = sctl::sin<Real>(x8pi) * xcoeff + 0.5;
+
+    return std::make_tuple(x_, y_, z_);
 }

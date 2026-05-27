@@ -32,16 +32,10 @@ template <class Real> void AddConstVec(sctl::Vector<Real>& vals,
     }
 }
 
-template <class Real>
+template <class Real, class ElemLstType> 
 class MeanCorrectedStokesBIOOperator {
   public:
     using DensityGetter = std::function<void(sctl::Vector<Real>&, const sctl::Vector<Real>&)>;
-
-    struct SurfaceSpec {
-        DensityGetter density_getter;
-        sctl::Vector<Real> weights;
-        Real surface_area;
-    };
 
     MeanCorrectedStokesBIOOperator(StokesBIO<Real>& bio,
                                    const sctl::Vector<Real>& normal_orient,
@@ -49,14 +43,7 @@ class MeanCorrectedStokesBIOOperator {
                                    const sctl::Comm& comm,
                                    const Real double_layer_sign = -1.0);
 
-    void AddSurface(const DensityGetter& density_getter,
-                    const sctl::Vector<Real>& weights,
-                    const Real surface_area);
-
-    template <class ElemLstType>
-    void AddSurface(const ElemLstType& elem_lst,
-                    const sctl::Vector<Real>& weights,
-                    const Real surface_area);
+    void AddSurface(const ElemLstType& elem_lst);
 
     void Apply(sctl::Vector<Real>& U, const sctl::Vector<Real>& sigma) const;
 
@@ -77,13 +64,13 @@ class MeanCorrectedStokesBIOOperator {
     Real dl_scal_;
     Real double_layer_sign_;
     sctl::Comm comm_;
-    std::vector<SurfaceSpec> surfaces_;
+    sctl::Vector<ElemLstType> surfaces_;
 };
 
-template <class Real>
+template <class Real, class ElemLstType>
 class PreconditionedMeanCorrectedStokesBIOOperator {
   public:
-    PreconditionedMeanCorrectedStokesBIOOperator(const MeanCorrectedStokesBIOOperator<Real>& bio,
+    PreconditionedMeanCorrectedStokesBIOOperator(const MeanCorrectedStokesBIOOperator<Real, ElemLstType>& bio,
                                                  const sctl::Matrix<Real>& precond_mat0,
                                                  const sctl::Matrix<Real>& precond_mat1,
                                                  const sctl::Long A11size);
@@ -97,7 +84,7 @@ class PreconditionedMeanCorrectedStokesBIOOperator {
     sctl::Vector<Real> ApplyAinv(const sctl::Vector<Real>& vec) const;
 
   private:
-    const MeanCorrectedStokesBIOOperator<Real>& bio_;
+    const MeanCorrectedStokesBIOOperator<Real, ElemLstType>& bio_;
     sctl::Matrix<Real> precond_mat0_;
     sctl::Matrix<Real> precond_mat1_;
     sctl::Long A11size_;

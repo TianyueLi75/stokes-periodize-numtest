@@ -1,3 +1,32 @@
+/**
+ * Background flow with unit pressure gradient along X-axis.
+ */
+template <class Real> sctl::Vector<Real> bg_flow_1peri(const sctl::Vector<Real>& X) {
+    const sctl::Long N = X.Dim()/3;
+    sctl::Vector<Real> U(N*3);
+    for (sctl::Long i = 0; i < N; i++) {
+        const auto x = X.begin() + i*3;
+        U[i*3+0] = - ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
+        U[i*3+1] = 0;
+        U[i*3+2] = 0;
+    }
+    return U;
+}
+
+template <class Real> sctl::Vector<Real> bg_flow_2peri(const sctl::Vector<Real>& X) {
+    const sctl::Long N = X.Dim()/3;
+    sctl::Vector<Real> U(N*3);
+    for (sctl::Long i = 0; i < N; i++) {
+        const auto x = X.begin() + i*3;
+        U[i*3+0] = - 0.5 * ((x[2]-0.5)*(x[2]-0.5));
+        U[i*3+1] = 0;
+        U[i*3+2] = 0;
+    }
+    return U;
+}
+
+
+
 template <class Real> sctl::Vector<Real> GetVslip(const sctl::Vector<Real>& ptcls_Xnsurf, const sctl::Vector<Real>& ptcls_Xcs, const sctl::Vector<Real>& ptcls_sizes, const sctl::Vector<Real>& ptcls_u0s, const sctl::Vector<Real>& ptcls_thetas, const sctl::Vector<Real>& ptcls_phis, const sctl::Vector<sctl::Long>& ptcls_ifprolate, const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder) {
     const sctl::Long Nnodes_per_ptcl = Nelem * ElemOrder * FourierOrder;
     const sctl::Long Nptcls = ptcls_sizes.Dim();
@@ -244,8 +273,4 @@ template <class Real> void renormalize_error(sctl::Vector<Real>& err, sctl::Comm
     // avg err
     sctl::Vector<Real> avg_err = sum_err / Nnodes_all[0];
     AddConstVec(err,-avg_err); // relative error with offset: max ((Ucalc - C) - Uexact) / Uexact, since C = Ucalc_exact - Uexact ~ E[Ucalc - Uexact]
-    // std::cout << "avg err: " << avg_err[0] << ", " << avg_err[1] << ", " << avg_err[2] << std::endl;
-    // for (int i=0; i<err.Dim()/3; i++) {
-    //     std::cout << "err after subtracting avg err: " << std::setprecision(10) << err[i*3+0] << ", " << err[i*3+1] << ", " << err[i*3+2] << ". " << std::endl;
-    // }
 }
