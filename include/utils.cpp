@@ -552,12 +552,12 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
     ptcls_ = ptcl_ord;
     ptcls.Swap(ptcls_);
     
-    // // DEBUGGING: remove rotation
-    // ptcls_thetas.ReInit(ptcls_rs.Dim());
-    // ptcls_phis.ReInit(ptcls_rs.Dim());
-    // ptcls_thetas.SetZero();
-    // ptcls_phis.SetZero();
-    // ///////////////////////////
+    // DEBUGGING: remove rotation
+    ptcls_thetas.ReInit(ptcls_rs.Dim());
+    ptcls_phis.ReInit(ptcls_rs.Dim());
+    ptcls_thetas.SetZero();
+    ptcls_phis.SetZero();
+    ///////////////////////////
     
     // add_spheroids_rotated(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs, ptcls_u0s, ptcls_thetas, ptcls_phis, ptcls_ifprolate);
     // add_particles(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs, 0); // CHOCO FEB 2026: DEBUG VSLIP with spheres

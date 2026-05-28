@@ -99,6 +99,7 @@ timing: ${BINDIR}/test2
 
 # Timing call for precompute
 timing_precomp: ${BINDIR}/precompute_time
+timing_periodization: ${BINDIR}/periodization_time
 
 # Test accuracy of particle periodic code by manufactured solutions
 test_manufactured_soln: $(BINDIR)/test2_ptcl_conv
