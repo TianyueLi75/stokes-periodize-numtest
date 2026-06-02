@@ -151,7 +151,7 @@ template <class Real> void test1peri_channel(sctl::Long Nelem_channel, sctl::Lon
             X0[Ntrg_nodeind * 3 + 0] = 0.;
             X0[Ntrg_nodeind * 3 + 1] = 0.5-side_len/2.+(yind+1)*gap;
             X0[Ntrg_nodeind * 3 + 2] = 0.5-side_len/2.+(zind+1)*gap;
-            X1[Ntrg_nodeind * 3 + 0] = 1.;
+            X1[Ntrg_nodeind * 3 + 0] = 0.99999999;
             X1[Ntrg_nodeind * 3 + 1] = 0.5-side_len/2.+(yind+1)*gap;
             X1[Ntrg_nodeind * 3 + 2] = 0.5-side_len/2.+(zind+1)*gap;
         }
@@ -433,7 +433,7 @@ template <class Real> void test2peri_plane(sctl::Long Nelem, sctl::Long FourierO
                 X0[Ntrg_nodeind * 3 + 0] = 0.;
                 X0[Ntrg_nodeind * 3 + 1] = (yind+3)*gap; // Shift to start further from the plates.
                 X0[Ntrg_nodeind * 3 + 2] = (zind+3)*gap;
-                X1[Ntrg_nodeind * 3 + 0] = 1.;
+                X1[Ntrg_nodeind * 3 + 0] = 0.9999999999;
                 X1[Ntrg_nodeind * 3 + 1] = (yind+3)*gap;
                 X1[Ntrg_nodeind * 3 + 2] = (zind+3)*gap;
                 
@@ -465,7 +465,7 @@ template <class Real> void test2peri_plane(sctl::Long Nelem, sctl::Long FourierO
                 Y0[Ntrg_nodeind * 3 + 1] = 0.;
                 Y0[Ntrg_nodeind * 3 + 2] = (zind+3)*gap;
                 Y1[Ntrg_nodeind * 3 + 0] = (xind+3)*gap;
-                Y1[Ntrg_nodeind * 3 + 1] = 1.;
+                Y1[Ntrg_nodeind * 3 + 1] = 0.9999999999;
                 Y1[Ntrg_nodeind * 3 + 2] = (zind+3)*gap;
             }
         }
