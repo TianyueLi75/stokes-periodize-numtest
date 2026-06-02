@@ -223,6 +223,210 @@ template <class Real> void renormalize_error(sctl::Vector<Real>& err, sctl::Comm
     // }
 }
 
+/**
+ * Build element list for a straight channel with a sphere inside.
+ */
+template <class Real> sctl::SlenderElemList<Real> build_elem_lst(const sctl::Long Nelem_sphere, const sctl::Long ElemOrder, const sctl::Long FourierOrder, sctl::Vector<Real>* NormalOrient_ptr = nullptr) {
+    sctl::Vector<Real> Xc, eps, orient;
+    sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
+    sctl::Long Nelem_channel = 20;
+    for (sctl::Long i = 0; i < Nelem_channel; i++) {
+        ElemOrderVec.PushBack(ElemOrder);
+        FourierOrderVec.PushBack(FourierOrder);
+        const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrderVec[i]);
+        for (sctl::Long j = 0; j < ElemOrderVec[i]; j++) {
+            const Real x = (i+nodes[j])/Nelem_channel;
+            Xc.PushBack(x);
+            Xc.PushBack(0.5);
+            Xc.PushBack(0.5);
+            eps.PushBack(0.2);
+
+            orient.PushBack(0);
+            orient.PushBack(0);
+            orient.PushBack(1);
+        }
+    }
+
+    for (sctl::Long i = 0; i < Nelem_sphere; i++) { // add a sphere
+        ElemOrderVec.PushBack(ElemOrder);
+        FourierOrderVec.PushBack(FourierOrder);
+        const sctl::Vector<Real>& nodes = sctl::SlenderElemList<Real>::CenterlineNodes(ElemOrderVec[i]);
+        for (sctl::Long j = 0; j < ElemOrderVec[i]; j++) {
+            const Real r = 0.1;
+            const Real theta = sctl::const_pi<Real>() * (i+nodes[j])/Nelem_sphere;
+            Xc.PushBack(0.5+r*sctl::cos<Real>(theta));
+            Xc.PushBack(0.5);
+            Xc.PushBack(0.5);
+            eps.PushBack(r*sctl::sin<Real>(theta));
+
+            orient.PushBack(0);
+            orient.PushBack(0);
+            orient.PushBack(1);
+        }
+    }
+
+    sctl::SlenderElemList<Real> elem_lst0(ElemOrderVec, FourierOrderVec, Xc, eps, orient);
+
+    if (NormalOrient_ptr != nullptr) {
+        NormalOrient_ptr->ReInit(0);
+        constexpr sctl::Integer COORD_DIM = 3;
+        sctl::Vector<sctl::Long> elem_wise_node_cnt;
+        elem_lst0.GetNodeCoord(nullptr, nullptr, &elem_wise_node_cnt);
+        for (sctl::Long i = 0; i < elem_wise_node_cnt.Dim(); i++) {
+            for (sctl::Long j = 0; j < elem_wise_node_cnt[i]*COORD_DIM; j++) {
+                NormalOrient_ptr->PushBack(i < Nelem_channel ? -1 : 1);
+            }
+        }
+    }
+
+    return elem_lst0;
+}
+
+// self convergence test for a straight channel with a sphere
+template <class Real> void channel_sphere_self_conv(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Comm comm, const Real tol, const Real gmres_tol) {
+    // Combine single-layer and double-layer kernels in these proportions
+    const Real SL_scal = 1.0;
+    const Real DL_scal = 1.0;
+
+    const Real pressure_drop = -1.0;
+    const Real period_length = 1;
+
+    const sctl::Long gmres_max_iter = 200;
+    const sctl::Long ElemOrder = 10;
+
+    sctl::Vector<Real> NormalOrient; // normal orientation (1 if normal into fluid, else -1)
+    const auto elem_lst0 = build_elem_lst(Nelem, ElemOrder, FourierOrder, &NormalOrient); // geometry in the unit box [0,1]^3
+    // Hardcode the properties of the centered sphere.
+    sctl::Vector<sctl::Long> ptcls(1);
+    ptcls = Nelem;
+    sctl::Vector<Real> ptcls_rs(1);
+    ptcls_rs = 0.1;
+    sctl::Vector<Real> ptcls_Xcs(3);
+    ptcls_Xcs = 0.5;
+
+    Real surface_area;
+    sctl::Vector<Real> X0, wts;
+    elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
+    sctl::Vector<Real> X0surf = X0;
+    if (write_ref) {
+        elem_lst0.WriteVTK("vis/channel_sphere",X0surf,comm);
+    }  
+    { // get wts and surface area
+        sctl::Vector<Real> X, Xn, dist_far, surface_area_;
+        sctl::Vector<sctl::Long> element_wise_node_cnt;
+        elem_lst0.GetFarFieldNodes(X, Xn, wts, dist_far, element_wise_node_cnt, 1);
+        SurfaceIntegral(surface_area_, wts*0+1, wts);
+        // MPI
+        sctl::Vector<Real> sa_loc(1);
+        sa_loc[0] = surface_area_[0];
+        sctl::Vector<Real> sa_all(1);
+        sa_all[0] = 0;
+        comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
+        surface_area = sa_all[0];
+        // surface_area = surface_area_[0];
+    }
+
+    StokesBIO<Real> LayerPotenOp0(SL_scal, DL_scal, comm);
+    LayerPotenOp0.AddElemList(elem_lst0);
+    LayerPotenOp0.SetAccuracy(tol);
+    LayerPotenOp0.SetTargetCoord(X0surf);
+    LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, period_length);
+
+    // Define the boundary-integral operator: (I/2 + D + S)[sigma-sigma_mean] + sigma_mean
+    const auto BIO = [&wts,&surface_area,&elem_lst0,&LayerPotenOp0,&DL_scal,&NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        sctl::Vector<Real> sigma_mean, sigma0;
+        { // compute sigma_mean and sigma0 = sigma - sigma_mean
+            sctl::Vector<Real> sigma_;
+            elem_lst0.GetFarFieldDensity(sigma_, sigma);
+            SurfaceIntegral(sigma_mean, sigma_, wts);
+            //MPI
+            sctl::Vector<Real> sa_loc = sigma_mean;
+            sctl::Vector<Real> sa_all(3);
+            sa_all = 0;
+            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
+            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+1, (sctl::Iterator<Real>) sa_all.begin()+1, 1, sctl::CommOp::SUM);
+            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+2, (sctl::Iterator<Real>) sa_all.begin()+2, 1, sctl::CommOp::SUM);
+            sigma_mean = sa_all;
+            sigma_mean *= (1/surface_area);
+
+            sigma0 = sigma;
+            AddConstVec(sigma0, -sigma_mean);
+        }
+
+        U->SetZero();
+        LayerPotenOp0.ComputePotential(*U, sigma0);
+        if (DL_scal && U->Dim() == sigma.Dim()) (*U) += sigma0*0.5*NormalOrient * DL_scal; // for double-layer
+
+        AddConstVec(*U, sigma_mean);
+    };
+
+    sctl::Vector<Real> U, sigma;
+    sctl::GMRES<Real> solver(comm);
+    solver(&sigma, BIO, bg_flow(X0surf) * (pressure_drop/period_length), gmres_tol, gmres_max_iter);
+
+    { // Evaluate in interior, and write visualization
+        PeriodicGeom<Real> trg;
+        VolumeVis<Real> vol_vis(elem_lst0, comm);
+        sctl::Vector<Real> X0_all = vol_vis.GetCoord();
+        sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
+        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, 0);
+        X0 = std::get<0>(trg_tuple);
+        filtered_inds = std::get<1>(trg_tuple);
+        LayerPotenOp0.SetTargetCoord(X0);
+        BIO(&U, sigma);
+        U -= bg_flow(X0) * (pressure_drop/period_length);
+
+        std::string filename = "Channel_sphere_1peri_U_exact_"+std::to_string(comm.Rank());
+        std::string filename_out = "out/"+filename+".txt";
+        std::string filename_vis = "vis/"+filename;
+        if (write_ref) {
+            
+            U.Write(filename_out.c_str());
+            // Create array of velocity for all target points, including filtered out ones.
+            sctl::Vector<Real> U_vis(X0_all.Dim());
+            U_vis = 0.;
+            sctl::Long X1_ptr = 0;
+            for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+                if (filtered_inds[i] == 0) {
+                    U_vis[i*3] = U[X1_ptr*3];
+                    U_vis[i*3+1] = U[X1_ptr*3+1];
+                    U_vis[i*3+2] = U[X1_ptr*3+2];
+                    X1_ptr += 1;
+                }
+            }
+            // Write visualization to VTK
+            vol_vis.WriteVTK(filename_vis, U_vis);
+
+        } else {
+
+            sctl::Vector<Real> U_ref;
+            U_ref.Read(filename_out.c_str());
+            sctl::Vector<Real> err = U - U_ref;
+            renormalize_error(err,comm);
+            double max_err = 0;
+            for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
+            Real max_u = 0.;
+            for (const auto e : U_ref) max_u = std::max<Real>(max_u, sctl::fabs(e));
+
+            sctl::Vector<Real> err_loc(1);
+            err_loc[0] = max_err;
+            sctl::Vector<Real> err_all(1);
+            err_all[0] = 0;
+            comm.Allreduce((sctl::Iterator<Real>) err_loc.begin(), (sctl::Iterator<Real>) err_all.begin(), 1, sctl::CommOp::MAX);
+            
+            sctl::Vector<Real> u_loc(1);
+            u_loc[0] = max_u;
+            sctl::Vector<Real> u_all(1);
+            u_all[0] = 0.;
+            comm.Allreduce((sctl::Iterator<Real>) u_loc.begin(), (sctl::Iterator<Real>) u_all.begin(), 1, sctl::CommOp::MAX);
+
+            if (!comm.Rank()) {
+                std::cout<<"Max error = "<< std::setprecision(10) << err_all[0] << ", Max u = " << u_all[0] << ", Max relative error = " << err_all[0] / u_all[0] << std::endl;
+            }
+        }
+    }
+}
+
 // Trefoil knot channel without particles
 template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Comm comm, const Real tol, const Real gmres_tol) {
 
@@ -1589,7 +1793,7 @@ int main(int argc, char** argv) {
   {
     // sctl::Profile::Enable(true);
     sctl::Comm comm = sctl::Comm::World();
-    long test_mode = std::stol(argv[1]); // =0 for trefoil, =1 for particle; =2 for conv div, =3 for trefoil with particle. =4 for 2peri plane with particle(s)
+    long test_mode = std::stol(argv[1]); // =0 for trefoil, =1 for particle; =2 for conv div, =3 for trefoil with particle. =4 for 2peri plane with particle(s); =5 for 1peri with sphere
     long peri_mode = std::stol(argv[2]); // 1-, 2-, or 3- periodic
     long Nptcl = std::stol(argv[3]); // Number of particles, for tests 1 and 4
     long geom_mode = std::stol(argv[4]); // type of particles, for test 4.
@@ -1607,17 +1811,20 @@ int main(int argc, char** argv) {
         // FourierOrder_lst.PushBack(64);
         FourierOrder_lst.PushBack(80);
         FourierOrder_lst.PushBack(96); 
-    } else if (test_mode == 1) { // particle self conv
-        // if (Nptcl < 10) {
-        //     for (int i=1; i<4; i += 2) {
-        //         Nelem_lst.PushBack(2*i);
-        //     }
+    } else if (test_mode == 1 || test_mode == 5) { // particle self conv or channle with one particle
+        if (Nptcl < 10) {
+            for (int i=1; i<6; i += 2) {
+                Nelem_lst.PushBack(2*i); 
+            }
+            Nelem_lst.PushBack(18); // Np = 2, 6, 10, 18
 
-        //     FourierOrder_lst.PushBack(4);
-        //     FourierOrder_lst.PushBack(16);
-        //     FourierOrder_lst.PushBack(32);
-        //     FourierOrder_lst.PushBack(64);
-        // } else { // larger parameters for the more dense system of 25 particles
+            FourierOrder_lst.PushBack(4);
+            FourierOrder_lst.PushBack(16);
+            FourierOrder_lst.PushBack(32);
+            FourierOrder_lst.PushBack(64);
+            FourierOrder_lst.PushBack(80);
+            FourierOrder_lst.PushBack(96);
+        } else { // larger parameters for the more dense system of 25 particles
             for (int i=1; i<11; i += 2) {
                 Nelem_lst.PushBack(2*i);
             }
@@ -1627,7 +1834,7 @@ int main(int argc, char** argv) {
             FourierOrder_lst.PushBack(64);
             FourierOrder_lst.PushBack(80);
             FourierOrder_lst.PushBack(96);
-        // }
+        }
 
         
     } else if (test_mode == 2) { // convdiv with particles
@@ -1697,6 +1904,8 @@ int main(int argc, char** argv) {
                     trefoil_ptcl_self_conv<Real>(Nelem, FourierOrder, true, comm, tol, gmres_tol);
                 } else if (test_mode==4) {
                     plane_ptcl_self_conv<Real>(Nelem, FourierOrder, true, Nptcl, geom_mode, comm, tol, gmres_tol);
+                } else if (test_mode==5) {
+                    channel_sphere_self_conv<Real>(Nelem, FourierOrder, true, comm, tol, gmres_tol);
                 } else {
                     SCTL_ASSERT(false);
                 }
@@ -1719,6 +1928,8 @@ int main(int argc, char** argv) {
                     trefoil_ptcl_self_conv<Real>(Nelem, FourierOrder, false, comm, tol, gmres_tol);
                 } else if (test_mode==4) {
                     plane_ptcl_self_conv<Real>(Nelem, FourierOrder, false, Nptcl, geom_mode, comm, tol, gmres_tol);
+                } else if (test_mode==5) {
+                    channel_sphere_self_conv<Real>(Nelem, FourierOrder, false, comm, tol, gmres_tol);
                 } else {
                     SCTL_ASSERT(false);
                 }

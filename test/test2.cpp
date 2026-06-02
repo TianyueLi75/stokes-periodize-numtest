@@ -304,7 +304,7 @@ template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder,
         sctl::Long Nptcl_slip = elem_lst0.Size() / Nelem; // Number of particles on current MPI process
         sctl::Vector<Real> ptcls_Xcs_slip(Nptcl_slip * 3, (sctl::Iterator<Real>)ptcls_Xcs.begin() + comm.Rank()*Nptcl_slip*3, true); // Assumes same number of particles on previous processes
         sctl::Vector<Real> ptcls_rs_slip(Nptcl_slip,  (sctl::Iterator<Real>)ptcls_rs.begin()+comm.Rank()*Nptcl_slip, true);
-        sctl::Vector<Real> Uslip = total_vslip(X0, ptcl_gridsize, Nptcl_slip, ptcls_Xcs_slip, ptcls_rs_slip); // Compute slip for only particles stored on current MPI process
+        Uslip = total_vslip(X0, ptcl_gridsize, Nptcl_slip, ptcls_Xcs_slip, ptcls_rs_slip); // Compute slip for only particles stored on current MPI process
         if (write_ref) {
             elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_vslip", Uslip, comm);
         }  
@@ -546,7 +546,7 @@ template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder,
     // =============== Visualization =======================================
     if (write_ref) { 
         PeriodicGeom<Real> trg;    
-        CubeVolumeVisShifted<Real> vol_vis(80, 0.95, comm);
+        CubeVolumeVisShifted<Real> vol_vis(20, 0.95, comm);
         // Filter out target points inside spheres 
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
         sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
@@ -567,6 +567,7 @@ template <class Real> void timing_run(sctl::Long Nelem, sctl::Long FourierOrder,
 
         sctl::Vector<Real> U_vis(X0_all.Dim());
         U_vis = 0.;
+        // U_vis = std::nan("");
         sctl::Long X1_ptr = 0;
         for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
             if (filtered_inds[i] == 0) {
@@ -616,6 +617,7 @@ int main(int argc, char** argv) {
         double tol = std::stod(argv[8]);
 
         timing_run<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, (bc_slip==1), comm, Nptcl, gmres_tol, tol);
+        // plot_setup<Real>(Nelem_ptcl, FourierOrder, comm, Nptcl);
     }
 
     sctl::Comm::MPI_Finalize();

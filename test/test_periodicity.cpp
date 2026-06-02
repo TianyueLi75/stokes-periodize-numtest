@@ -151,7 +151,7 @@ template <class Real> void test1peri_channel(sctl::Long Nelem_channel, sctl::Lon
             X0[Ntrg_nodeind * 3 + 0] = 0.;
             X0[Ntrg_nodeind * 3 + 1] = 0.5-side_len/2.+(yind+1)*gap;
             X0[Ntrg_nodeind * 3 + 2] = 0.5-side_len/2.+(zind+1)*gap;
-            X1[Ntrg_nodeind * 3 + 0] = 1.;
+            X1[Ntrg_nodeind * 3 + 0] = 0.99999999;
             X1[Ntrg_nodeind * 3 + 1] = 0.5-side_len/2.+(yind+1)*gap;
             X1[Ntrg_nodeind * 3 + 2] = 0.5-side_len/2.+(zind+1)*gap;
         }
@@ -433,7 +433,7 @@ template <class Real> void test2peri_plane(sctl::Long Nelem, sctl::Long FourierO
                 X0[Ntrg_nodeind * 3 + 0] = 0.;
                 X0[Ntrg_nodeind * 3 + 1] = (yind+3)*gap; // Shift to start further from the plates.
                 X0[Ntrg_nodeind * 3 + 2] = (zind+3)*gap;
-                X1[Ntrg_nodeind * 3 + 0] = 1.;
+                X1[Ntrg_nodeind * 3 + 0] = 0.99999999;
                 X1[Ntrg_nodeind * 3 + 1] = (yind+3)*gap;
                 X1[Ntrg_nodeind * 3 + 2] = (zind+3)*gap;
                 
@@ -465,7 +465,7 @@ template <class Real> void test2peri_plane(sctl::Long Nelem, sctl::Long FourierO
                 Y0[Ntrg_nodeind * 3 + 1] = 0.;
                 Y0[Ntrg_nodeind * 3 + 2] = (zind+3)*gap;
                 Y1[Ntrg_nodeind * 3 + 0] = (xind+3)*gap;
-                Y1[Ntrg_nodeind * 3 + 1] = 1.;
+                Y1[Ntrg_nodeind * 3 + 1] = 0.999999999;
                 Y1[Ntrg_nodeind * 3 + 2] = (zind+3)*gap;
             }
         }
@@ -636,24 +636,11 @@ template <class Real> void test3peri(sctl::Long Nelem, sctl::Long FourierOrder, 
         return U0;
     };
 
-    const auto eval_rhs2 = [](const sctl::Vector<Real>& X) {
-        const sctl::Long N = X.Dim()/3;
-        sctl::Vector<Real> U(N*3);
-        for (sctl::Long i = 0; i < N; i++) {
-            const auto x = X.begin() + i*3;
-            U[i*3+0] = - ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5)) / 4;
-            U[i*3+1] = 0;
-            U[i*3+2] = 0;
-        }
-        return U;
-    };
-
     // first gmres to remove timing for matrix loading, and set Krylov preconditioner.
     sctl::GMRES<Real> solver(comm);
     sctl::Vector<Real> sigma;
     LayerPotenOp0.SetTargetCoord(X0);
     solver(&sigma, BIO, eval_rhs(pressure_drop), gmres_tol);
-    // solver(&sigma, BIO, eval_rhs2(X0), gmres_tol);
 
     {
         PeriodicGeom<Real> trg;    
@@ -669,7 +656,6 @@ template <class Real> void test3peri(sctl::Long Nelem, sctl::Long FourierOrder, 
         sctl::Vector<Real> U;
         BIO(&U, sigma);
         U -= eval_rhs(pressure_drop);
-        // U -= eval_rhs2(X0);
 
         sctl::Vector<Real> U_vis(X0_all.Dim());
         U_vis = 0.;

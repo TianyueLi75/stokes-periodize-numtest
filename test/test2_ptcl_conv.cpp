@@ -55,6 +55,83 @@ template <class Real> sctl::Vector<Real> exact_field(const sctl::Vector<Real>& X
     return U;
 }
 
+// First check that two 
+template <class Real> void exact_field_check(sctl::Comm comm, sctl::Long Nptcl, const sctl::Long geom_mode, const sctl::Long Ncopy1, const sctl::Long Ncopy2) {
+    const sctl::Long Nelem = 4;
+    const sctl::Long FourierOrder = 64;
+    const sctl::Long ElemOrder = 10;
+    PeriodicGeom<Real> obj;
+    sctl::Vector<sctl::Long> ptcls;
+    sctl::Vector<Real> ptcls_Xcs;
+    sctl::Vector<Real> ptcls_rs;
+    sctl::SlenderElemList<Real> elem_lst0;
+    sctl::Vector<Real> NormalOrient;
+    if (Nptcl == 1) {
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+    } else if (Nptcl == 3) {
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+    } else { 
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+    }
+    Nptcl = ptcls_rs.Dim(); 
+    sctl::Vector<Real> X0; // target coordinates
+    elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
+
+    sctl::Long Ncharge;
+    if (Nptcl < 150) {
+        // two equal and opposite charges per particle
+        Ncharge = 2*Nptcl;
+    } else {
+        // only first 150 particles get charges inside. (arbitrary, to limit true solution timing)
+        Ncharge = 2*150;
+    }
+    // Currently one Stokeslet doublet per particle (for a simple net-force-zero scenario)
+    sctl::Vector<Real> Xsrc(Ncharge*3);
+    sctl::Vector<Real> Stokeslet_sigma(Ncharge*3);
+    srand48(2);
+    for (sctl::Long i=0; i<Ncharge/2; i++) {
+
+        const Real disp = 0.2 * ptcls_rs[i];
+        const Real disp_y = disp * drand48();
+        const Real disp_z = disp * drand48();
+        const Real rand_mag = drand48()-0.5;
+        Xsrc[i*6+0] = ptcls_Xcs[i*3+0];
+        Xsrc[i*6+1] = ptcls_Xcs[i*3+1] + disp_y;
+        Xsrc[i*6+2] = ptcls_Xcs[i*3+2] + disp_z;
+        Stokeslet_sigma[i*6+0] = 0.; 
+        Stokeslet_sigma[i*6+1] = -rand_mag * disp_y; 
+        Stokeslet_sigma[i*6+2] = -rand_mag * disp_z; 
+        Xsrc[i*6+3] = ptcls_Xcs[i*3+0];
+        Xsrc[i*6+4] = ptcls_Xcs[i*3+1] - disp_y;
+        Xsrc[i*6+5] = ptcls_Xcs[i*3+2] - disp_z;
+        Stokeslet_sigma[i*6+3] = 0.; 
+        Stokeslet_sigma[i*6+4] = rand_mag * disp_y; 
+        Stokeslet_sigma[i*6+5] = rand_mag * disp_z; 
+        
+    }
+
+    PeriodicGeom<Real> trg;    
+    CubeVolumeVisShifted<Real> vol_vis(10, 0.95, comm);
+    X0 = vol_vis.GetCoord();
+    
+    sctl::Vector<Real> field_on_surf_1 = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy1);
+    sctl::Vector<Real> field_on_surf_2 = exact_field(X0, Xsrc, Stokeslet_sigma, Ncopy2);
+    sctl::Vector<Real> diff = field_on_surf_1 - field_on_surf_2;
+    Real max_err = 0.;
+    Real max_field1 = 0.;
+    for (const auto d : diff) max_err = std::max(std::abs(d), max_err);
+    for (const auto d : field_on_surf_1) max_field1 = std::max(std::abs(d), max_field1);
+    Real max_rel_err = max_err / max_field1;
+
+    std::cout << "max relative error between Ncopy1 = " << Ncopy1 << " and " << Ncopy2 << " is " << std::setprecision(15) << max_rel_err << std::endl;
+}
+
 template <class Real> void manufactured_soln_1peri(sctl::Long Nelem, sctl::Long FourierOrder, sctl::Comm comm, sctl::Long Nptcl, sctl::Long geom_mode, sctl::Long Ncopy) {
 
     std::cout << "Nelem = " << Nelem << ", Fourier = " << FourierOrder << std::endl;
@@ -130,14 +207,14 @@ template <class Real> void manufactured_soln_1peri(sctl::Long Nelem, sctl::Long 
 
     // Create point charges at random locations close to particle center, by a distance of at most 0.2r.
     sctl::Long Ncharge;
-    // if (Nptcl < 150) {
-    //     // two equal and opposite charges per particle
-    //     Ncharge = 2*Nptcl;
-    // } else {
-    //     // only first 150 particles get charges inside. (arbitrary, to limit true solution timing)
-    //     Ncharge = 2*150;
-    // }
-    Ncharge = 2;
+    if (Nptcl < 150) {
+        // two equal and opposite charges per particle
+        Ncharge = 2*Nptcl;
+    } else {
+        // only first 150 particles get charges inside. (arbitrary, to limit true solution timing)
+        Ncharge = 2*150;
+    }
+    // Ncharge = 2;
     // Currently one Stokeslet doublet per particle (for a simple net-force-zero scenario)
     sctl::Vector<Real> Xsrc(Ncharge*3);
     sctl::Vector<Real> Stokeslet_sigma(Ncharge*3);
@@ -208,96 +285,96 @@ template <class Real> void manufactured_soln_1peri(sctl::Long Nelem, sctl::Long 
         AddConstVec(*U, sigma_mean);
     };
 
-    // // =============== PRECONDITIONING =======================================
-    // // Store preconditioner matrix, or make new if not present.
-    // std::string precond0_file = "data/precond0_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
-    // std::string precond1_file = "data/precond1_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
-    // sctl::Matrix<Real> PrecondMat0, PrecondMat1;
-    // PrecondMat0.template Read<Real>(precond0_file.c_str());
+    // =============== PRECONDITIONING =======================================
+    // Store preconditioner matrix, or make new if not present.
+    std::string precond0_file = "data/precond0_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
+    std::string precond1_file = "data/precond1_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
+    sctl::Matrix<Real> PrecondMat0, PrecondMat1;
+    PrecondMat0.template Read<Real>(precond0_file.c_str());
 
-    // sctl::Long A11size;
+    sctl::Long A11size;
 
-    // comm.Barrier();
-    // if (PrecondMat0.Dim(0) || PrecondMat0.Dim(1)) {
-    //     std::cout << " successfully read file." << std::endl;
-    //     PrecondMat1.template Read<Real>(precond1_file.c_str());
-    //     A11size = PrecondMat0.Dim(1);
-    // } else {
-    //     std::cout << " Making precond files " << std::endl;
-    //     sctl::Vector<sctl::Long> ptcls_pre;
-    //     sctl::Vector<Real> ptcls_Xcs_pre, ptcls_rs_pre;
-    //     std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, geom_mode);
-    //     sctl::SlenderElemList<Real> elem_lst_precond = std::get<0>(build_precond);
-    //     sctl::Vector<Real> X0_precond; // target coordinates
-    //     elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
-    //     StokesBIO Precond_bio(SL_scal, DL_scal, comm.Self());
-    //     Precond_bio.SetAccuracy(tol); // set quadrature accuracy
-    //     Precond_bio.AddElemList(elem_lst_precond);
-    //     Precond_bio.SetTargetCoord(X0_precond);
-    //     const auto BIO_1ptcl = [&DL_scal,&Precond_bio](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //         U->SetZero();
-    //         Precond_bio.ComputePotential(*U, sigma);
-    //         (*U) += sigma * 0.5 * DL_scal;
-    //     };
-    //     A11size = 3*ElemOrder*FourierOrder*Nelem;
-    //     sctl::Vector<sctl::Vector<Real>> PrecondMat(A11size);
-    //     sctl::Vector<Real> SigmaCol_precond(A11size);
-    //     for (sctl::Long col=0; col < A11size; col ++) {
-    //         SigmaCol_precond = 0.;
-    //         SigmaCol_precond[col] = 1.;
-    //         BIO_1ptcl(PrecondMat.begin() + col,SigmaCol_precond);
-    //     }
-    //     sctl::Matrix<Real> A11(A11size,A11size);
-    //     for (long col=0; col < A11size; col++) {
-    //         for (long row = 0; row < A11size; row++) {
-    //             A11(row,col) = PrecondMat[col][row];
-    //         }
-    //     }      
-    //     sctl::Matrix<Real> Usvd, VT, S, SforInv;
-    //     sctl::Matrix<Real> A11forSVD = sctl::Matrix<Real>(A11);
-    //     A11forSVD.SVD(Usvd, S, VT);
-    //     SforInv = sctl::Matrix<Real>(S);
-    //     sctl::Matrix<Real> Sinv = SforInv.pinv(1e-16);
+    comm.Barrier();
+    if (PrecondMat0.Dim(0) || PrecondMat0.Dim(1)) {
+        std::cout << " successfully read file." << std::endl;
+        PrecondMat1.template Read<Real>(precond1_file.c_str());
+        A11size = PrecondMat0.Dim(1);
+    } else {
+        std::cout << " Making precond files " << std::endl;
+        sctl::Vector<sctl::Long> ptcls_pre;
+        sctl::Vector<Real> ptcls_Xcs_pre, ptcls_rs_pre;
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_precond = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm.Self(), ptcls_pre, ptcls_rs_pre, ptcls_Xcs_pre, geom_mode);
+        sctl::SlenderElemList<Real> elem_lst_precond = std::get<0>(build_precond);
+        sctl::Vector<Real> X0_precond; // target coordinates
+        elem_lst_precond.GetNodeCoord(&X0_precond, nullptr, nullptr);
+        StokesBIO Precond_bio(SL_scal, DL_scal, comm.Self());
+        Precond_bio.SetAccuracy(tol); // set quadrature accuracy
+        Precond_bio.AddElemList(elem_lst_precond);
+        Precond_bio.SetTargetCoord(X0_precond);
+        const auto BIO_1ptcl = [&DL_scal,&Precond_bio](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+            U->SetZero();
+            Precond_bio.ComputePotential(*U, sigma);
+            (*U) += sigma * 0.5 * DL_scal;
+        };
+        A11size = 3*ElemOrder*FourierOrder*Nelem;
+        sctl::Vector<sctl::Vector<Real>> PrecondMat(A11size);
+        sctl::Vector<Real> SigmaCol_precond(A11size);
+        for (sctl::Long col=0; col < A11size; col ++) {
+            SigmaCol_precond = 0.;
+            SigmaCol_precond[col] = 1.;
+            BIO_1ptcl(PrecondMat.begin() + col,SigmaCol_precond);
+        }
+        sctl::Matrix<Real> A11(A11size,A11size);
+        for (long col=0; col < A11size; col++) {
+            for (long row = 0; row < A11size; row++) {
+                A11(row,col) = PrecondMat[col][row];
+            }
+        }      
+        sctl::Matrix<Real> Usvd, VT, S, SforInv;
+        sctl::Matrix<Real> A11forSVD = sctl::Matrix<Real>(A11);
+        A11forSVD.SVD(Usvd, S, VT);
+        SforInv = sctl::Matrix<Real>(S);
+        sctl::Matrix<Real> Sinv = SforInv.pinv(1e-16);
 
-    //     PrecondMat0 = VT.Transpose();
-    //     PrecondMat1 = Sinv * Usvd.Transpose();
-    //     if (!comm.Rank()) {
-    //         PrecondMat0.template Write<Real>(precond0_file.c_str());
-    //         PrecondMat1.template Write<Real>(precond1_file.c_str());
-    //     }
-    // }
+        PrecondMat0 = VT.Transpose();
+        PrecondMat1 = Sinv * Usvd.Transpose();
+        if (!comm.Rank()) {
+            PrecondMat0.template Write<Real>(precond0_file.c_str());
+            PrecondMat1.template Write<Real>(precond1_file.c_str());
+        }
+    }
     
 
-    // // Apply A11inv to each panel of vec.
-    // const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size, &comm](const sctl::Vector<Real>& vec) {
-    //     sctl::Long N = vec.Dim();
-    //     sctl::Long Nptcl = N / A11size; 
-    //     sctl::Vector<Real> AinvVec(N);
-    //     for (sctl::Long i=0; i<Nptcl; i++) {
-    //         // for each particle, apply A11inv.
-    //         sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-    //         sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
-    //         for (sctl::Long j=0; j<A11size; j++) {
-    //             AinvVec[i*A11size + j] = AinvVecMat(j,0);
-    //         }
-    //     }
-    //     return AinvVec;
-    // };
+    // Apply A11inv to each panel of vec.
+    const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size, &comm](const sctl::Vector<Real>& vec) {
+        sctl::Long N = vec.Dim();
+        sctl::Long Nptcl = N / A11size; 
+        sctl::Vector<Real> AinvVec(N);
+        for (sctl::Long i=0; i<Nptcl; i++) {
+            // for each particle, apply A11inv.
+            sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
+            sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
+            for (sctl::Long j=0; j<A11size; j++) {
+                AinvVec[i*A11size + j] = AinvVecMat(j,0);
+            }
+        }
+        return AinvVec;
+    };
 
-    // const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //     sctl::Vector<Real> Uloc;
-    //     BIO(&Uloc,sigma);
-    //     // LEFT PRECONDITIONER: u -> A11inv*u
-    //     (*U) = AinvApply(Uloc);
-    // };
+    const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        sctl::Vector<Real> Uloc;
+        BIO(&Uloc,sigma);
+        // LEFT PRECONDITIONER: u -> A11inv*u
+        (*U) = AinvApply(Uloc);
+    };
 
     sctl::GMRES<Real> solver(comm);
     sctl::KrylovPrecond<Real> krylov_precond;
-    // sctl::Vector<Real> A11invF = AinvApply(field_on_surf);
+    sctl::Vector<Real> A11invF = AinvApply(field_on_surf);
 
     sctl::Vector<Real> sigma;
-    // solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
-    solver(&sigma,BIO,field_on_surf,gmres_tol, -1, false, nullptr, &krylov_precond); 
+    solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    // solver(&sigma,BIO,field_on_surf,gmres_tol, -1, false, nullptr, &krylov_precond); 
 
     PeriodicGeom<Real> trg;    
     CubeVolumeVisShifted<Real> vol_vis(5, 0.95, comm);
@@ -388,6 +465,7 @@ int main(int argc, char** argv) {
         long Ncopy = std::stol(argv[5]);
 
         manufactured_soln_1peri<Real>(Nelem_ptcl, FourierOrder, comm, Nptcl, geom_mode, Ncopy);
+        // exact_field_check<Real>(comm, Nptcl, geom_mode, 60000, 70000);
     }
 
     sctl::Comm::MPI_Finalize();
