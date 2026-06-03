@@ -22,7 +22,7 @@ template <class Real> class PeriodicGeom {
      * @param[in] ptcls list of Nelem for each particle object to be initiated inside channel.
      * @param[in] ptcls_rs vector location to store radii of particles created by many_sphs().
      * @param[in] ptcls_Xcs vector location to store centerline locations for particles created by many_sphs().
-     * @param[in] geom_mode =0 for spheres, =1 for spheroids, =2 for bacteria, =3 for loops
+     * @param[in] geom_mode =0 for spheres, =1 for spheroids, =2 for loops
      */
      std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_straight(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real r, const sctl::Comm& comm, const sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode);
 
@@ -101,7 +101,7 @@ template <class Real> class PeriodicGeom {
      * @param[in] ptcls list of Nelem for each particle object to be initiated inside channel.
      * @param[in] ptcls_rs vector of radii of particles.
      * @param[in] ptcls_Xcs vector of particle centers.
-     * @param[in] geom_mode =0 for spheres, =1 for spheroids, =2 for bacteria, =3 for loops
+     * @param[in] geom_mode =0 for spheres, =1 for spheroids, =2 for loops
      */
     std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> filter_target(const sctl::Vector<Real> X, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real> ptcls_rs, const sctl::Vector<Real> ptcls_Xcs, const int geom_mode);
 

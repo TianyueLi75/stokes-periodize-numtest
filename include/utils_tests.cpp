@@ -119,11 +119,11 @@ template <class Real> sctl::Long precond_channel(sctl::Matrix<Real>& PrecondMat0
 
     comm.Barrier();
     if (PrecondMat0.Dim(0) || PrecondMat0.Dim(1)) {
-        std::cout << " successfully read file " << precond0_file << std::endl;
+        std::cout << " successfully read preconditioner file for channel (N_p = " << Nelem << ", N_f = " << FourierOrder << "): " << precond0_file << std::endl;
         PrecondMat1.template Read<Real>(precond1_file.c_str());
         A11size = PrecondMat0.Dim(1);
     } else {
-        std::cout << " Making precond files " << std::endl;
+        std::cout << " Making preconditioner file for channel (N_p = " << Nelem << ", N_f = " << FourierOrder << ")." << std::endl;
         sctl::Vector<Real> Xc_precond, eps_precond; 
         sctl::Vector<sctl::Long> ElemOrderVec_precond(1), FourierOrderVec_precond(1);
         ElemOrderVec_precond[0] = ElemOrder;
