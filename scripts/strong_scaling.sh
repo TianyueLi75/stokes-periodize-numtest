@@ -1,16 +1,12 @@
 #!/bin/bash
 
 # Set up batch job settings
-#SBATCH --job-name=strong_1proc_64cpus
+#SBATCH --job-name=strong_scaling
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=64
+#SBATCH --cpus-per-task=32
 #SBATCH --time=02:45:00
-#SBATCH --mem=1000g
-#SBATCH --partition=ccm
-#SBATCH --constraint=icelake
-#SBATCH --mail-user=tianycli@umich.edu
-#SBATCH --mail-type=BEGIN,END
+#SBATCH --partition=gen
 
 WORK_DIR=~/stokes-periodize-numtest
 source ${WORK_DIR}/pvfmm_modules

@@ -384,7 +384,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
 }
 
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_loops3(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs){
-  const sctl::Long geom_mode = 3; // loops
+  const sctl::Long geom_mode = 2; // loops
   
   comm_ = comm;
   sctl::Long Nelem_ptcl_tot = 0;
@@ -607,7 +607,7 @@ template <class Real> void PeriodicGeom<Real>::add_particles(sctl::Vector<sctl::
                                      sphere_geom(x, y, z, ex, ey, ez, eps_j, theta, ptcl_r);
                                    } else if (geom_mode == 1) {
                                      spheroid_geom(x, y, z, ex, ey, ez, eps_j, theta, ptcl_r);
-                                   } else if (geom_mode == 3) {
+                                   } else if (geom_mode == 2) {
                                      loop_geom(x, y, z, ex, ey, ez, eps_j, 2 * theta, ptcl_r, 0.05);
                                    } else {
                                      SCTL_ASSERT(false);
@@ -849,7 +849,7 @@ template <class Real> void PeriodicGeom<Real>::add_particles_rotated(sctl::Vecto
                                      sphere_geom(x, y, z, ex, ey, ez, eps_j, theta, ptcl_r);
                                    } else if (geom_mode == 1) {
                                      spheroid_geom(x, y, z, ex, ey, ez, eps_j, theta, ptcl_r);
-                                   } else if (geom_mode == 3) {
+                                   } else if (geom_mode == 2) {
                                      loop_geom(x, y, z, ex, ey, ez, eps_j, 2 * theta, ptcl_r, 0.05);
                                    } else {
                                      SCTL_ASSERT(false);
@@ -1099,7 +1099,7 @@ template <class Real> std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> P
                                          const Real u0 = 1.1;
                                          const int if_prolate = 1;
                                          return outside_spheroid(x1, x2, x3, pXc[0], pXc[1], pXc[2], pr[0], u0, if_prolate);
-                                       } else if (geom_mode == 3) {
+                                       } else if (geom_mode == 2) {
                                          return outside_loop(x1, x2, x3, pXc[0], pXc[1], pXc[2], pr[0], 0.05);
                                        }
                                        SCTL_ASSERT(false);
@@ -1121,7 +1121,7 @@ template <class Real> std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> P
                                          const Real u0 = 1.1;
                                          const int if_prolate = 1;
                                          return outside_spheroid_rotated(x1, x2, x3, pXc[0], pXc[1], pXc[2], pr[0], u0, if_prolate, ptheta[0], pphi[0]);
-                                       } else if (geom_mode == 3) {
+                                       } else if (geom_mode == 2) {
                                          return outside_loop_rotated(x1, x2, x3, pXc[0], pXc[1], pXc[2], pr[0], 0.05, ptheta[0], pphi[0]);
                                        }
                                        SCTL_ASSERT(false);

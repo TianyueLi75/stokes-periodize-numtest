@@ -19,10 +19,10 @@ export NCORES=$((${NTASK}*${OMP_NUM_THREADS}))
 cd ${WORK_DIR}
 
 # Manufactured solutions
-make test_manufactured_soln -j18 &&
+make test_manufactured_soln -j &&
 for n in {1..8}; do
     for m in {4..80..4}; do
         echo "n = $n, m=$m"
-        mpirun -n 1 --map-by slot:pe=${OMP_NUM_THREADS} ./bin/test2_ptcl_conv $n $m 25 0 30000 >> "out/Nelem_Nf_grid.txt"
+        mpirun -n 1 --map-by slot:pe=${OMP_NUM_THREADS} ./bin/test2_ptcl_conv $n $m 25 0 60000 >> "out/Nelem_Nf_grid.txt"
     done
 done
