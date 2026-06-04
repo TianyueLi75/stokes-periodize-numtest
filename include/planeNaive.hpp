@@ -76,13 +76,11 @@ namespace sctl {
         private: 
             static const std::pair<Vector<Real>,Vector<Real>>& LegendreQuad_plane(Integer ORDER);
             static void reg_sl(sctl::Matrix<Real>& SL_eps, const sctl::Vector<Real> Xsrc, const Real eps);
-            static void subtr_sl(sctl::Matrix<Real>& SL_subtr, const sctl::Vector<Real> Xsrc);
 
             Long order_, Nelem_x_, Nelem_y_; // order of gl grids on each element in both directions; number of elements in the x and y directions on EACH plane.
             Real z_offset_; // assume two symmetric flat planes, so only specify z offset only.
             Vector<Real> gl_nodes_, gl_wts_; // 1D nodes (and weights) of gaussian order order_
             Vector<Real> Xsrc_, Xsrc_n_, Xwts_; // collection of all nodes on square (both planes)
-            // Vector<Real> dens_; // of dimension KDIM * N_nodes * N_nodes
     };
 }
 

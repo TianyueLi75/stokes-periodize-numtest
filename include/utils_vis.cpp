@@ -85,8 +85,7 @@ template <class Real> CubeVolumeVisShifted<Real>::CubeVolumeVisShifted(const sct
     for (sctl::Long j = 0; j < NN; j++) {
       for (sctl::Long k = 0; k < COORD_DIM; k++) {
         sctl::Long idx = ((i+a)*NN+j);
-        // coord[(i*NN+j)*COORD_DIM+k] = (((idx/sctl::pow<sctl::Long>(N,k)) % N)/(Real)(N-1)*2 - 1) * L;
-        coord[(i*NN+j)*COORD_DIM+k] = (((idx/sctl::pow<sctl::Long>(N,k)) % N)/(Real)(N-1) -0.5) * L + 0.5; // TODO: just for analytical solution test, assuming center at (0.5,0.5,0.5).
+        coord[(i*NN+j)*COORD_DIM+k] = (((idx/sctl::pow<sctl::Long>(N,k)) % N)/(Real)(N-1) -0.5) * L + 0.5; // Assuming center at (0.5,0.5,0.5).
       }
     }
   }

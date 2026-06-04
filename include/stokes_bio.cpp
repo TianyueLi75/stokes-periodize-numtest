@@ -33,7 +33,6 @@ template <class Real> void StokesBIO<Real>::SetAccuracy(Real tol) {
 }
 
 template <class Real> template <class ElemLstType> void StokesBIO<Real>::AddElemList(const ElemLstType& elem_lst, const std::string& name, bool sl, bool dl) {
-  // std::cout << "Adding element list with size: " << elem_lst.Size() << std::endl;
     
   if (sl) {
     LayerPotenSL.AddElemList(elem_lst, name);

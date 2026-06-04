@@ -1,3 +1,5 @@
+// Support functions for test scripts: background flows, integrating functions, computing slip velocity, preconditioning, and renormalizing error.
+
 /**
  * Background flow with unit pressure gradient along X-axis.
  */
@@ -25,7 +27,36 @@ template <class Real> sctl::Vector<Real> bg_flow_2peri(const sctl::Vector<Real>&
     return U;
 }
 
+/**
+    Takes the surface integral, populate into <I>, using weights <wts>   
+    Supporting functions for imposing net-force-zero densities during gmres solve.
+*/
+template <class Real> void SurfaceIntegral(sctl::Vector<Real>& I, const sctl::Vector<Real>& vals, const sctl::Vector<Real>& wts) {
+  const sctl::Long dof = vals.Dim() / wts.Dim();
+  SCTL_ASSERT(vals.Dim() == wts.Dim() * dof);
+  if (I.Dim() != dof) I.ReInit(dof);
+  I = 0;
+  for (sctl::Long i = 0; i < wts.Dim(); i++) {
+    for (sctl::Long j = 0; j < dof; j++) {
+      I[j] += vals[i*dof + j] * wts[i];
+    }
+  }
+}
 
+/**
+    Assuming <vals> is a dimension-fast-node-slow list of values, add <c0> to each node (if dimension matches).
+    Supporting functions for imposing net-force-zero densities during gmres solve.
+*/
+template <class Real> void AddConstVec(sctl::Vector<Real>& vals, const sctl::Vector<Real>& c0) {
+  const sctl::Long dof = c0.Dim();
+  const sctl::Long N = vals.Dim() / dof;
+  SCTL_ASSERT(vals.Dim() == N * dof);
+  for (sctl::Long i = 0; i < N; i++) {
+    for (sctl::Long j = 0; j < dof; j++) {
+      vals[i*dof + j] += c0[j];
+    }
+  }
+}
 
 template <class Real> sctl::Vector<Real> GetVslip(const sctl::Vector<Real>& ptcls_Xnsurf, const sctl::Vector<Real>& ptcls_Xcs, const sctl::Vector<Real>& ptcls_sizes, const sctl::Vector<Real>& ptcls_u0s, const sctl::Vector<Real>& ptcls_thetas, const sctl::Vector<Real>& ptcls_phis, const sctl::Vector<sctl::Long>& ptcls_ifprolate, const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder) {
     const sctl::Long Nnodes_per_ptcl = Nelem * ElemOrder * FourierOrder;
@@ -191,11 +222,11 @@ template <class Real> sctl::Long precond_ptcl(sctl::Matrix<Real>& PrecondMat0, s
 
     comm.Barrier();
     if (PrecondMat0.Dim(0) || PrecondMat0.Dim(1)) {
-        std::cout << " successfully read file " << precond0_file << std::endl;
+        std::cout << " successfully read preconditioner file for particle (N_p = " << Nelem << ", N_f = " << FourierOrder << "): " << precond0_file << std::endl;
         PrecondMat1.template Read<Real>(precond1_file.c_str());
         A11size = PrecondMat0.Dim(1);
     } else {
-        std::cout << " Making precond files " << std::endl;
+        std::cout << " making preconditioner file for particle (N_p = " << Nelem << ", N_f = " << FourierOrder << "): " << precond0_file << std::endl;
         PeriodicGeom<Real> obj;
         sctl::Vector<sctl::Long> ptcls_pre;
         sctl::Vector<Real> ptcls_Xcs_pre, ptcls_rs_pre;

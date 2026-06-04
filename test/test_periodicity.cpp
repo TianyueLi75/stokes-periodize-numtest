@@ -30,6 +30,7 @@ template <class Real> void test1peri(
 
     const sctl::Long ElemOrder = 10;
     const sctl::Long geom_mode = 0;
+    const Real channel_radius = 0.3;
 
     const Real pressure_drop = -1.0;
     const Real period_length = 1;
@@ -45,7 +46,7 @@ template <class Real> void test1peri(
     }
     sctl::Vector<Real> ptcls_Xcs, ptcls_rs, NormalOrient;
     sctl::SlenderElemList<Real> elem_lst0;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_straight(Nelem_channel, ElemOrder, FourierOrder, 0.3, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_straight(Nelem_channel, ElemOrder, FourierOrder, channel_radius, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst0 = std::get<0>(build0);
     NormalOrient = std::get<1>(build0);
 
@@ -69,7 +70,6 @@ template <class Real> void test1peri(
     // Get block-preconditioner on channel and particle geometry
     sctl::Matrix<Real> PrecondMat0, PrecondMat1, PrecondMat0_ptcl, PrecondMat1_ptcl;
     sctl::Long A11size_ptcl, A11size;
-    Real channel_radius = 0.035; // for trefoil geometry
     A11size = precond_channel(PrecondMat0, PrecondMat1, Nelem_channel, ElemOrder, FourierOrder, channel_radius, SL_scal, DL_scal, comm);
     A11size_ptcl = precond_ptcl(PrecondMat0_ptcl, PrecondMat1_ptcl, ptcl_ord, ElemOrder, FourierOrder, SL_scal, DL_scal, comm);
 
@@ -85,7 +85,7 @@ template <class Real> void test1peri(
     // Apply A11inv to each panel of a vector.
     // Look at global panel index and determine whether belongs to a particle or the channel. 
     // ASSUMES no particles are split up among processors; also assumes channel panels are filled in before particles.
-    const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size,&PrecondMat0_ptcl,&PrecondMat1_ptcl,&A11size_ptcl,&Nelem_channel,&loc_elem_cnt,&loc_elem_dsp,&Nptcl](const sctl::Vector<Real>& vec) {
+    const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size,&PrecondMat0_ptcl,&PrecondMat1_ptcl,&A11size_ptcl,&Nelem_channel,&ptcl_ord,&loc_elem_cnt,&loc_elem_dsp,&Nptcl](const sctl::Vector<Real>& vec) {
         sctl::Vector<Real> AinvVec(vec.Dim());
         if (Nptcl == 0 || (loc_elem_dsp+loc_elem_cnt) <= Nelem_channel) { // if no particles in channel or if all panels here are on channel
             // std::cout << "All panels on this MPI process" << std::endl;
@@ -112,7 +112,7 @@ template <class Real> void test1peri(
                 }
             } else {
                 sctl::Long Npanels_here = Nelem_channel - loc_elem_dsp;
-                sctl::Long Nptcls_here = loc_elem_cnt - Npanels_here;
+                sctl::Long Nptcls_here = (int) (loc_elem_cnt - Npanels_here) / ptcl_ord;
                 // std::cout << "There are " << Npanels_here << " panels and " << Nptcls_here << " particles on this MPI process." << std::endl;
                 for (sctl::Long i=0; i<Npanels_here; i++) {
                     sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
@@ -187,9 +187,9 @@ template <class Real> void test1peri(
     solver(&sigma, BIO_precond, A11invF, gmres_tol, gmres_max_iter, false, nullptr, &krylov_precond);
 
     // Set target points for periodicity check inside a smaller channel
-    Real channel_radius = 0.15;
+    Real channel_radius_trg = 0.15;
     sctl::Long Ntrg_side = 5;
-    Real side_len = channel_radius * sctl::sqrt<Real>(2);
+    Real side_len = channel_radius_trg * sctl::sqrt<Real>(2);
     Real gap = side_len/(Ntrg_side+1);
     X0.ReInit(Ntrg_side * Ntrg_side * 3);
     // X symmetry

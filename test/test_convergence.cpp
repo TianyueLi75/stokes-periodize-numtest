@@ -1,87 +1,153 @@
+/*
+    Self-convergence tests on singly-, doubly-, and triply- periodic examples.
+*/
+
+// Boundary integral operators
+#include "stokes_bio.hpp" 
+
+// Geometry for tests
 #include "planeNaive.hpp"
-#include "utils_vis.hpp"
-#include "stokes_bio.hpp"
-#include "bio_operator.hpp"
 #include "utils_geom.hpp"
-#include "utils_tests.cpp"
 
-/**
- * Background flow with unit pressure gradient along X-axis.
- */
+// Other util functions
+#include "utils_tests.cpp" 
 
+// Visualization
+#include "utils_vis.hpp" 
 
-// Trefoil knot channel without particles
-template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Comm comm, const Real tol, const Real gmres_tol) {
+// self convergence test for a straight channel with a sphere
+// If using MPI, will need to make sure particle panels will not be split among processes.
+template <class Real> void channel_sphere_self_conv(
+    const sctl::Long Nelem, 
+    const sctl::Long FourierOrder, 
+    const bool write_ref, 
+    sctl::Comm comm, 
+    const Real gmres_tol, 
+    const Real tol) 
+    {
 
     // Combine single-layer and double-layer kernels in these proportions
     const Real SL_scal = 1.0;
     const Real DL_scal = 1.0;
-    const sctl::Long ElemOrder = 10;
-    const sctl::Long gmres_max_iter = 200;
 
     const Real pressure_drop = -1.0;
     const Real period_length = 1;
 
+    const sctl::Long ElemOrder = 10;
+    const sctl::Long geom_mode = 0;
+    const sctl::Long Nptcl = 1;
+    const sctl::Long Nelem_channel = 20;
+    const Real channel_radius = 0.2;
+
+    const sctl::Long gmres_max_iter = 100;
+
     PeriodicGeom<Real> obj;
     sctl::Vector<sctl::Long> ptcls;
-    sctl::Vector<Real> ptcls_Xcs;
-    sctl::Vector<Real> ptcls_rs;
-    sctl::Long ptcl_ord = 1;
+    sctl::Long ptcl_ord = Nelem;
+    if (Nptcl>0) {
+        ptcls.ReInit(Nptcl);
+        ptcls = ptcl_ord;
+    }
+    sctl::Vector<Real> ptcls_Xcs, ptcls_rs, NormalOrient;
     sctl::SlenderElemList<Real> elem_lst0;
-    sctl::Vector<Real> NormalOrient;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_trefoil(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, 0);
+    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_straight(Nelem_channel, ElemOrder, FourierOrder, channel_radius, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
     elem_lst0 = std::get<0>(build0);
-    NormalOrient = std::get<1>(build0);    
-    // sctl::Long Nptcl = ptcls_rs.Dim();
+    NormalOrient = std::get<1>(build0);
 
-    sctl::Vector<Real> X0; // target coordinates
+    sctl::Vector<Real> X0, wts;
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
-
+    sctl::Vector<Real> X0surf = X0;
     if (write_ref) {
-        elem_lst0.WriteVTK("vis/trefoil",X0,comm);
-    }   
-
+        elem_lst0.WriteVTK("vis/channel_sphere",X0surf,comm);
+    }  
     Real surface_area;
-    sctl::Vector<Real> wts;
     { // get wts and surface area
         sctl::Vector<Real> X, Xn, dist_far, surface_area_;
         sctl::Vector<sctl::Long> element_wise_node_cnt;
         elem_lst0.GetFarFieldNodes(X, Xn, wts, dist_far, element_wise_node_cnt, 1);
         SurfaceIntegral(surface_area_, wts*0+1, wts);
-        // MPI
         sctl::Vector<Real> sa_loc(1);
         sa_loc[0] = surface_area_[0];
         sctl::Vector<Real> sa_all(1);
         sa_all[0] = 0;
         comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
         surface_area = sa_all[0];
-        // surface_area = surface_area_[0];
     }
-    std::cout << "DEBUG surface area = " << surface_area << "." << std::endl;
 
-    StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
+    // Get block-preconditioner on channel and particle geometry
+    sctl::Matrix<Real> PrecondMat0, PrecondMat1, PrecondMat0_ptcl, PrecondMat1_ptcl;
+    sctl::Long A11size_ptcl, A11size;
+    A11size = precond_channel(PrecondMat0, PrecondMat1, Nelem_channel, ElemOrder, FourierOrder, channel_radius, SL_scal, DL_scal, comm);
+    A11size_ptcl = precond_ptcl(PrecondMat0_ptcl, PrecondMat1_ptcl, ptcl_ord, ElemOrder, FourierOrder, SL_scal, DL_scal, comm);
+
+    // Get global index of the starting panel on this process
+    sctl::Vector<sctl::Long> ElemOrderVec_temp(Nelem_channel + ptcl_ord * Nptcl);
+    ElemOrderVec_temp = ElemOrder;
+    sctl::Vector<sctl::Long> FourierOrderVec_temp(ElemOrderVec_temp);
+    FourierOrderVec_temp = FourierOrder;
+    std::tuple<sctl::Long,sctl::Long> indtpl = obj.GetGlobalIdx(ElemOrderVec_temp, FourierOrderVec_temp, comm);
+    sctl::Long loc_elem_cnt = std::get<0>(indtpl);
+    sctl::Long loc_elem_dsp = std::get<1>(indtpl);
+
+    // Apply A11inv to each panel of a vector.
+    // Look at global panel index and determine whether belongs to a particle or the channel. 
+    // ASSUMES no particles are split up among processors; also assumes channel panels are filled in before particles.
+    const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size,&PrecondMat0_ptcl,&PrecondMat1_ptcl,&A11size_ptcl,&Nelem_channel,&ptcl_ord,&loc_elem_cnt,&loc_elem_dsp,&Nptcl](const sctl::Vector<Real>& vec) {
+        sctl::Vector<Real> AinvVec(vec.Dim());
+        if (Nptcl == 0 || (loc_elem_dsp+loc_elem_cnt) <= Nelem_channel) { // if no particles in channel or if all panels here are on channel
+            // std::cout << "All panels on this MPI process" << std::endl;
+            sctl::Long N = vec.Dim();
+            sctl::Long Npanels = N / A11size; 
+            for (sctl::Long i=0; i<Npanels; i++) {
+                sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
+                sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
+                for (sctl::Long j=0; j<A11size; j++) {
+                    AinvVec[i*A11size + j] = AinvVecMat(j,0);
+                }
+            }
+        } else {
+            if (loc_elem_dsp >= Nelem_channel) { // all panels here belong to particles
+                // std::cout << "All particles on this MPI process" << std::endl;
+                sctl::Long N = vec.Dim();
+                sctl::Long Nptcls = N / A11size_ptcl; 
+                for (sctl::Long i=0; i<Nptcls; i++) {
+                    sctl::Matrix<Real> vecMat(A11size_ptcl,1,(sctl::Iterator<Real>) vec.begin() + i*A11size_ptcl,true);
+                    sctl::Matrix<Real> AinvVecMat = PrecondMat0_ptcl * (PrecondMat1_ptcl * vecMat);
+                    for (sctl::Long j=0; j<A11size_ptcl; j++) {
+                        AinvVec[i*A11size_ptcl + j] = AinvVecMat(j,0);
+                    }
+                }
+            } else {
+                sctl::Long Npanels_here = Nelem_channel - loc_elem_dsp;
+                sctl::Long Nptcls_here = (int) (loc_elem_cnt - Npanels_here) / ptcl_ord;
+                // std::cout << "There are " << Npanels_here << " panels and " << Nptcls_here << " particles on this MPI process." << std::endl;
+                for (sctl::Long i=0; i<Npanels_here; i++) {
+                    sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
+                    sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
+                    for (sctl::Long j=0; j<A11size; j++) {
+                        AinvVec[i*A11size + j] = AinvVecMat(j,0);
+                    }
+                }
+                for (sctl::Long i=0; i<Nptcls_here; i++) {
+                    sctl::Matrix<Real> vecMat(A11size_ptcl,1,(sctl::Iterator<Real>) vec.begin() + i*A11size_ptcl + Npanels_here*A11size,true);
+                    sctl::Matrix<Real> AinvVecMat = PrecondMat0_ptcl * (PrecondMat1_ptcl * vecMat);
+                    for (sctl::Long j=0; j<A11size_ptcl; j++) {
+                        AinvVec[Npanels_here*A11size + i*A11size_ptcl + j] = AinvVecMat(j,0);
+                    }
+                }
+            }
+        }
+        return AinvVec;
+    };
+
+    StokesBIO<Real> LayerPotenOp0(SL_scal, DL_scal, comm);
     LayerPotenOp0.AddElemList(elem_lst0);
-    LayerPotenOp0.SetTargetCoord(X0);
     LayerPotenOp0.SetAccuracy(tol);
+    LayerPotenOp0.SetTargetCoord(X0surf);
     LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, period_length);
 
-    // // Preconditioning
-    // sctl::Matrix<Real> PrecondMat0, PrecondMat1, PrecondMat0_ptcl, PrecondMat1_ptcl;
-    // sctl::Long A11size_ptcl, A11size;
-    // Real channel_radius = 0.035; // for trefoil geometry
-    // A11size = precond_channel(PrecondMat0, PrecondMat1, Nelem, ElemOrder, FourierOrder, channel_radius, SL_scal, DL_scal, comm);
-    // A11size_ptcl = precond_ptcl(PrecondMat0_ptcl, PrecondMat1_ptcl, ptcl_ord, ElemOrder, FourierOrder, SL_scal, DL_scal, comm);
-
-    // // Get global index of the starting panel on this process
-    // sctl::Vector<sctl::Long> ElemOrderVec_temp(Nelem + ptcl_ord * Nptcl);
-    // ElemOrderVec_temp = ElemOrder;
-    // sctl::Vector<sctl::Long> FourierOrderVec_temp(ElemOrderVec_temp);
-    // FourierOrderVec_temp = FourierOrder;
-    // std::tuple<sctl::Long,sctl::Long> indtpl = obj.GetGlobalIdx(ElemOrderVec_temp, FourierOrderVec_temp, comm);
-    // sctl::Long loc_elem_cnt = std::get<0>(indtpl);
-    // sctl::Long loc_elem_dsp = std::get<1>(indtpl);
-
-    const auto BIO = [&wts,&surface_area,&elem_lst0,&DL_scal,&LayerPotenOp0,NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+    // peridozizedlayer potential operator
+    const auto BIO = [&wts,&surface_area,&elem_lst0,&LayerPotenOp0,&DL_scal,&NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         sctl::Vector<Real> sigma_mean, sigma0;
         { // compute sigma_mean and sigma0 = sigma - sigma_mean
             sctl::Vector<Real> sigma_;
@@ -99,162 +165,84 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
 
             sigma0 = sigma;
             AddConstVec(sigma0, -sigma_mean);
-
-            // // DEBUG: check that sigma-sigma_mean has surface integral = 0:
-            // sctl::Vector<Real> sigma1 = sigma_;
-            // AddConstVec(sigma1, -sigma_mean);
-            // sctl::Vector<Real> sigma_test_;
-            // SurfaceIntegral(sigma_test_, sigma1, wts);
-            // std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "<< sigma_test_[1] << ", " << sigma_test_[2] << ". "<< std::endl;
-        
         }
-        
+
         U->SetZero();
         LayerPotenOp0.ComputePotential(*U, sigma0);
-        if (DL_scal && U->Dim() == sigma0.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
+        if (DL_scal && U->Dim() == sigma.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
 
         AddConstVec(*U, sigma_mean);
     };
 
-    const auto bg_flow = [](const sctl::Vector<Real>& X) {
-        const sctl::Long N = X.Dim()/3;
-        sctl::Vector<Real> U(N*3);
-        for (sctl::Long i = 0; i < N; i++) {
-            const auto x = X.begin() + i*3;
-            U[i*3+0] = - ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
-            U[i*3+1] = 0;
-            U[i*3+2] = 0;
-        }
-        return U;
+    // Left preconditioning using block-preconditioner u -> A11inv*u
+    const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        sctl::Vector<Real> Uloc;
+        BIO(&Uloc,sigma);
+        (*U) = AinvApply(Uloc);
     };
 
-    // // Apply A11inv to each panel of a vector.
-    // // Look at global panel index and determine whether belongs to a particle or the channel. ASSUMES no particles are split up among processors.
-    // const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size,&PrecondMat0_ptcl,&PrecondMat1_ptcl,&A11size_ptcl,&Nelem,&loc_elem_cnt,&loc_elem_dsp,&Nptcl](const sctl::Vector<Real>& vec) {
-    //     sctl::Vector<Real> AinvVec(vec.Dim());
-    //     if (Nptcl == 0 || (loc_elem_dsp+loc_elem_cnt) <= Nelem) {
-    //         // std::cout << "All panels" << std::endl;
-    //         // if no particles in channel or if all panels here are on channel
-    //         sctl::Long N = vec.Dim();
-    //         sctl::Long Npanels = N / A11size; 
-    //         for (sctl::Long i=0; i<Npanels; i++) {
-    //             sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-    //             sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
-    //             for (sctl::Long j=0; j<A11size; j++) {
-    //                 AinvVec[i*A11size + j] = AinvVecMat(j,0);
-    //             }
-    //         }
-    //     } else {
-    //         if (loc_elem_dsp >= Nelem) {
-    //             std::cout << "All particles" << std::endl;
-    //             // all panels here are ptcl
-    //             sctl::Long N = vec.Dim();
-    //             sctl::Long Nptcls = N / A11size_ptcl; 
-    //             for (sctl::Long i=0; i<Nptcls; i++) {
-    //                 sctl::Matrix<Real> vecMat(A11size_ptcl,1,(sctl::Iterator<Real>) vec.begin() + i*A11size_ptcl,true);
-    //                 sctl::Matrix<Real> AinvVecMat = PrecondMat0_ptcl * (PrecondMat1_ptcl * vecMat);
-    //                 for (sctl::Long j=0; j<A11size_ptcl; j++) {
-    //                     AinvVec[i*A11size_ptcl + j] = AinvVecMat(j,0);
-    //                 }
-    //             }
-    //         } else {
-    //             sctl::Long Npanels_here = Nelem - loc_elem_dsp;
-    //             sctl::Long Nptcls_here = loc_elem_cnt - Npanels_here;
-    //             // // DEBUG
-    //             std::cout << "CHECK panel-ptcl split: Npanel = " << Npanels_here << ", Nptcl = " << Nptcls_here << std::endl;
-    //             // ///////////////
-    //             for (sctl::Long i=0; i<Npanels_here; i++) {
-    //                 sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-    //                 sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
-    //                 for (sctl::Long j=0; j<A11size; j++) {
-    //                     AinvVec[i*A11size + j] = AinvVecMat(j,0);
-    //                 }
-    //             }
-    //             for (sctl::Long i=0; i<Nptcls_here; i++) {
-    //                 sctl::Matrix<Real> vecMat(A11size_ptcl,1,(sctl::Iterator<Real>) vec.begin() + i*A11size_ptcl + Npanels_here*A11size,true);
-    //                 sctl::Matrix<Real> AinvVecMat = PrecondMat0_ptcl * (PrecondMat1_ptcl * vecMat);
-    //                 for (sctl::Long j=0; j<A11size_ptcl; j++) {
-    //                     AinvVec[Npanels_here*A11size + i*A11size_ptcl + j] = AinvVecMat(j,0);
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     return AinvVec;
-    // };
+    // Set up B.C. on right hand side
+    const sctl::Vector<Real> RHS = bg_flow_1peri(X0surf) * (pressure_drop/period_length);
+    // Left precondition 
+    sctl::Vector<Real> A11invF = AinvApply(RHS);
 
-    // const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //     sctl::Vector<Real> Uloc;
-    //     BIO(&Uloc,sigma);
-    //     // LEFT PRECONDITIONER: u -> A11inv*u
-    //     (*U) = AinvApply(Uloc);
-    // };
-
+    sctl::Vector<Real> U, sigma;
     sctl::GMRES<Real> solver(comm);
-    sctl::KrylovPrecond<Real> krylov;
-    sctl::Vector<Real> sigma;
-    sctl::Vector<Real> rhs = bg_flow(X0) * (pressure_drop/period_length);
-    // sctl::Vector<Real> A11invF = AinvApply(rhs);
-    // solver(&sigma, BIO_precond, A11invF, gmres_tol, gmres_max_iter);
-    solver(&sigma, BIO, rhs, gmres_tol, gmres_max_iter, false, nullptr, &krylov);
+    sctl::KrylovPrecond<Real> krylov_precond;
+    solver(&sigma, BIO_precond, A11invF, gmres_tol, gmres_max_iter, false, nullptr, &krylov_precond);
 
     { // Evaluate in interior, and write visualization
         PeriodicGeom<Real> trg;
-        const sctl::Long Nelem_trg = 200;
-        const sctl::Long FourierOrder_trg = 4;
-        sctl::SlenderElemList<Real> elem_lst_trg;
-        sctl::Vector<sctl::Long> ptcls_trg;
-        sctl::Vector<Real> ptcls_Xcs_trg;
-        sctl::Vector<Real> ptcls_rs_trg;
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_trefoil(Nelem_trg, ElemOrder, FourierOrder_trg, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, 1, 0);
-        elem_lst_trg = std::get<0>(build_trg);
+        VolumeVis<Real> vol_vis(elem_lst0, comm);
+        sctl::Vector<Real> X0_all = vol_vis.GetCoord();
+        // Filter out targets not in fluid domain
+        sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
+        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, 0);
+        X0 = std::get<0>(trg_tuple);
+        filtered_inds = std::get<1>(trg_tuple);
 
-        VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
-        X0 = vol_vis.GetCoord(); // set new target coordinates
         LayerPotenOp0.SetTargetCoord(X0);
-        sctl::Vector<Real> U;
         BIO(&U, sigma);
-        U -= bg_flow(X0)* (pressure_drop/period_length);
+        U -= bg_flow_1peri(X0) * (pressure_drop/period_length);
 
-        sctl::Vector<sctl::Long> size_loc(1);
-        size_loc[0] = X0.Dim();
-        sctl::Vector<sctl::Long> size_all(1);
-        comm.Allreduce((sctl::Iterator<sctl::Long>) size_loc.begin(), (sctl::Iterator<sctl::Long>) size_all.begin(), 1, sctl::CommOp::SUM);
-        // std::cout << "rank " << comm.Rank() << " size loc = " << size_loc[0] << ", size all is " << size_all[0] << std::endl;
-        // std::string filename = "Trefoil_U_exact";
-        std::string filename = "Trefoil_U_exact_"+std::to_string(comm.Rank());
+        std::string filename = "Channel_sphere_1peri_U_exact_"+std::to_string(comm.Rank());
         std::string filename_out = "out/"+filename+".txt";
         std::string filename_vis = "vis/"+filename;
-        
         if (write_ref) {
-
+            // Save solution to file as reference solution.
             U.Write(filename_out.c_str());
-            vol_vis.WriteVTK(filename_vis, U);
-            
-        } else {
 
+            // Create array of velocity for all target points, including filtered out ones, for visualization
+            sctl::Vector<Real> U_vis(X0_all.Dim());
+            U_vis = 0.;
+            sctl::Long X1_ptr = 0;
+            for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+                if (filtered_inds[i] == 0) {
+                    U_vis[i*3] = U[X1_ptr*3];
+                    U_vis[i*3+1] = U[X1_ptr*3+1];
+                    U_vis[i*3+2] = U[X1_ptr*3+2];
+                    X1_ptr += 1;
+                }
+            }
+            vol_vis.WriteVTK(filename_vis, U_vis);
+
+        } else {
+            // Grab reference solution
             sctl::Vector<Real> U_ref;
             U_ref.Read(filename_out.c_str());
-
             sctl::Vector<Real> err = U - U_ref;
-            // std::cout << "===== error before renorm: ======" << std::endl;
-            // for (int i=0; i<err.Dim()/3; i++) {
-            //     std::cout << std::setprecision(8) << err[i*3+0] << ", " << err[i*3+1] << ", " << err[i*3+2] << "; " << std::endl;
-            // }
             renormalize_error(err,comm);
-            // std::cout << "===== error after renorm: ======" << std::endl;
-            // for (int i=0; i<err.Dim()/3; i++) {
-            //     std::cout << std::setprecision(8) << err[i*3+0] << ", " << err[i*3+1] << ", " << err[i*3+2] << "; " << std::endl;
-            // }
             double max_err = 0;
             for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
             Real max_u = 0.;
             for (const auto e : U_ref) max_u = std::max<Real>(max_u, sctl::fabs(e));
+
             sctl::Vector<Real> err_loc(1);
             err_loc[0] = max_err;
             sctl::Vector<Real> err_all(1);
             err_all[0] = 0;
-            comm.Allreduce((sctl::Iterator<sctl::Long>) err_loc.begin(), (sctl::Iterator<sctl::Long>) err_all.begin(), 1, sctl::CommOp::MAX);
-
+            comm.Allreduce((sctl::Iterator<Real>) err_loc.begin(), (sctl::Iterator<Real>) err_all.begin(), 1, sctl::CommOp::MAX);
+            
             sctl::Vector<Real> u_loc(1);
             u_loc[0] = max_u;
             sctl::Vector<Real> u_all(1);
@@ -264,37 +252,20 @@ template <class Real> void trefoil_self_conv(sctl::Long Nelem, sctl::Long Fourie
             if (!comm.Rank()) {
                 std::cout<<"Max error = "<< std::setprecision(10) << err_all[0] << ", Max u = " << u_all[0] << ", Max relative error = " << err_all[0] / u_all[0] << std::endl;
             }
-
-            // Try average error instead of max? (can probably use omp_scan.. )
-            double avg_err = 0.;
-            for (const auto e : err) avg_err += sctl::fabs(e);
-            sctl::Vector<Real> avg_err_loc(1);
-            avg_err_loc[0] = avg_err;
-            sctl::Vector<Real> avg_err_all(1);
-            avg_err_all[0] = 0;
-            comm.Allreduce((sctl::Iterator<Real>) avg_err_loc.begin(), (sctl::Iterator<Real>) avg_err_all.begin(), 1, sctl::CommOp::SUM);
-            std::cout << "on MPI process " << comm.Rank() << ", sum of err locally is " << avg_err << ", total error is " << avg_err_all[0] << std::endl;
-
-            long size_err = err.Dim();
-            sctl::Vector<sctl::Long> size_err_loc(1);
-            size_err_loc[0] = size_err;
-            sctl::Vector<sctl::Long> size_err_all(1);
-            size_err_all[0] = 0;
-            comm.Allreduce((sctl::Iterator<sctl::Long>) size_err_loc.begin(), (sctl::Iterator<sctl::Long>) size_err_all.begin(), 1, sctl::CommOp::SUM);
-
-            std::cout << "size of error on process" << comm.Rank() << " is " << size_err << ", after collection total size is " << size_err_all[0] << std::endl;
-
-            avg_err = avg_err_all[0] / (1.0*size_err_all[0]);
-
-            if (!comm.Rank()) {
-                std::cout<<"Average error = "<< std::setprecision(10) << avg_err << ", average relative error (divide by max u above) = " << avg_err / u_all[0] << std::endl;
-            }
         }
-
     }
 }
 
-template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Integer peri_mode, sctl::Comm comm, const sctl::Long Nptcl, const Real tol, const Real gmres_tol) {
+template <class Real> void particle_self_conv(
+    const sctl::Long Nelem, 
+    const sctl::Long FourierOrder, 
+    const bool write_ref, 
+    sctl::Comm comm,
+    sctl::Long Nptcl, 
+    const sctl::Integer peri_mode, 
+    const Real gmres_tol, 
+    const Real tol) 
+    {
 
     // Combine single-layer and double-layer kernels in these proportions
     const Real SL_scal = 1.0;
@@ -302,16 +273,16 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
 
     const sctl::Long ElemOrder = 10;
     const sctl::Long geom_mode = 0;
+    
     const Real period_length = 1.;
-    const sctl::Long gmres_max_iter = 100;
     const Real pressure_drop = -1.;
+
+    const sctl::Long gmres_max_iter = 200;
 
     PeriodicGeom<Real> obj;
     sctl::Vector<sctl::Long> ptcls;
-    sctl::Vector<Real> ptcls_Xcs;
-    sctl::Vector<Real> ptcls_rs;
+    sctl::Vector<Real> ptcls_Xcs, ptcls_rs, NormalOrient;
     sctl::SlenderElemList<Real> elem_lst0;
-    sctl::Vector<Real> NormalOrient;
     if (Nptcl == 1) {
         std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
@@ -325,9 +296,9 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
         elem_lst0 = std::get<0>(build0);
         NormalOrient = std::get<1>(build0);
     }
-    // Nptcl = ptcls_rs.Dim(); // many_ptcls will not change number of particles.
+    Nptcl = ptcls_rs.Dim(); 
 
-    sctl::Vector<Real> X0; // target coordinates
+    sctl::Vector<Real> X0; 
     elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
     Real surface_area;
     sctl::Vector<Real> wts;
@@ -336,16 +307,33 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
         sctl::Vector<sctl::Long> element_wise_node_cnt;
         elem_lst0.GetFarFieldNodes(X, Xn, wts, dist_far, element_wise_node_cnt, 1);
         SurfaceIntegral(surface_area_, wts*0+1, wts);
-        // MPI
         sctl::Vector<Real> sa_loc(1);
         sa_loc[0] = surface_area_[0];
         sctl::Vector<Real> sa_all(1);
         sa_all[0] = 0;
         comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
         surface_area = sa_all[0];
-        // surface_area = surface_area_[0];
     }
-    // std::cout << "DEBUG surface area = " << surface_area << "." << std::endl;
+
+    // Get block-preconditioner on particle geometry
+    sctl::Matrix<Real> PrecondMat0, PrecondMat1;
+    sctl::Long A11size = precond_ptcl(PrecondMat0, PrecondMat1, Nelem, ElemOrder, FourierOrder, SL_scal, DL_scal, comm);
+    
+    // Apply A11inv to each panel of <vec>, assuming <vec> contains whole particles (i.e. vec.Dim() = A11size * Nptcl)
+    const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size, &comm](const sctl::Vector<Real>& vec) {
+        sctl::Long N = vec.Dim();
+        sctl::Long Nptcl = N / A11size; 
+        sctl::Vector<Real> AinvVec(N);
+        for (sctl::Long i=0; i<Nptcl; i++) {
+            // for each particle, apply A11inv.
+            sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
+            sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
+            for (sctl::Long j=0; j<A11size; j++) {
+                AinvVec[i*A11size + j] = AinvVecMat(j,0);
+            }
+        }
+        return AinvVec;
+    };
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
     LayerPotenOp0.AddElemList(elem_lst0);
@@ -380,14 +368,6 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
 
             sigma0 = sigma;
             AddConstVec(sigma0, -sigma_mean);
-
-            // // DEBUG: check that sigma-sigma_mean has surface integral = 0:
-            // sctl::Vector<Real> sigma1 = sigma_;
-            // AddConstVec(sigma1, -sigma_mean);
-            // sctl::Vector<Real> sigma_test_;
-            // SurfaceIntegral(sigma_test_, sigma1, wts);
-            // std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "<< sigma_test_[1] << ", " << sigma_test_[2] << ". "<< std::endl;
-        
         }
         
         U->SetZero();
@@ -397,32 +377,11 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
         AddConstVec(*U, sigma_mean);
     };
 
-    // sctl::Matrix<Real> PrecondMat0, PrecondMat1;
-    // sctl::Long A11size;
-    // A11size = precond_ptcl(PrecondMat0, PrecondMat1, Nelem, ElemOrder, FourierOrder, SL_scal, DL_scal, comm);
-
-    // // Apply A11inv to each panel of vec.
-    // const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size, &comm](const sctl::Vector<Real>& vec) {
-    //     sctl::Long N = vec.Dim();
-    //     sctl::Long Nptcl = N / A11size; 
-    //     sctl::Vector<Real> AinvVec(N);
-    //     for (sctl::Long i=0; i<Nptcl; i++) {
-    //         // for each particle, apply A11inv.
-    //         sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-    //         sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
-    //         for (sctl::Long j=0; j<A11size; j++) {
-    //             AinvVec[i*A11size + j] = AinvVecMat(j,0);
-    //         }
-    //     }
-    //     return AinvVec;
-    // };
-
-    // const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //     sctl::Vector<Real> Uloc;
-    //     BIO(&Uloc,sigma);
-    //     // LEFT PRECONDITIONER: u -> A11inv*u
-    //     (*U) = AinvApply(Uloc);
-    // };
+    const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        sctl::Vector<Real> Uloc;
+        BIO(&Uloc,sigma);
+        (*U) = AinvApply(Uloc);
+    };
 
     const auto eval_rhs = [&LayerPotenOp0,surface_area,period_length](const Real pressure_drop) { // BIOpSL( -pressure_drop * cross_sectional_area / surface_area )
         sctl::Vector<Real> force_density(LayerPotenOp0.Dim(0)); force_density = 0;
@@ -433,25 +392,28 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
         return U0;
     };
 
-    // Solve for sigma to satisfy no-slip boundary conditions: BIO(sigma) + bg_flow = 0
     sctl::Vector<Real> sigma;
-    sctl::GMRES<Real> solver(comm, false);
-    sctl::KrylovPrecond<Real> krylov;
-    // sctl::Vector<Real> rhs = bg_flow(X0)*(pressure_drop/period_length);
+    sctl::GMRES<Real> solver(comm);
+    sctl::KrylovPrecond<Real> krylov_precond;
     sctl::Vector<Real> rhs;
-    if (peri_mode == 1 || peri_mode == 2) {
-        rhs = bg_flow(X0)*(pressure_drop/period_length);
-    } else {
+    if (peri_mode == 1) {
+        rhs = bg_flow_1peri(X0)*(pressure_drop/period_length);
+    } else if (peri_mode == 2) {
+        rhs = bg_flow_2peri(X0)*(pressure_drop/period_length);
+    } else if (peri_mode == 3) {
         rhs = eval_rhs(pressure_drop);
+    } else {
+        std::cout << "Only singly-, doubly-, or triply-periodic solvers supported." << std::endl;
+        SCTL_ASSERT(false);
     }
     
-    solver(&sigma, BIO, rhs, gmres_tol, gmres_max_iter, false, nullptr, &krylov);
-    // solver(&sigma, BIO_precond, AinvApply(rhs), gmres_tol, gmres_max_iter);
+    solver(&sigma, BIO_precond, AinvApply(rhs), gmres_tol, gmres_max_iter, false, nullptr, &krylov_precond);
 
     { // Evaluate in interior, and write visualization
         PeriodicGeom<Real> trg;
         CubeVolumeVisShifted<Real> vol_vis(20, 0.9, comm); 
         sctl::Vector<Real> X0_all = vol_vis.GetCoord();
+        // Filter out targets inside particles
         sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
         std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, 0);
         X0 = std::get<0>(trg_tuple);
@@ -461,26 +423,27 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
         sctl::Vector<Real> U;
         BIO(&U, sigma);
 
-        if (peri_mode == 1 || peri_mode == 2) {
-            rhs = bg_flow(X0) * (pressure_drop/period_length);
-            U -= rhs;
+        if (peri_mode == 1) {
+            rhs = bg_flow_1peri(X0) * (pressure_drop/period_length);
+        } else if (peri_mode == 2) {
+            rhs = bg_flow_2peri(X0) * (pressure_drop/period_length);
         } else {
             rhs = eval_rhs(pressure_drop);
-            U -= rhs;
         }
+        U -= rhs;
 
         sctl::Vector<sctl::Long> size_loc(1);
         size_loc[0] = X0.Dim();
         sctl::Vector<sctl::Long> size_all(1);
         comm.Allreduce((sctl::Iterator<sctl::Long>) size_loc.begin(), (sctl::Iterator<sctl::Long>) size_all.begin(), 1, sctl::CommOp::SUM);
-        // std::cout << "rank " << comm.Rank() << " size loc = " << size_loc[0] << ", size all is " << size_all[0] << std::endl;
         std::string filename = "Particle"+std::to_string(Nptcl)+"_"+std::to_string(peri_mode)+"_peri_U_exact_"+std::to_string(comm.Rank());
         std::string filename_out = "out/"+filename+".txt";
         std::string filename_vis = "vis/"+filename;
         if (write_ref) {
-            
+            // Save solution as reference.
             U.Write(filename_out.c_str());
-            // Create array of velocity for all target points, including filtered out ones.
+
+            // Create array of velocity for all target points, including filtered out ones, for visualization
             sctl::Vector<Real> U_vis(X0_all.Dim());
             U_vis = 0.;
             sctl::Long X1_ptr = 0;
@@ -492,14 +455,14 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
                     X1_ptr += 1;
                 }
             }
-            // Write visualization to VTK
             vol_vis.WriteVTK(filename_vis, U_vis);
 
         } else {
-
+            // Grab reference solution
             sctl::Vector<Real> U_ref;
             U_ref.Read(filename_out.c_str());
             sctl::Vector<Real> err = U - U_ref;
+
             renormalize_error(err,comm);
             double max_err = 0;
             for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
@@ -526,601 +489,18 @@ template <class Real> void particle_self_conv(sctl::Long Nelem, sctl::Long Fouri
 
 }
 
-// Conv div channel
-template <class Real> void convdiv_self_conv(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, sctl::Comm comm, const Real tol, const Real gmres_tol) {
+template <class Real> void plane_ptcl_self_conv(
+    const sctl::Long Nelem, 
+    const sctl::Long FourierOrder, 
+    const bool write_ref,
+    sctl::Comm comm,
+    const sctl::Long Nptcl, 
+    const sctl::Long geom_mode, 
+    const Real gmres_tol, 
+    const Real tol) 
+    {
 
-    // Combine single-layer and double-layer kernels in these proportions
-    const Real SL_scal = 1.0;
-    const Real DL_scal = 1.0;
-
-    const sctl::Long ElemOrder = 10;
-    const Real pressure_drop = -1.0;
-    const Real period_length = 1;
-    const sctl::Long geom_mode = 1;
-    const sctl::Long gmres_max_iter = 400;
-
-    PeriodicGeom<Real> obj;
-    sctl::Long Nptcl = 3; // correct, but will be replaced inside conv-div channel build.
-    sctl::Long ptcl_ord = 48; // Be careful with this if using particle preconditioner, since it's possible that not all panels on each particle are on the same MPI process.
-    sctl::Vector<sctl::Long> ptcls(Nptcl);
-    ptcls = ptcl_ord;
-    // /////// DEBUG no particle in conv div, shoudl converge
-    // sctl::Long Nptcl = 0;
-    // sctl::Long ptcl_ord = 1;
-    // sctl::Vector<sctl::Long> ptcls;
-    // ////////////
-    sctl::Vector<Real> ptcls_Xcs;
-    sctl::Vector<Real> ptcls_rs;
-    sctl::SlenderElemList<Real> elem_lst0;
-    sctl::Vector<Real> NormalOrient, ptcls_thetas, ptcls_phis;
-    // sctl::Long peri_mode = 1;
-    Real channel_r1 = 0.1;
-    Real channel_r2 = 0.2;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build0 = obj.build_conv_div_sph(Nelem, ElemOrder, FourierOrder, channel_r1, channel_r2, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord);
-    elem_lst0 = std::get<0>(build0);
-    NormalOrient = std::get<1>(build0);
-    ptcls_thetas = std::get<2>(build0);
-    ptcls_phis = std::get<3>(build0);
-    Nptcl = ptcls_rs.Dim();
-
-    sctl::Vector<Real> X0; // target coordinates
-    elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
-
-    if (write_ref) {
-        elem_lst0.WriteVTK("vis/channel", X0);
-    }
-
-    Real surface_area;
-    sctl::Vector<Real> wts;
-    { // get wts and surface area
-        sctl::Vector<Real> X, Xn, dist_far, surface_area_;
-        sctl::Vector<sctl::Long> element_wise_node_cnt;
-        elem_lst0.GetFarFieldNodes(X, Xn, wts, dist_far, element_wise_node_cnt, 1);
-        SurfaceIntegral(surface_area_, wts*0+1, wts);
-        // MPI
-        sctl::Vector<Real> sa_loc(1);
-        sa_loc[0] = surface_area_[0];
-        sctl::Vector<Real> sa_all(1);
-        sa_all[0] = 0;
-        comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
-        surface_area = sa_all[0];
-        // surface_area = surface_area_[0];
-    }
-    if (!comm.Rank()) {
-        std::cout << "DEBUG surface area = " << surface_area << "." << std::endl;
-    }
-
-    StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
-    LayerPotenOp0.AddElemList(elem_lst0);
-    LayerPotenOp0.SetTargetCoord(X0);
-    LayerPotenOp0.SetAccuracy(tol);
-    LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, period_length);
-
-    // sctl::Matrix<Real> PrecondMat0, PrecondMat1, PrecondMat0_ptcl, PrecondMat1_ptcl;
-    // sctl::Long A11size_ptcl, A11size;
-
-    // Real channel_radius = 0.15; // for convdiv geometry
-    // A11size = precond_channel(PrecondMat0, PrecondMat1, Nelem, ElemOrder, FourierOrder, channel_radius, SL_scal, DL_scal, comm);
-    // A11size_ptcl = precond_ptcl(PrecondMat0_ptcl, PrecondMat1_ptcl, ptcl_ord, ElemOrder, FourierOrder, SL_scal, DL_scal, comm);
-
-    // // Get global index of the starting panel on this process
-    // sctl::Vector<sctl::Long> ElemOrderVec_temp(Nelem + ptcl_ord * Nptcl);
-    // ElemOrderVec_temp = ElemOrder;
-    // sctl::Vector<sctl::Long> FourierOrderVec_temp(ElemOrderVec_temp);
-    // FourierOrderVec_temp = FourierOrder;
-    // std::tuple<sctl::Long,sctl::Long> indtpl = obj.GetGlobalIdx(ElemOrderVec_temp, FourierOrderVec_temp, comm);
-    // sctl::Long loc_elem_cnt = std::get<0>(indtpl);
-    // sctl::Long loc_elem_dsp = std::get<1>(indtpl);
-
-    const auto BIO = [&wts,&surface_area,&elem_lst0,&DL_scal,&LayerPotenOp0,NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        sctl::Vector<Real> sigma_mean, sigma0;
-        { // compute sigma_mean and sigma0 = sigma - sigma_mean
-            sctl::Vector<Real> sigma_;
-            elem_lst0.GetFarFieldDensity(sigma_, sigma);
-            SurfaceIntegral(sigma_mean, sigma_, wts);
-            //MPI
-            sctl::Vector<Real> sa_loc = sigma_mean;
-            sctl::Vector<Real> sa_all(3);
-            sa_all = 0;
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+1, (sctl::Iterator<Real>) sa_all.begin()+1, 1, sctl::CommOp::SUM);
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+2, (sctl::Iterator<Real>) sa_all.begin()+2, 1, sctl::CommOp::SUM);
-            sigma_mean = sa_all;
-            sigma_mean *= (1/surface_area);
-
-            sigma0 = sigma;
-            AddConstVec(sigma0, -sigma_mean);
-
-            // // DEBUG: check that sigma-sigma_mean has surface integral = 0:
-            // sctl::Vector<Real> sigma1 = sigma_;
-            // AddConstVec(sigma1, -sigma_mean);
-            // sctl::Vector<Real> sigma_test_;
-            // SurfaceIntegral(sigma_test_, sigma1, wts);
-            // std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "<< sigma_test_[1] << ", " << sigma_test_[2] << ". "<< std::endl;
-        
-        }
-        
-        U->SetZero();
-        LayerPotenOp0.ComputePotential(*U, sigma0);
-        if (DL_scal && U->Dim() == sigma0.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
-
-        AddConstVec(*U, sigma_mean);
-    };
-
-    const auto bg_flow = [](const sctl::Vector<Real>& X) {
-        const sctl::Long N = X.Dim()/3;
-        sctl::Vector<Real> U(N*3);
-        for (sctl::Long i = 0; i < N; i++) {
-            const auto x = X.begin() + i*3;
-            U[i*3+0] = - ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
-            U[i*3+1] = 0;
-            U[i*3+2] = 0;
-        }
-        return U;
-    };
-
-    // // Apply A11inv to each panel of a vector.
-    // // Look at global panel index and determine whether belongs to a particle or the channel. ASSUMES no particles are split up among processors.
-    // const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size,&PrecondMat0_ptcl,&PrecondMat1_ptcl,&A11size_ptcl,&Nelem,&loc_elem_cnt,&loc_elem_dsp,&Nptcl](const sctl::Vector<Real>& vec) {
-    //     sctl::Vector<Real> AinvVec(vec.Dim());
-    //     if (Nptcl == 0 || (loc_elem_dsp+loc_elem_cnt) <= Nelem) {
-    //         // std::cout << "All panels" << std::endl;
-    //         // if no particles in channel or if all panels here are on channel
-    //         sctl::Long N = vec.Dim();
-    //         sctl::Long Npanels = N / A11size; 
-    //         for (sctl::Long i=0; i<Npanels; i++) {
-    //             sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-    //             sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
-    //             for (sctl::Long j=0; j<A11size; j++) {
-    //                 AinvVec[i*A11size + j] = AinvVecMat(j,0);
-    //             }
-    //         }
-    //     } else {
-    //         if (loc_elem_dsp >= Nelem) {
-    //             std::cout << "All particles" << std::endl;
-    //             // all panels here are ptcl
-    //             sctl::Long N = vec.Dim();
-    //             sctl::Long Nptcls = N / A11size_ptcl; 
-    //             for (sctl::Long i=0; i<Nptcls; i++) {
-    //                 sctl::Matrix<Real> vecMat(A11size_ptcl,1,(sctl::Iterator<Real>) vec.begin() + i*A11size_ptcl,true);
-    //                 sctl::Matrix<Real> AinvVecMat = PrecondMat0_ptcl * (PrecondMat1_ptcl * vecMat);
-    //                 for (sctl::Long j=0; j<A11size_ptcl; j++) {
-    //                     AinvVec[i*A11size_ptcl + j] = AinvVecMat(j,0);
-    //                 }
-    //             }
-    //         } else {
-    //             sctl::Long Npanels_here = Nelem - loc_elem_dsp;
-    //             sctl::Long Nptcls_here = loc_elem_cnt - Npanels_here;
-    //             // // DEBUG
-    //             std::cout << "CHECK panel-ptcl split: Npanel = " << Npanels_here << ", Nptcl = " << Nptcls_here << std::endl;
-    //             // ///////////////
-    //             for (sctl::Long i=0; i<Npanels_here; i++) {
-    //                 sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-    //                 sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
-    //                 for (sctl::Long j=0; j<A11size; j++) {
-    //                     AinvVec[i*A11size + j] = AinvVecMat(j,0);
-    //                 }
-    //             }
-    //             for (sctl::Long i=0; i<Nptcls_here; i++) {
-    //                 sctl::Matrix<Real> vecMat(A11size_ptcl,1,(sctl::Iterator<Real>) vec.begin() + i*A11size_ptcl + Npanels_here*A11size,true);
-    //                 sctl::Matrix<Real> AinvVecMat = PrecondMat0_ptcl * (PrecondMat1_ptcl * vecMat);
-    //                 for (sctl::Long j=0; j<A11size_ptcl; j++) {
-    //                     AinvVec[Npanels_here*A11size + i*A11size_ptcl + j] = AinvVecMat(j,0);
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     return AinvVec;
-    // };
-
-    // const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //     sctl::Vector<Real> Uloc;
-    //     BIO(&Uloc,sigma);
-    //     // LEFT PRECONDITIONER: u -> A11inv*u
-    //     (*U) = AinvApply(Uloc);
-    // };
-
-    sctl::GMRES<Real> solver(comm);
-    sctl::Vector<Real> sigma;
-    sctl::KrylovPrecond<Real> krylov;
-    sctl::Vector<Real> rhs = bg_flow(X0) * (pressure_drop/period_length);
-    // sctl::Vector<Real> A11invF = AinvApply(rhs);
-    // solver(&sigma, BIO_precond, A11invF, gmres_tol, gmres_max_iter);
-    solver(&sigma, BIO, rhs, gmres_tol, gmres_max_iter, false, nullptr, &krylov);
-
-    { // Evaluate in interior, and write visualization
-        PeriodicGeom<Real> trg;
-        const sctl::Long Nelem_trg = 16;
-        const sctl::Long FourierOrder_trg = 16;
-        sctl::SlenderElemList<Real> elem_lst_trg;
-        sctl::Vector<sctl::Long> ptcls_trg; // dim = 0 so no particles are first generated
-        sctl::Vector<Real> ptcls_Xcs_trg;
-        sctl::Vector<Real> ptcls_rs_trg;
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> build_trg = trg.build_conv_div_sph(Nelem_trg, ElemOrder, FourierOrder_trg, channel_r1, channel_r2, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, ptcl_ord);
-        elem_lst_trg = std::get<0>(build_trg);
-
-        VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
-        sctl::Vector<Real> X0_all = vol_vis.GetCoord(); // set new target coordinates
-        sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
-        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target_rotated(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode, ptcls_thetas, ptcls_phis);
-        X0 = std::get<0>(trg_tuple);
-        filtered_inds = std::get<1>(trg_tuple);
-
-        LayerPotenOp0.SetTargetCoord(X0);
-        sctl::Vector<Real> U;
-        BIO(&U, sigma);
-        U -= bg_flow(X0) * (pressure_drop / period_length);
-
-        // sctl::Vector<sctl::Long> size_loc(1);
-        // size_loc[0] = X0.Dim();
-        // sctl::Vector<sctl::Long> size_all(1);
-        // comm.Allreduce((sctl::Iterator<sctl::Long>) size_loc.begin(), (sctl::Iterator<sctl::Long>) size_all.begin(), 1, sctl::CommOp::SUM);
-        // std::cout << "rank " << comm.Rank() << " size loc = " << size_loc[0] << ", size all is " << size_all[0] << std::endl;
-
-        // std::string filename = "Conv_div.txt";
-        std::string filename = "ConvDiv_U_exact_"+std::to_string(comm.Rank());
-        std::string filename_out = "out/"+filename+".txt";
-        std::string filename_vis = "vis/"+filename;
-        if (write_ref) {
-
-            U.Write(filename_out.c_str());
-            // Create array of velocity for all target points, including filtered out ones.
-            sctl::Vector<Real> U_vis(X0_all.Dim());
-            U_vis = 0.;
-            sctl::Long X1_ptr = 0;
-            for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
-                if (filtered_inds[i] == 0) {
-                    U_vis[i*3] = U[X1_ptr*3];
-                    U_vis[i*3+1] = U[X1_ptr*3+1];
-                    U_vis[i*3+2] = U[X1_ptr*3+2];
-                    X1_ptr += 1;
-                }
-            }
-            // Write visualization to VTK
-            vol_vis.WriteVTK(filename_vis, U_vis);
-
-        } else {
-            sctl::Vector<Real> U_ref;
-            U_ref.Read(filename_out.c_str());
-            sctl::Vector<Real> err = U - U_ref;
-            renormalize_error(err,comm);
-            double max_err = 0;
-            for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
-            Real max_u = 0.;
-            for (const auto e : U_ref) max_u = std::max<Real>(max_u, sctl::fabs(e));
-            sctl::Vector<Real> err_loc(1);
-            err_loc[0] = max_err;
-            sctl::Vector<Real> err_all(1);
-            err_all[0] = 0;
-            comm.Allreduce((sctl::Iterator<sctl::Long>) err_loc.begin(), (sctl::Iterator<sctl::Long>) err_all.begin(), 1, sctl::CommOp::MAX);
-
-            sctl::Vector<Real> u_loc(1);
-            u_loc[0] = max_u;
-            sctl::Vector<Real> u_all(1);
-            u_all[0] = 0.;
-            comm.Allreduce((sctl::Iterator<Real>) u_loc.begin(), (sctl::Iterator<Real>) u_all.begin(), 1, sctl::CommOp::MAX);
-
-            if (!comm.Rank()) {
-                std::cout<<"Max error = "<< std::setprecision(10) << err_all[0] << ", Max u = " << u_all[0] << ", Max relative error = " << err_all[0] / u_all[0] << std::endl;
-            }
-
-            // Try average error instead of max? (can probably use omp_scan.. )
-            double avg_err = 0.;
-            for (const auto e : err) avg_err += sctl::fabs(e);
-            sctl::Vector<Real> avg_err_loc(1);
-            avg_err_loc[0] = avg_err;
-            sctl::Vector<Real> avg_err_all(1);
-            avg_err_all[0] = 0;
-            comm.Allreduce((sctl::Iterator<Real>) avg_err_loc.begin(), (sctl::Iterator<Real>) avg_err_all.begin(), 1, sctl::CommOp::SUM);
-            std::cout << "on MPI process " << comm.Rank() << ", sum of err locally is " << avg_err << ", total error is " << avg_err_all[0] << std::endl;
-
-            long size_err = err.Dim();
-            sctl::Vector<sctl::Long> size_err_loc(1);
-            size_err_loc[0] = size_err;
-            sctl::Vector<sctl::Long> size_err_all(1);
-            size_err_all[0] = 0;
-            comm.Allreduce((sctl::Iterator<sctl::Long>) size_err_loc.begin(), (sctl::Iterator<sctl::Long>) size_err_all.begin(), 1, sctl::CommOp::SUM);
-
-            std::cout << "size of error on process" << comm.Rank() << " is " << size_err << ", after collection total size is " << size_err_all[0] << std::endl;
-
-            avg_err = avg_err_all[0] / (1.0*size_err_all[0]);
-
-            if (!comm.Rank()) {
-                std::cout<<"Average error = "<< std::setprecision(10) << avg_err << ", average relative error (divide by max u above) = " << avg_err / u_all[0] << std::endl;
-            }
-
-            // Create array of velocity for all target points, including filtered out ones.
-            sctl::Vector<Real> err_vis(X0_all.Dim());
-            err_vis = 0.;
-            sctl::Long X1_ptr = 0;
-            for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
-                if (filtered_inds[i] == 0) {
-                    err_vis[i*3] = err[X1_ptr*3];
-                    err_vis[i*3+1] = err[X1_ptr*3+1];
-                    err_vis[i*3+2] = err[X1_ptr*3+2];
-                    X1_ptr += 1;
-                }
-            }
-            // Write visualization to VTK
-            vol_vis.WriteVTK("vis/ConvDiv_U_err", err_vis);
-        }
-
-    } 
-}
-
-template <class Real> void trefoil_ptcl_self_conv(sctl::Long Nelem, sctl::Long FourierOrder, const bool write_ref, sctl::Comm comm, const Real tol, const Real gmres_tol) {
-
-    // Combine single-layer and double-layer kernels in these proportions
-    const Real SL_scal = 1.0;
-    const Real DL_scal = 1.0;
-
-    // const Real tol = 1e-8;
-    // const Real gmres_tol = 1e-13;
-    const sctl::Long ElemOrder = 10;
-    const Real pressure_drop = -1.0;
-    const Real period_length = 1;
-    const sctl::Long geom_mode = 0;
-    const sctl::Long gmres_max_iter = 400;
-
-    PeriodicGeom<Real> obj;
-    sctl::Long Nptcl = 50; // placeholder; will be replaced inside conv-div channel build.
-    sctl::Long ptcl_ord = 1;
-    sctl::Vector<sctl::Long> ptcls(Nptcl);
-    ptcls = ptcl_ord;
-    sctl::Vector<Real> ptcls_Xcs;
-    sctl::Vector<Real> ptcls_rs;
-    sctl::SlenderElemList<Real> elem_lst0, elem_lst_nbr;
-    sctl::Vector<Real> NormalOrient;
-    // sctl::Long peri_mode = 1;
-    // std::cout << "right before build trefoils" << std::endl;
-    std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.build_trefoil(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, ptcl_ord, geom_mode);
-    elem_lst0 = std::get<0>(build0);
-    NormalOrient = std::get<1>(build0);
-    Nptcl = ptcls_rs.Dim(); 
-
-    sctl::Vector<Real> X0; // target coordinates
-    elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
-    if (write_ref) {
-        elem_lst0.WriteVTK("vis/trefoil_ptcl", X0);
-    }
-
-    Real surface_area;
-    sctl::Vector<Real> wts;
-    { // get wts and surface area
-        sctl::Vector<Real> X, Xn, dist_far, surface_area_;
-        sctl::Vector<sctl::Long> element_wise_node_cnt;
-        elem_lst0.GetFarFieldNodes(X, Xn, wts, dist_far, element_wise_node_cnt, 1);
-        SurfaceIntegral(surface_area_, wts*0+1, wts);
-        // surface_area = surface_area_[0];
-        sctl::Vector<Real> sa_loc(1);
-        sa_loc[0] = surface_area_[0];
-        sctl::Vector<Real> sa_all(1);
-        sa_all[0] = 0;
-        comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
-        surface_area = sa_all[0];
-        if (!comm.Rank()) {
-            std::cout << "Total surface area of channel + particles is " << surface_area  << std::endl;
-        }
-    }
-    std::cout << "DEBUG surface area = " << surface_area << "." << std::endl;
-
-    StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); // potential from elem_lst_nbr to X0
-    LayerPotenOp0.AddElemList(elem_lst0);
-    LayerPotenOp0.SetTargetCoord(X0);
-    LayerPotenOp0.SetAccuracy(tol);
-    LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, period_length);
-
-    // sctl::Matrix<Real> PrecondMat0, PrecondMat1, PrecondMat0_ptcl, PrecondMat1_ptcl;
-    // sctl::Long A11size_ptcl, A11size;
-
-    // Real channel_radius = 0.035;
-    // A11size = precond_channel(PrecondMat0, PrecondMat1, Nelem, ElemOrder, FourierOrder, channel_radius, SL_scal, DL_scal, comm);
-    // A11size_ptcl = precond_ptcl(PrecondMat0_ptcl, PrecondMat1_ptcl, ptcl_ord, ElemOrder, FourierOrder, SL_scal, DL_scal, comm);
-
-    // // Get global index of the starting panel on this process
-    // sctl::Vector<sctl::Long> ElemOrderVec_temp(Nelem + ptcl_ord * Nptcl);
-    // ElemOrderVec_temp = ElemOrder;
-    // sctl::Vector<sctl::Long> FourierOrderVec_temp(ElemOrderVec_temp);
-    // FourierOrderVec_temp = FourierOrder;
-    // std::tuple<sctl::Long,sctl::Long> indtpl = obj.GetGlobalIdx(ElemOrderVec_temp, FourierOrderVec_temp, comm);
-    // sctl::Long loc_elem_cnt = std::get<0>(indtpl);
-    // sctl::Long loc_elem_dsp = std::get<1>(indtpl);
-
-    const auto BIO = [&wts,&surface_area,&elem_lst0,&DL_scal,&LayerPotenOp0,NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-        sctl::Vector<Real> sigma_mean, sigma0;
-        { // compute sigma_mean and sigma0 = sigma - sigma_mean
-            sctl::Vector<Real> sigma_;
-            elem_lst0.GetFarFieldDensity(sigma_, sigma);
-            SurfaceIntegral(sigma_mean, sigma_, wts);
-            //MPI
-            sctl::Vector<Real> sa_loc = sigma_mean;
-            sctl::Vector<Real> sa_all(3);
-            sa_all = 0;
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+1, (sctl::Iterator<Real>) sa_all.begin()+1, 1, sctl::CommOp::SUM);
-            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+2, (sctl::Iterator<Real>) sa_all.begin()+2, 1, sctl::CommOp::SUM);
-            sigma_mean = sa_all;
-            sigma_mean *= (1/surface_area);
-
-            sigma0 = sigma;
-            AddConstVec(sigma0, -sigma_mean);
-
-            // DEBUG: check that sigma-sigma_mean has surface integral = 0:
-            sctl::Vector<Real> sigma1 = sigma_;
-            AddConstVec(sigma1, -sigma_mean);
-            sctl::Vector<Real> sigma_test_;
-            SurfaceIntegral(sigma_test_, sigma1, wts);
-            std::cout << "Surface integral of sigma - sigma bar = " << sigma_test_[0] << ", "<< sigma_test_[1] << ", " << sigma_test_[2] << ". "<< std::endl;
-        
-        }
-        
-        U->SetZero();
-        LayerPotenOp0.ComputePotential(*U, sigma0);
-        if (DL_scal && U->Dim() == sigma0.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
-
-        AddConstVec(*U, sigma_mean);
-    };
-
-    const auto bg_flow = [](const sctl::Vector<Real>& X) {
-        const sctl::Long N = X.Dim()/3;
-        sctl::Vector<Real> U(N*3);
-        for (sctl::Long i = 0; i < N; i++) {
-            const auto x = X.begin() + i*3;
-            U[i*3+0] = - ((x[1]-0.5)*(x[1]-0.5) + (x[2]-0.5)*(x[2]-0.5))/4;
-            U[i*3+1] = 0;
-            U[i*3+2] = 0;
-        }
-        return U;
-    };
-
-    // // Apply A11inv to each panel of a vector.
-    // // Look at global panel index and determine whether belongs to a particle or the channel. ASSUMES no particles are split up among processors.
-    // const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size,&PrecondMat0_ptcl,&PrecondMat1_ptcl,&A11size_ptcl,&Nelem,&loc_elem_cnt,&loc_elem_dsp,&Nptcl](const sctl::Vector<Real>& vec) {
-    //     sctl::Vector<Real> AinvVec(vec.Dim());
-    //     if (Nptcl == 0 || (loc_elem_dsp+loc_elem_cnt) <= Nelem) {
-    //         // std::cout << "All panels" << std::endl;
-    //         // if no particles in channel or if all panels here are on channel
-    //         sctl::Long N = vec.Dim();
-    //         sctl::Long Npanels = N / A11size; 
-    //         for (sctl::Long i=0; i<Npanels; i++) {
-    //             sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-    //             sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
-    //             for (sctl::Long j=0; j<A11size; j++) {
-    //                 AinvVec[i*A11size + j] = AinvVecMat(j,0);
-    //             }
-    //         }
-    //     } else {
-    //         if (loc_elem_dsp >= Nelem) {
-    //             std::cout << "All particles" << std::endl;
-    //             // all panels here are ptcl
-    //             sctl::Long N = vec.Dim();
-    //             sctl::Long Nptcls = N / A11size_ptcl; 
-    //             for (sctl::Long i=0; i<Nptcls; i++) {
-    //                 sctl::Matrix<Real> vecMat(A11size_ptcl,1,(sctl::Iterator<Real>) vec.begin() + i*A11size_ptcl,true);
-    //                 sctl::Matrix<Real> AinvVecMat = PrecondMat0_ptcl * (PrecondMat1_ptcl * vecMat);
-    //                 for (sctl::Long j=0; j<A11size_ptcl; j++) {
-    //                     AinvVec[i*A11size_ptcl + j] = AinvVecMat(j,0);
-    //                 }
-    //             }
-    //         } else {
-    //             sctl::Long Npanels_here = Nelem - loc_elem_dsp;
-    //             sctl::Long Nptcls_here = loc_elem_cnt - Npanels_here;
-    //             // // DEBUG
-    //             std::cout << "CHECK panel-ptcl split: Npanel = " << Npanels_here << ", Nptcl = " << Nptcls_here << std::endl;
-    //             // ///////////////
-    //             for (sctl::Long i=0; i<Npanels_here; i++) {
-    //                 sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-    //                 sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
-    //                 for (sctl::Long j=0; j<A11size; j++) {
-    //                     AinvVec[i*A11size + j] = AinvVecMat(j,0);
-    //                 }
-    //             }
-    //             for (sctl::Long i=0; i<Nptcls_here; i++) {
-    //                 sctl::Matrix<Real> vecMat(A11size_ptcl,1,(sctl::Iterator<Real>) vec.begin() + i*A11size_ptcl + Npanels_here*A11size,true);
-    //                 sctl::Matrix<Real> AinvVecMat = PrecondMat0_ptcl * (PrecondMat1_ptcl * vecMat);
-    //                 for (sctl::Long j=0; j<A11size_ptcl; j++) {
-    //                     AinvVec[Npanels_here*A11size + i*A11size_ptcl + j] = AinvVecMat(j,0);
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     return AinvVec;
-    // };
-
-    // const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //     sctl::Vector<Real> Uloc;
-    //     BIO(&Uloc,sigma);
-    //     // LEFT PRECONDITIONER: u -> A11inv*u
-    //     (*U) = AinvApply(Uloc);
-    // };
-
-    sctl::GMRES<Real> solver(comm);
-    sctl::Vector<Real> sigma;
-    sctl::KrylovPrecond<Real> krylov;
-    sctl::Vector<Real> rhs = bg_flow(X0)*pressure_drop / period_length;
-    // sctl::Vector<Real> A11invF = AinvApply(bg_flow(X0) * pressure_drop / period_length);
-    // solver(&sigma, BIO_precond, A11invF, gmres_tol, gmres_max_iter);
-    solver(&sigma, BIO, rhs, gmres_tol, gmres_max_iter, false, nullptr, &krylov);
-    
-    { // Evaluate in interior, and write visualization
-        PeriodicGeom<Real> trg;
-        const sctl::Long Nelem_trg = 200;
-        const sctl::Long FourierOrder_trg = 16;
-        sctl::SlenderElemList<Real> elem_lst_trg;
-        sctl::Vector<sctl::Long> ptcls_trg;
-        sctl::Vector<Real> ptcls_Xcs_trg;
-        sctl::Vector<Real> ptcls_rs_trg;
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build_trg = trg.build_trefoil(Nelem_trg, ElemOrder, FourierOrder_trg, comm, ptcls_trg, ptcls_rs_trg, ptcls_Xcs_trg, 1, 0);
-        elem_lst_trg = std::get<0>(build_trg);
-
-        VolumeVis<Real> vol_vis(elem_lst_trg, comm); 
-        sctl::Vector<Real> X0_all = vol_vis.GetCoord(); // set new target coordinates
-        sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
-        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, 0);
-        X0 = std::get<0>(trg_tuple);
-        filtered_inds = std::get<1>(trg_tuple);
-
-        LayerPotenOp0.SetTargetCoord(X0);
-        sctl::Vector<Real> U;
-        BIO(&U, sigma);
-        U -= bg_flow(X0) * pressure_drop / period_length;
-
-        sctl::Vector<sctl::Long> size_loc(1);
-        size_loc[0] = X0.Dim();
-        sctl::Vector<sctl::Long> size_all(1);
-        comm.Allreduce((sctl::Iterator<sctl::Long>) size_loc.begin(), (sctl::Iterator<sctl::Long>) size_all.begin(), 1, sctl::CommOp::SUM);
-        // std::cout << "rank " << comm.Rank() << " size loc = " << size_loc[0] << ", size all is " << size_all[0] << std::endl;
-
-        std::string filename = "Trefoil_ptcl_U_exact_"+std::to_string(comm.Rank());
-        std::string filename_out = "out/"+filename+".txt";
-        std::string filename_vis = "vis/"+filename;
-        if (write_ref) {
-            U.Write(filename_out.c_str());
-            // Create array of velocity for all target points, including filtered out ones.
-            sctl::Vector<Real> U_vis(X0_all.Dim());
-            U_vis = 0.;
-            sctl::Long X1_ptr = 0;
-            for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
-                if (filtered_inds[i] == 0) {
-                    U_vis[i*3] = U[X1_ptr*3];
-                    U_vis[i*3+1] = U[X1_ptr*3+1];
-                    U_vis[i*3+2] = U[X1_ptr*3+2];
-                    X1_ptr += 1;
-                }
-            }
-            // Write visualization to VTK
-            vol_vis.WriteVTK(filename_vis, U_vis);
-
-        } else {
-            sctl::Vector<Real> U_ref;
-            U_ref.Read(filename_out.c_str());
-            sctl::Vector<Real> err = U - U_ref;
-            renormalize_error(err,comm);
-            double max_err = 0;
-            for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
-            Real max_u = 0.;
-            for (const auto e : U_ref) max_u = std::max<Real>(max_u, sctl::fabs(e));
-            sctl::Vector<Real> err_loc(1);
-            err_loc[0] = max_err;
-            sctl::Vector<Real> err_all(1);
-            err_all[0] = 0;
-            comm.Allreduce((sctl::Iterator<sctl::Long>) err_loc.begin(), (sctl::Iterator<sctl::Long>) err_all.begin(), 1, sctl::CommOp::MAX);
-
-            sctl::Vector<Real> u_loc(1);
-            u_loc[0] = max_u;
-            sctl::Vector<Real> u_all(1);
-            u_all[0] = 0.;
-            comm.Allreduce((sctl::Iterator<Real>) u_loc.begin(), (sctl::Iterator<Real>) u_all.begin(), 1, sctl::CommOp::MAX);
-
-            if (!comm.Rank()) {
-                std::cout<<"Max error = "<< std::setprecision(10) << err_all[0] << ", Max u = " << u_all[0] << ", Max relative error = " << err_all[0] / u_all[0] << std::endl;
-            }
-        }
-    }
-}
-
-template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long FourierOrder, bool write_ref, const sctl::Long Nptcl, const sctl::Long geom_mode, sctl::Comm comm, const Real tol, const Real gmres_tol) {
-    SCTL_ASSERT(Nptcl == 1 || Nptcl == 3);
+    SCTL_ASSERT(comm.Size() == 1); // This code does not support multi-process. See examples.cpp for parallelized plane-bound flow code.
 
     // Combine single-layer and double-layer kernels in these proportions
     const Real SL_scal = 1.0;
@@ -1129,22 +509,20 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
     const sctl::Long ElemOrder = 10;
 
     const Real period_length = 1.;
-    const sctl::Long gmres_max_iter = 100;
     const Real pressure_drop = -1.;
-    // const sctl::Long peri_mode = 2;
+
+    const sctl::Long gmres_max_iter = 200;
 
     PeriodicGeom<Real> obj;
     sctl::Vector<sctl::Long> ptcls;
-    sctl::Vector<Real> ptcls_Xcs;
-    sctl::Vector<Real> ptcls_rs;
+    sctl::Vector<Real> ptcls_Xcs, ptcls_rs, NormalOrient, ptcls_thetas, ptcls_phis;
     sctl::SlenderElemList<Real> elem_lst0;
-    sctl::Vector<Real> NormalOrient, ptcls_thetas, ptcls_phis;
     if (Nptcl == 1) {
         std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
         NormalOrient = std::get<1>(build0);
     } else if (geom_mode == 0) {
-        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode); // checking with three spheres
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls3(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
         elem_lst0 = std::get<0>(build0);
         NormalOrient = std::get<1>(build0);
     } else {
@@ -1157,22 +535,22 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
 
     sctl::Vector<Real> X0_ptcl; // target coordinates
     elem_lst0.GetNodeCoord(&X0_ptcl, nullptr, nullptr);
+
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); 
     LayerPotenOp0.AddElemList(elem_lst0,"1");
     LayerPotenOp0.SetAccuracy(tol);
     LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XY, period_length);
     
     // Plane
-    // TODO: put plane on only Rank 0 MPI?
     sctl::Vector<Real> X0_wall;
     const sctl::Long gl_order = 49;
     const sctl::Long Nelem_x = 2;
     const sctl::Long Nelem_y = 2;
-    const Real z_offset = 0.01;
+    const Real z_offset = 0.01; // shift planes slightly away from z=0,1 to avoid overlapping the unit cube
     sctl::PlaneIntegral<Real> plane(gl_order, Nelem_x, Nelem_y, z_offset);
     
     plane.GetNodeCoord(&X0_wall, nullptr, nullptr);
-    LayerPotenOp0.AddElemList(plane,"2"); // replacing all LPO2
+    LayerPotenOp0.AddElemList(plane,"2"); 
 
     sctl::Vector<Real> X0;
     X0.ReInit(X0_ptcl.Dim() + X0_wall.Dim());
@@ -1182,10 +560,10 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
     for (int j=0; j<X0_wall.Dim(); j++) {
         X0[j+X0_ptcl.Dim()] = X0_wall[j];
     }
-    // Add plane normal orient as well 
     sctl::Vector<Real> NormalOrient_(NormalOrient.Dim() + X0_wall.Dim());
-    NormalOrient_ = -1.; // Normal orient = -1 (-sign below) means all normals point into fluid (exterior problem)
+    NormalOrient_ = -1.; 
     NormalOrient_.Swap(NormalOrient);
+
     LayerPotenOp0.SetTargetCoord(X0);
 
     Real surface_area;
@@ -1195,16 +573,13 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
         sctl::Vector<sctl::Long> element_wise_node_cnt;
         elem_lst0.GetFarFieldNodes(X, Xn, wts, dist_far, element_wise_node_cnt, 1);
         SurfaceIntegral(surface_area_, wts*0+1, wts);
-        // MPI
         sctl::Vector<Real> sa_loc(1);
         sa_loc[0] = surface_area_[0];
         sctl::Vector<Real> sa_all(1);
         sa_all[0] = 0;
         comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
         surface_area = sa_all[0];
-        // surface_area = surface_area_[0];
     }
-    std::cout << "DEBUG surface area = " << surface_area << "." << std::endl;
     Real surface_area_wall;
     sctl::Vector<Real> wts_wall;
     {
@@ -1212,16 +587,15 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
         sctl::Vector<sctl::Long> element_wise_node_cnt;
         plane.GetFarFieldNodes(X, Xn, wts_wall, dist_far, element_wise_node_cnt, 1);
         SurfaceIntegral(surface_area_, wts_wall*0+1, wts_wall);
-        // surface_area_wall = surface_area_[0];
         sctl::Vector<Real> sa_loc(1);
         sa_loc[0] = surface_area_[0];
         sctl::Vector<Real> sa_all(1);
         sa_all[0] = 0;
         comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
         surface_area_wall = sa_all[0];
-        std::cout << "DEBUG wall surface area, computed to be " << surface_area_wall << std::endl;
     }
-    // Define the boundary-integral operator: (I/2 + D + S)[sigma-sigma_mean] + sigma_mean
+
+    // periodized boundary integral operator
     const auto BIO = [&wts,&surface_area,&elem_lst0,&wts_wall,&surface_area_wall,&plane,&LayerPotenOp0,&DL_scal,&X0_ptcl,&X0_wall,&NormalOrient, &comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         
         sctl::Vector<Real> ptcl_dens(X0_ptcl.Dim(), (sctl::Iterator<Real>) sigma.begin(), true);
@@ -1270,24 +644,12 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
         AddConstVec(*U, sigma_mean);
     };
 
-    const auto bg_flow_2peri = [](const sctl::Vector<Real>& X) {
-        const sctl::Long N = X.Dim()/3;
-        sctl::Vector<Real> U(N*3);
-        for (sctl::Long i = 0; i < N; i++) {
-            const auto x = X.begin() + i*3;
-            U[i*3+0] = - 0.5 * ((x[2]-0.5)*(x[2]-0.5)); // 2-periodic flow between plates.
-            U[i*3+1] = 0.;
-            U[i*3+2] = 0.;
-        }
-        return U;
-    };
-
     // Solve for sigma to satisfy no-slip boundary conditions: BIO(sigma) + bg_flow = 0
     sctl::Vector<Real> sigma;
-    sctl::GMRES<Real> solver(comm, false);
-    sctl::KrylovPrecond<Real> krylov;
+    sctl::GMRES<Real> solver(comm);
+    sctl::KrylovPrecond<Real> krylov_precond;
     sctl::Vector<Real> rhs = bg_flow_2peri(X0)*(pressure_drop/period_length);
-    solver(&sigma, BIO, rhs, gmres_tol, gmres_max_iter, false, nullptr, &krylov);
+    solver(&sigma, BIO, rhs, gmres_tol, gmres_max_iter, false, nullptr, &krylov_precond);
 
     { // Evaluate in interior, and write visualization
         PeriodicGeom<Real> trg;
@@ -1331,7 +693,6 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
                     X1_ptr += 1;
                 }
             }
-            // Write visualization to VTK
             vol_vis.WriteVTK(filename_vis, U_vis);
 
         } else {
@@ -1360,46 +721,6 @@ template <class Real> void plane_ptcl_self_conv(sctl::Long Nelem, sctl::Long Fou
             if (!comm.Rank()) {
                 std::cout<<"Max error = "<< std::setprecision(10) << err_all[0] << ", Max u = " << u_all[0] << ", Max relative error = " << err_all[0] / u_all[0] << std::endl;
             }
-
-            // Try average error instead of max? (can probably use omp_scan.. )
-            double avg_err = 0.;
-            for (const auto e : err) avg_err += sctl::fabs(e);
-            sctl::Vector<Real> avg_err_loc(1);
-            avg_err_loc[0] = avg_err;
-            sctl::Vector<Real> avg_err_all(1);
-            avg_err_all[0] = 0;
-            comm.Allreduce((sctl::Iterator<Real>) avg_err_loc.begin(), (sctl::Iterator<Real>) avg_err_all.begin(), 1, sctl::CommOp::SUM);
-            // std::cout << "on MPI process " << comm.Rank() << ", sum of err locally is " << avg_err << ", total error is " << avg_err_all[0] << std::endl;
-
-            long size_err = err.Dim();
-            sctl::Vector<sctl::Long> size_err_loc(1);
-            size_err_loc[0] = size_err;
-            sctl::Vector<sctl::Long> size_err_all(1);
-            size_err_all[0] = 0;
-            comm.Allreduce((sctl::Iterator<sctl::Long>) size_err_loc.begin(), (sctl::Iterator<sctl::Long>) size_err_all.begin(), 1, sctl::CommOp::SUM);
-
-            // std::cout << "size of error on process" << comm.Rank() << " is " << size_err << ", after collection total size is " << size_err_all[0] << std::endl;
-
-            avg_err = avg_err_all[0] / (1.0*size_err_all[0]);
-
-            if (!comm.Rank()) {
-                std::cout<<"Average error = "<< std::setprecision(10) << avg_err << ", average relative error (divide by max u above) = " << avg_err / u_all[0] << std::endl;
-            }
-
-            // Create array of velocity for all target points, including filtered out ones.
-            sctl::Vector<Real> err_vis(X0_all.Dim());
-            err_vis = 0.;
-            sctl::Long X1_ptr = 0;
-            for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
-                if (filtered_inds[i] == 0) {
-                    err_vis[i*3] = err[X1_ptr*3];
-                    err_vis[i*3+1] = err[X1_ptr*3+1];
-                    err_vis[i*3+2] = err[X1_ptr*3+2];
-                    X1_ptr += 1;
-                }
-            }
-            // Write visualization to VTK
-            // vol_vis.WriteVTK("vis/Plane_ptcl_2_peri_U_err_", err_vis);
         }
     }
 
@@ -1412,71 +733,29 @@ int main(int argc, char** argv) {
   {
     // sctl::Profile::Enable(true);
     sctl::Comm comm = sctl::Comm::World();
-    long test_mode = std::stol(argv[1]); // =0 for trefoil, =1 for particle; =2 for conv div, =3 for trefoil with particle. =4 for 2peri plane with particle(s)
-    long peri_mode = std::stol(argv[2]); // 1-, 2-, or 3- periodic
-    long Nptcl = std::stol(argv[3]); // Number of particles, for tests 1 and 4
-    long geom_mode = std::stol(argv[4]); // type of particles, for test 4.
-    std::cout << "Test mode: " << test_mode << "; peri mode (if test 1 for particles): " << peri_mode << "; Nptcl (if test 1 or test 4): " << Nptcl << "; geom mode (if test 4): " << geom_mode << std::endl;
+    long test_mode = std::stol(argv[1]); // =0 for 1-peri channel-sphere, =1 for 2-peri plane-particles; =2 for triply-periodic spheres
+    long peri_mode = std::stol(argv[2]); // peri_mode = j for j-periodic
+    long Nptcl = std::stol(argv[3]); // Number of particles
+    long geom_mode = std::stol(argv[4]); // type of particles, for test 4. sphere: 0, sheroids: 1, loops: 2
+    std::cout << "Test mode: " << test_mode << "; peri mode: " << peri_mode << "; Nptcl: " << Nptcl << "; geom mode: " << geom_mode << std::endl;
 
     sctl::Vector<sctl::Long> Nelem_lst, FourierOrder_lst;
 
-    if (test_mode == 0) { // trefoil empty
-        Nelem_lst.PushBack(400);
-        Nelem_lst.PushBack(600);
-        Nelem_lst.PushBack(800);
+    if (test_mode == 0) {
+        for (int i=1; i<6; i += 2) {
+            Nelem_lst.PushBack(2*i);
+        }
+        // Nelem_lst.PushBack(18);
 
-        // FourierOrder_lst.PushBack(16);
-        // FourierOrder_lst.PushBack(32);
-        // FourierOrder_lst.PushBack(64);
-        FourierOrder_lst.PushBack(80);
-        FourierOrder_lst.PushBack(96); 
-    } else if (test_mode == 1) { // particle self conv
-        // if (Nptcl < 10) {
-        //     for (int i=1; i<4; i += 2) {
-        //         Nelem_lst.PushBack(2*i);
-        //     }
-
-        //     FourierOrder_lst.PushBack(4);
-        //     FourierOrder_lst.PushBack(16);
-        //     FourierOrder_lst.PushBack(32);
-        //     FourierOrder_lst.PushBack(64);
-        // } else { // larger parameters for the more dense system of 25 particles
-            for (int i=1; i<11; i += 2) {
-                Nelem_lst.PushBack(2*i);
-            }
-
-            // FourierOrder_lst.PushBack(16); // cannot achieve desired tolerance
-            FourierOrder_lst.PushBack(32);
-            FourierOrder_lst.PushBack(64);
-            FourierOrder_lst.PushBack(80);
-            FourierOrder_lst.PushBack(96);
-        // }
-
+        FourierOrder_lst.PushBack(4);
+        FourierOrder_lst.PushBack(16);
+        FourierOrder_lst.PushBack(32);
+        FourierOrder_lst.PushBack(64);
+        // FourierOrder_lst.PushBack(96);
         
-    } else if (test_mode == 2) { // convdiv with particles
-        // Nelem_lst.PushBack(25);
-        // Nelem_lst.PushBack(50);
-        Nelem_lst.PushBack(100);
-
-        // FourierOrder_lst.PushBack(16);
-        // FourierOrder_lst.PushBack(32);
-        // FourierOrder_lst.PushBack(64);
-        FourierOrder_lst.PushBack(80);
-        FourierOrder_lst.PushBack(96); 
-    } else if (test_mode == 3) { // trefoil with particles
-        Nelem_lst.PushBack(400);
-        Nelem_lst.PushBack(600);
-        Nelem_lst.PushBack(800);
-
-        // FourierOrder_lst.PushBack(16);
-        // FourierOrder_lst.PushBack(32);
-        // FourierOrder_lst.PushBack(64);
-        FourierOrder_lst.PushBack(80);
-        FourierOrder_lst.PushBack(96); 
-    } else if (test_mode == 4) { // plane with particles
+    } else if (test_mode == 1) {
         if (geom_mode == 0) {
             for (int i=1; i<10; i += 2) {
-            // for (int i=1; i<4; i += 2) {
                 Nelem_lst.PushBack(2*i);
             }
 
@@ -1497,6 +776,24 @@ int main(int argc, char** argv) {
             FourierOrder_lst.PushBack(80);
             FourierOrder_lst.PushBack(96); 
         }        
+    } else if (test_mode == 2) {
+        if (Nptcl < 10) {
+            for (int i=1; i<4; i += 2) {
+                Nelem_lst.PushBack(2*i);
+            }
+            FourierOrder_lst.PushBack(4);
+            FourierOrder_lst.PushBack(16);
+            FourierOrder_lst.PushBack(32);
+            // FourierOrder_lst.PushBack(64);
+        } else { // larger parameters for the more dense system of 25 particles
+            for (int i=1; i<11; i += 2) {
+                Nelem_lst.PushBack(2*i);
+            }
+            FourierOrder_lst.PushBack(32);
+            FourierOrder_lst.PushBack(64);
+            FourierOrder_lst.PushBack(80);
+            FourierOrder_lst.PushBack(96);
+        }
     }
     
     sctl::Long Nelem, FourierOrder;
@@ -1511,19 +808,14 @@ int main(int argc, char** argv) {
                 Real tol = 1e-14;
                 Real gmres_tol = 1e-14;
                 if (test_mode==0) {
-                    trefoil_self_conv<Real>(Nelem, FourierOrder, true, comm, tol, gmres_tol);
+                    channel_sphere_self_conv<Real>(Nelem, FourierOrder, true, comm, gmres_tol, tol);
                 } else if (test_mode == 1) {
-                    particle_self_conv<Real>(Nelem, FourierOrder, true, peri_mode, comm, Nptcl, tol, gmres_tol);
+                    plane_ptcl_self_conv<Real>(Nelem, FourierOrder, true, comm, Nptcl, geom_mode, gmres_tol, tol);
                 } else if (test_mode==2) {
-                    convdiv_self_conv<Real>(Nelem, FourierOrder, true, comm, tol, gmres_tol); 
-                } else if (test_mode==3) {
-                    trefoil_ptcl_self_conv<Real>(Nelem, FourierOrder, true, comm, tol, gmres_tol);
-                } else if (test_mode==4) {
-                    plane_ptcl_self_conv<Real>(Nelem, FourierOrder, true, Nptcl, geom_mode, comm, tol, gmres_tol);
+                    particle_self_conv<Real>(Nelem, FourierOrder, true, comm, Nptcl, peri_mode, gmres_tol, tol); 
                 } else {
                     SCTL_ASSERT(false);
                 }
-                // continue;
             } else {
                 Real tol = 1e-14;
                 Real gmres_tol;
@@ -1533,23 +825,17 @@ int main(int argc, char** argv) {
                     gmres_tol = 1e-12;
                 }
                 if (test_mode==0) {
-                    trefoil_self_conv<Real>(Nelem, FourierOrder, false, comm, tol, gmres_tol);
-                } else if (test_mode == 1){
-                    particle_self_conv<Real>(Nelem, FourierOrder, false, peri_mode, comm, Nptcl, tol, gmres_tol); 
+                    channel_sphere_self_conv<Real>(Nelem, FourierOrder, false, comm, gmres_tol, tol);
+                } else if (test_mode == 1) {
+                    plane_ptcl_self_conv<Real>(Nelem, FourierOrder, false, comm, Nptcl, geom_mode, gmres_tol, tol);
                 } else if (test_mode==2) {
-                    convdiv_self_conv<Real>(Nelem, FourierOrder, false, comm, tol, gmres_tol); 
-                } else if (test_mode==3) {
-                    trefoil_ptcl_self_conv<Real>(Nelem, FourierOrder, false, comm, tol, gmres_tol);
-                } else if (test_mode==4) {
-                    plane_ptcl_self_conv<Real>(Nelem, FourierOrder, false, Nptcl, geom_mode, comm, tol, gmres_tol);
+                    particle_self_conv<Real>(Nelem, FourierOrder, false, comm, Nptcl, peri_mode, gmres_tol, tol); 
                 } else {
                     SCTL_ASSERT(false);
                 }
-                
             }
         }
     }
-    
   }
 
   sctl::Comm::MPI_Finalize();
