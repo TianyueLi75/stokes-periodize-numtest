@@ -38,15 +38,15 @@ make test_manufactured_soln -j &&
 for n in {1..8}; do
     for m in {4..80..4}; do
         echo "n = $n, m=$m"
-        mpirun -n 1 --map-by numa:pe=${OMP_NUM_THREADS} ./bin/test2_ptcl_conv $n $m 25 0 60000 >> "out/Nelem_Nf_grid.txt"
+        mpirun -n 1 --map-by numa:pe=${OMP_NUM_THREADS} ./bin/test_manufactured_soln $n $m 25 0 60000 >> "out/Nelem_Nf_grid.txt"
     done
 done
 
 # Streamlines (Figure 9)
 make timing -j &&
-mpirun -n 1 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2 4 32 1 3 25 0 1e-9 1e-14 > ${WORK_DIR}/25ptcls_3peri_1proc_streamlines.txt
-mpirun -n 16 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2 4 32 1 3 400 0 1e-9 1e-14 > ${WORK_DIR}/400ptcls_3peri_16proc_streamlines.txt
-mpirun -n 80 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2 4 32 1 3 2000 0 1e-9 1e-14 > ${WORK_DIR}/2000ptcls_3peri_80proc_streamlines.txt
+mpirun -n 1 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/timing 4 32 1 3 25 0 1e-9 1e-14 > ${WORK_DIR}/25ptcls_3peri_1proc_streamlines.txt
+mpirun -n 16 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/timing 4 32 1 3 400 0 1e-9 1e-14 > ${WORK_DIR}/400ptcls_3peri_16proc_streamlines.txt
+mpirun -n 80 --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/timing 4 32 1 3 2000 0 1e-9 1e-14 > ${WORK_DIR}/2000ptcls_3peri_80proc_streamlines.txt
 
 # Precompute time (Figure 8)
 make timing_precomp -j && 
@@ -59,6 +59,7 @@ runs=(
     "1e-11:12"
     "1e-13:14"
     "1e-15:16"
+    "1e-17:18"
 )
 # Loop through each pair
 for run in "${runs[@]}"; do
@@ -75,7 +76,7 @@ done
 
 # Periodization overhead (Table 4)
 make timing_periodization -j && 
-for np in 25, 50, 100, 200; do
+for np in 25 50 100 200; do
     mpirun -n 1 --report-bindings --map-by numa:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/periodization_time 6 32 $np 1e-8 1e-11 > ${WORK_DIR}/periodization_time_Np6Nf32N${np}.txt
 done
 

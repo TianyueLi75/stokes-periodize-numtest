@@ -1,7 +1,17 @@
+// =============================================================================
+// planeNaive.cpp
+//
+// Template implementation of the PlaneIntegral class declared in planeNaive.hpp.
+// Not a standalone translation unit: it is included at the bottom of
+// planeNaive.hpp. See that header for the wall geometry and the self-interaction
+// convention.
+// =============================================================================
+
 #include <sctl.hpp>
 #include "planeNaive.hpp"
 
 namespace sctl {
+    // Cached Gauss-Legendre nodes and weights on [0,1] for every order below max_order.
     template <class Real> const std::pair<Vector<Real>,Vector<Real>>& PlaneIntegral<Real>::LegendreQuad_plane(Integer ORDER) {
         constexpr Integer max_order = 50;
         auto compute_nds_wts = [max_order]() {
@@ -19,8 +29,10 @@ namespace sctl {
         return nds_wts[ORDER];
     }
 
+    // Discretize the two flat walls (z = 1 - z_offset and z = z_offset) into
+    // Nelem_x by Nelem_y panels of order by order tensor-product GL nodes, with
+    // inward-pointing normals.
     template <class Real> PlaneIntegral<Real>::PlaneIntegral(const Long order, const Long Nelem_x, const Long Nelem_y, const Real z_offset) {
-        // constructor
         order_ = order;
         z_offset_ = z_offset;
         auto gl_grid = LegendreQuad_plane(order_);
@@ -88,8 +100,10 @@ namespace sctl {
         }
     }
 
+    // Far-field source nodes, normals, and weights for the layer-potential
+    // quadrature. The flat panels need no upsampling, so the on-surface grid is
+    // returned unchanged with zero far-field distance.
     template <class Real> void PlaneIntegral<Real>:: GetFarFieldNodes(Vector<Real>& X, Vector<Real>& Xn, Vector<Real>& wts, Vector<Real>& dist_far, Vector<Long>& element_wise_node_cnt, const Real tol) const {
-        // first no change to gl_grid for far
         X = Xsrc_;
         Xn = Xsrc_n_;
         wts = Xwts_;
@@ -118,25 +132,32 @@ namespace sctl {
         return Nelem_x_ * Nelem_y_ * 2;
     }
 
+    // Pack the node coordinates and field F into VTK quad cells, one per pair of
+    // adjacent in-plane nodes, for both walls.
     template <class Real> void PlaneIntegral<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
         for (const auto& x : Xsrc_) vtu_data.coord.PushBack((float)x);
         for (const auto& x :     F) vtu_data.value.PushBack((float)x);
-        sctl::Long N = Nelem_x_*order_;
-        for (sctl::Long j = 0; j < N-1; j++) {
-            for (sctl::Long k = 0; k < N-1; k++) {
-                auto idx = [this,N](sctl::Long j, sctl::Long k) {
-                    return j*N+k;
-                };
-                vtu_data.connect.PushBack(idx(j+0,k+0));
-                vtu_data.connect.PushBack(idx(j+0,k+1));
-                vtu_data.connect.PushBack(idx(j+1,k+1));
-                vtu_data.connect.PushBack(idx(j+1,k+0));
-                vtu_data.connect.PushBack(idx(j+0,k+0));
-                vtu_data.connect.PushBack(idx(j+0,k+1));
-                vtu_data.connect.PushBack(idx(j+1,k+1));
-                vtu_data.connect.PushBack(idx(j+1,k+0));
-                vtu_data.offset.PushBack(vtu_data.connect.Dim());;
-                vtu_data.types.PushBack(12);
+        const sctl::Long g = gl_nodes_.Dim();
+        const sctl::Long Nx = Nelem_x_ * g; // global node count in x per plane
+        const sctl::Long Ny = Nelem_y_ * g; // global node count in y per plane
+        const sctl::Long plane_offset = Nelem_x_ * g * Nelem_y_ * g; // nodes per plane
+        // Map a physical grid index (gx,gy) on a given plane to its storage slot.
+        // Nodes are stored element-blocked: xind*Nelem_y*g*g + yind*g*g + node_xind*g + node_yind.
+        auto idx = [this,g,plane_offset](sctl::Long gx, sctl::Long gy, sctl::Long plane) {
+            const sctl::Long xind = gx / g, node_xind = gx % g;
+            const sctl::Long yind = gy / g, node_yind = gy % g;
+            return plane*plane_offset + xind*Nelem_y_*g*g + yind*g*g + node_xind*g + node_yind;
+        };
+        for (sctl::Long plane = 0; plane < 2; plane++) {
+            for (sctl::Long gx = 0; gx < Nx-1; gx++) {
+                for (sctl::Long gy = 0; gy < Ny-1; gy++) {
+                    vtu_data.connect.PushBack(idx(gx+0,gy+0,plane));
+                    vtu_data.connect.PushBack(idx(gx+0,gy+1,plane));
+                    vtu_data.connect.PushBack(idx(gx+1,gy+1,plane));
+                    vtu_data.connect.PushBack(idx(gx+1,gy+0,plane));
+                    vtu_data.offset.PushBack(vtu_data.connect.Dim());
+                    vtu_data.types.PushBack(9); // VTK_QUAD
+                }
             }
         }
     }
@@ -147,6 +168,8 @@ namespace sctl {
         vtu_data.WriteVTK(fname, comm);
     }
 
+    // On-surface self-interaction blocks per panel: a regularized Stokeslet for
+    // the single layer, and zero for the double layer.
     template <class Real> template <class Kernel> void PlaneIntegral<Real>::SelfInterac(sctl::Vector<sctl::Matrix<Real>>& M_lst, const Kernel& ker, Real tol, bool trg_dot_prod, const sctl::ElementListBase<Real>* self) {
 
         const auto& elem_lst = *dynamic_cast<const PlaneIntegral*>(self); 
@@ -159,7 +182,7 @@ namespace sctl {
         sctl::Long starting_idx = 0;
         sctl::Long Nentries = elem_lst.Order_const()*elem_lst.Order_const()*3; // 3 x Nnodes per element
         for (sctl::Long elem_idx=0; elem_idx < Nelem; elem_idx++) {
-            if constexpr (std::is_same_v<Kernel, Stokes3D_FxU>) { // SL self-to-self, use regularized SL (for now..)
+            if constexpr (std::is_same_v<Kernel, Stokes3D_FxU>) { // single-layer self-interaction: regularized Stokeslet
                 // Grab nodes on panel
                 sctl::Vector<Real> Xsrc_here(Nentries, (sctl::Iterator<Real>) Xsrc.begin() + starting_idx, false);
                 reg_sl(M_lst[elem_idx], Xsrc_here, eps);
@@ -172,9 +195,11 @@ namespace sctl {
         }
     }
 
+    // Regularized (epsilon-mollified) Stokeslet self-interaction matrix for one panel.
     template <class Real> void PlaneIntegral<Real>::reg_sl(sctl::Matrix<Real>& SL_eps, const sctl::Vector<Real> Xsrc, const Real eps) {
         sctl::Long Nsrc = Xsrc.Dim() / 3;
         if (SL_eps.Dim(0)!=Nsrc*3 || SL_eps.Dim(1)!=Nsrc*3) SL_eps.ReInit(Nsrc*3,Nsrc*3);
+        SL_eps = 0.;
         Real eps2 = eps*eps;
         for (sctl::Long i=0; i<Nsrc; i++) { // trg idx
             sctl::Vector<Real> xtrg(3, (sctl::Iterator<Real>) Xsrc.begin() + i*3, false);

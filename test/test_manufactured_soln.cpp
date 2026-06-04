@@ -1,6 +1,35 @@
-/*
-    Manufactured solutions test on singly-periodic array of spherical suspensions. 
-*/
+// =============================================================================
+// test2_ptcl_conv.cpp
+//
+// Manufactured-solution accuracy test for a singly-periodic spherical
+// suspension. Produces the digits-of-accuracy table (tab. 3) and the (N_p, N_f)
+// parameter sweep figure (fig. 7) in the accompanying paper.
+//
+// Usage:
+//   make test_manufactured_soln
+//   mpirun -n <Nproc> --map-by numa:pe=$OMP_NUM_THREADS ./bin/test_manufactured_soln \
+//          <N_p> <N_f> <Nptcl> <geom_mode> <Ncopy>
+//
+// Arguments:
+//   N_p        panels per particle
+//   N_f        azimuthal Fourier modes per particle
+//   Nptcl      number of particles
+//   geom_mode  particle shape: 0 = sphere, 1 = spheroid, 2 = loop
+//   Ncopy      half-width of the lattice truncation for the reference solution
+//   Example:   ./bin/test_manufactured_soln 6 32 25 0 60000
+//
+// Method:
+//   A Stokes doublet (a pair of equal-and-opposite Stokeslets) is placed inside
+//   each particle, giving zero net force per period as required for absolute
+//   convergence of the lattice sum. The reference field u_e is the periodic
+//   array of doublets truncated to 2*Ncopy+1 cells, summed directly. Its trace
+//   on the particle boundaries is imposed as the Dirichlet data; the combined-
+//   field BIE is solved and the solver field is compared with u_e on an interior
+//   grid (mean removed) to report the maximum relative error.
+//
+//   The accuracy of the truncated direct sum can be verified through 
+//   exact_field_check().
+// =============================================================================
 
 // Boundary integral operators
 #include "stokes_bio.hpp" 
@@ -14,7 +43,8 @@
 // Visualization
 #include "utils_vis.hpp" 
 
-// Direct summation of <Ncopy> of sources at <Xsrc> of strength <sigma> in unit cube, evaulated at <Xtrg>
+// Direct lattice sum at Xtrg of the singly-periodic array of Stokeslets (Xsrc, sigma),
+// truncated to 2*Ncopy+1 cells.
 template <class Real> sctl::Vector<Real> exact_field(const sctl::Vector<Real>& Xtrg, const sctl::Vector<Real>& Xsrc, const sctl::Vector<Real>& sigma, const sctl::Long Ncopy) {
     sctl::Stokes3D_FxU ker;
   
@@ -30,7 +60,8 @@ template <class Real> sctl::Vector<Real> exact_field(const sctl::Vector<Real>& X
     return U;
 }
 
-// First check the accuracy of exact field summation of <Ncopy1> periods by comparing it to better approximation from <Ncopy2> periods.
+// Estimate the truncation error of the reference lattice sum by comparing the Ncopy1
+// and Ncopy2 truncations (Ncopy2 > Ncopy1) on a uniform interior grid.
 template <class Real> void exact_field_check(
     sctl::Comm comm, 
     sctl::Long Nptcl, 
@@ -113,8 +144,8 @@ template <class Real> void exact_field_check(
     std::cout << "max relative error between Ncopy1 = " << Ncopy1 << " and " << Ncopy2 << " is " << std::setprecision(15) << max_rel_err << std::endl;
 }
 
-// Use the exact field summation of <Ncopy> periods as reference solution in a suspension of particles <geom_mode> (spheres, spheroids, loops, etc), 
-// take its value on the particle boundaries as the B.C. to exterior Dirichlet problem. Compare solution to the reference solution for the accuracy of solver.
+// Manufactured-solution test: impose the reference lattice-sum field on the particle
+// boundaries, solve the exterior Dirichlet problem, and report the interior error.
 template <class Real> void manufactured_soln_1peri(
     const sctl::Long Nelem, 
     const sctl::Long FourierOrder, 
@@ -135,16 +166,6 @@ template <class Real> void manufactured_soln_1peri(
     const sctl::Long gmres_max_iter = 200;
     const sctl::Long ElemOrder = 10;
     const Real period_length = 1.;
-
-    if (FourierOrder < 20) {
-        gmres_tol = 1e-6;
-    } else if (Nelem < 4) {
-        gmres_tol = 1e-8;
-    } else if (FourierOrder < 36) {
-        gmres_tol = 1e-10;
-    } else {
-        gmres_tol = 1e-12;
-    }
 
     if (FourierOrder < 20) {
         gmres_tol = 1e-6;

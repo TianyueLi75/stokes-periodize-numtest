@@ -1,6 +1,27 @@
-/*
-    Singly-, doubly-, and triply- periodic examples.
-*/
+// =============================================================================
+// examples.cpp
+//
+// Worked examples demonstrating the solver on complex bounded periodic geometries, 
+// with volumetric flow fields written to vis/ for rendering (e.g. in ParaView).
+//
+// Usage:
+//   make examples
+//   mpirun -n <Nproc> --map-by numa:pe=$OMP_NUM_THREADS ./bin/examples <mode>
+//
+// Arguments:
+//   mode  0 = singly-periodic converging-diverging channel seeded with
+//             rotated spheroids (slip boundary condition on the particles)
+//        1 = doubly-periodic flow between two flat walls past toroidal loops,
+//             driven by a background pressure drop
+//   Example:   ./bin/examples 0
+//
+// Method:
+//   The combined-field BIE is solved with the surface-mean projection over the
+//   union of the bounding surface (channel wall or flat planes) and the interior
+//   particles; flat walls are represented by the PlaneIntegral element list.
+//   After solving, the velocity is evaluated on an interior target grid with
+//   points inside the particles filtered out, and written as VTK.
+// =============================================================================
 
 // Boundary integral operators
 #include "stokes_bio.hpp" 
@@ -15,9 +36,8 @@
 // Visualization
 #include "utils_vis.hpp" 
 
-/**
-    Example of a converging-divering channel with some spheroids on the interior. Visualizations are stored in vis/ folder.
-*/
+// Singly-periodic converging-diverging channel with interior spheroids under a slip BC;
+// writes the geometry, slip BC, and solution flow to vis/.
 template <class Real> void channel_with_particle(sctl::Comm comm) {
 
     // Combine single-layer and double-layer kernels in these proportions
@@ -25,10 +45,10 @@ template <class Real> void channel_with_particle(sctl::Comm comm) {
     const Real DL_scal = 1.0;
 
     // Set quadrature parameters
-    const sctl::Long Nelem_channel = 176;
+    const sctl::Long Nelem_channel = 62;
     const sctl::Long ElemOrder = 10;
-    const sctl::Long FourierOrder = 96;
-    const Real tol = 1e-10; // quadrature tolerance
+    const sctl::Long FourierOrder = 48;
+    const Real tol = 1e-8; // quadrature tolerance
 
     // Set geometry parameters
     const Real period_length = 1; // length of periodic box.
@@ -36,14 +56,13 @@ template <class Real> void channel_with_particle(sctl::Comm comm) {
     const Real channel_r2 = 0.1;
     const sctl::Long Nspheroids_start = 2560; // Use the unit cube geom of <Nspheroids_start> suspension then keep only spheroids inside channel.
     // Set GMRES parameters
-    const Real gmres_tol = 1e-8;
-    const sctl::Long gmres_max_iter = 200;
+    const Real gmres_tol = 1e-7;
 
     PeriodicGeom<Real> obj;
-    sctl::Vector<sctl::Long> ptcls(1); 
-    sctl::Long ptcl_ord = 8; // number of panels on each particle (same fourier order as channel)
+    sctl::Vector<sctl::Long> ptcls(Nspheroids_start); 
+    sctl::Long ptcl_ord = 2; // number of panels on each particle (same fourier order as channel)
     ptcls = ptcl_ord;
-    // Arrays to hold particle...
+    // Arrays to hold particle properties.
     sctl::Vector<Real> ptcls_Xcs, ptcls_rs, ptcls_u0s, ptcls_thetas, ptcls_phis, NormalOrient; 
     sctl::Vector<sctl::Long> ptcls_ifprolate;
     sctl::SlenderElemList<Real> elem_lst0; 
@@ -74,71 +93,71 @@ template <class Real> void channel_with_particle(sctl::Comm comm) {
         surface_area = sa_all[0];
     }
 
-    // // Get block-preconditioner on channel and particle geometry
-    // sctl::Matrix<Real> PrecondMat0, PrecondMat1, PrecondMat0_ptcl, PrecondMat1_ptcl;
-    // sctl::Long A11size_ptcl, A11size;
-    // A11size = precond_channel(PrecondMat0, PrecondMat1, Nelem_channel, ElemOrder, FourierOrder, channel_r1, SL_scal, DL_scal, comm);
-    // A11size_ptcl = precond_ptcl(PrecondMat0_ptcl, PrecondMat1_ptcl, ptcl_ord, ElemOrder, FourierOrder, SL_scal, DL_scal, comm);
+    // Get block-preconditioner on channel and particle geometry
+    sctl::Matrix<Real> PrecondMat0, PrecondMat1, PrecondMat0_ptcl, PrecondMat1_ptcl;
+    sctl::Long A11size_ptcl, A11size;
+    A11size = precond_channel(PrecondMat0, PrecondMat1, Nelem_channel, ElemOrder, FourierOrder, channel_r1, SL_scal, DL_scal, comm);
+    A11size_ptcl = precond_ptcl(PrecondMat0_ptcl, PrecondMat1_ptcl, ptcl_ord, ElemOrder, FourierOrder, SL_scal, DL_scal, comm);
 
-    // // Get global index of the starting panel on this process
-    // sctl::Vector<sctl::Long> ElemOrderVec_temp(Nelem_channel + ptcl_ord * Nptcl);
-    // ElemOrderVec_temp = ElemOrder;
-    // sctl::Vector<sctl::Long> FourierOrderVec_temp(ElemOrderVec_temp);
-    // FourierOrderVec_temp = FourierOrder;
-    // std::tuple<sctl::Long,sctl::Long> indtpl = obj.GetGlobalIdx(ElemOrderVec_temp, FourierOrderVec_temp, comm);
-    // sctl::Long loc_elem_cnt = std::get<0>(indtpl);
-    // sctl::Long loc_elem_dsp = std::get<1>(indtpl);
+    // Get global index of the starting panel on this process
+    sctl::Vector<sctl::Long> ElemOrderVec_temp(Nelem_channel + ptcl_ord * Nptcl);
+    ElemOrderVec_temp = ElemOrder;
+    sctl::Vector<sctl::Long> FourierOrderVec_temp(ElemOrderVec_temp);
+    FourierOrderVec_temp = FourierOrder;
+    std::tuple<sctl::Long,sctl::Long> indtpl = obj.GetGlobalIdx(ElemOrderVec_temp, FourierOrderVec_temp, comm);
+    sctl::Long loc_elem_cnt = std::get<0>(indtpl);
+    sctl::Long loc_elem_dsp = std::get<1>(indtpl);
 
-    // // Apply A11inv to each panel of a vector.
-    // // Look at global panel index and determine whether belongs to a particle or the channel. 
-    // // ASSUMES no particles are split up among processors; also assumes channel panels are filled in before particles.
-    // const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size,&PrecondMat0_ptcl,&PrecondMat1_ptcl,&A11size_ptcl,&Nelem_channel,&ptcl_ord,&loc_elem_cnt,&loc_elem_dsp,&Nptcl](const sctl::Vector<Real>& vec) {
-    //     sctl::Vector<Real> AinvVec(vec.Dim());
-    //     if (Nptcl == 0 || (loc_elem_dsp+loc_elem_cnt) <= Nelem_channel) { // if no particles in channel or if all panels here are on channel
-    //         // std::cout << "All panels on this MPI process" << std::endl;
-    //         sctl::Long N = vec.Dim();
-    //         sctl::Long Npanels = N / A11size; 
-    //         for (sctl::Long i=0; i<Npanels; i++) {
-    //             sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-    //             sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
-    //             for (sctl::Long j=0; j<A11size; j++) {
-    //                 AinvVec[i*A11size + j] = AinvVecMat(j,0);
-    //             }
-    //         }
-    //     } else {
-    //         if (loc_elem_dsp >= Nelem_channel) { // all panels here belong to particles
-    //             // std::cout << "All particles on this MPI process" << std::endl;
-    //             sctl::Long N = vec.Dim();
-    //             sctl::Long Nptcls = N / A11size_ptcl; 
-    //             for (sctl::Long i=0; i<Nptcls; i++) {
-    //                 sctl::Matrix<Real> vecMat(A11size_ptcl,1,(sctl::Iterator<Real>) vec.begin() + i*A11size_ptcl,true);
-    //                 sctl::Matrix<Real> AinvVecMat = PrecondMat0_ptcl * (PrecondMat1_ptcl * vecMat);
-    //                 for (sctl::Long j=0; j<A11size_ptcl; j++) {
-    //                     AinvVec[i*A11size_ptcl + j] = AinvVecMat(j,0);
-    //                 }
-    //             }
-    //         } else {
-    //             sctl::Long Npanels_here = Nelem_channel - loc_elem_dsp;
-    //             sctl::Long Nptcls_here = (int) (loc_elem_cnt - Npanels_here) / ptcl_ord;
-    //             // std::cout << "There are " << Npanels_here << " panels and " << Nptcls_here << " particles on this MPI process." << std::endl;
-    //             for (sctl::Long i=0; i<Npanels_here; i++) {
-    //                 sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
-    //                 sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
-    //                 for (sctl::Long j=0; j<A11size; j++) {
-    //                     AinvVec[i*A11size + j] = AinvVecMat(j,0);
-    //                 }
-    //             }
-    //             for (sctl::Long i=0; i<Nptcls_here; i++) {
-    //                 sctl::Matrix<Real> vecMat(A11size_ptcl,1,(sctl::Iterator<Real>) vec.begin() + i*A11size_ptcl + Npanels_here*A11size,true);
-    //                 sctl::Matrix<Real> AinvVecMat = PrecondMat0_ptcl * (PrecondMat1_ptcl * vecMat);
-    //                 for (sctl::Long j=0; j<A11size_ptcl; j++) {
-    //                     AinvVec[Npanels_here*A11size + i*A11size_ptcl + j] = AinvVecMat(j,0);
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     return AinvVec;
-    // };
+    // Apply A11inv to each panel of a vector.
+    // Look at global panel index and determine whether belongs to a particle or the channel. 
+    // ASSUMES no particles are split up among processors; also assumes channel panels are filled in before particles.
+    const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size,&PrecondMat0_ptcl,&PrecondMat1_ptcl,&A11size_ptcl,&Nelem_channel,&ptcl_ord,&loc_elem_cnt,&loc_elem_dsp,&Nptcl](const sctl::Vector<Real>& vec) {
+        sctl::Vector<Real> AinvVec(vec.Dim());
+        if (Nptcl == 0 || (loc_elem_dsp+loc_elem_cnt) <= Nelem_channel) { // if no particles in channel or if all panels here are on channel
+            std::cout << "All panels on this MPI process" << std::endl;
+            sctl::Long N = vec.Dim();
+            sctl::Long Npanels = N / A11size; 
+            for (sctl::Long i=0; i<Npanels; i++) {
+                sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
+                sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
+                for (sctl::Long j=0; j<A11size; j++) {
+                    AinvVec[i*A11size + j] = AinvVecMat(j,0);
+                }
+            }
+        } else {
+            if (loc_elem_dsp >= Nelem_channel) { // all panels here belong to particles
+                std::cout << "All particles on this MPI process" << std::endl;
+                sctl::Long N = vec.Dim();
+                sctl::Long Nptcls = N / A11size_ptcl; 
+                for (sctl::Long i=0; i<Nptcls; i++) {
+                    sctl::Matrix<Real> vecMat(A11size_ptcl,1,(sctl::Iterator<Real>) vec.begin() + i*A11size_ptcl,true);
+                    sctl::Matrix<Real> AinvVecMat = PrecondMat0_ptcl * (PrecondMat1_ptcl * vecMat);
+                    for (sctl::Long j=0; j<A11size_ptcl; j++) {
+                        AinvVec[i*A11size_ptcl + j] = AinvVecMat(j,0);
+                    }
+                }
+            } else {
+                sctl::Long Npanels_here = Nelem_channel - loc_elem_dsp;
+                sctl::Long Nptcls_here = (int) (loc_elem_cnt - Npanels_here) / ptcl_ord;
+                std::cout << "There are " << Npanels_here << " panels and " << Nptcls_here << " particles on this MPI process." << std::endl;
+                for (sctl::Long i=0; i<Npanels_here; i++) {
+                    sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
+                    sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
+                    for (sctl::Long j=0; j<A11size; j++) {
+                        AinvVec[i*A11size + j] = AinvVecMat(j,0);
+                    }
+                }
+                for (sctl::Long i=0; i<Nptcls_here; i++) {
+                    sctl::Matrix<Real> vecMat(A11size_ptcl,1,(sctl::Iterator<Real>) vec.begin() + i*A11size_ptcl + Npanels_here*A11size,true);
+                    sctl::Matrix<Real> AinvVecMat = PrecondMat0_ptcl * (PrecondMat1_ptcl * vecMat);
+                    for (sctl::Long j=0; j<A11size_ptcl; j++) {
+                        AinvVec[Npanels_here*A11size + i*A11size_ptcl + j] = AinvVecMat(j,0);
+                    }
+                }
+            }
+        }
+        return AinvVec;
+    };
 
     StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); 
     LayerPotenOp0.AddElemList(elem_lst0);
@@ -176,12 +195,12 @@ template <class Real> void channel_with_particle(sctl::Comm comm) {
         AddConstVec(*U, sigma_mean);
     };
     
-    // // Left preconditioning using block-preconditioner u -> A11inv*u
-    // const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
-    //     sctl::Vector<Real> Uloc;
-    //     BIO(&Uloc,sigma);
-    //     (*U) = AinvApply(Uloc);
-    // };
+    // Left preconditioning using block-preconditioner u -> A11inv*u
+    const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        sctl::Vector<Real> Uloc;
+        BIO(&Uloc,sigma);
+        (*U) = AinvApply(Uloc);
+    };
 
     sctl::GMRES<Real> solver(comm);
     // sctl::KrylovPrecond<Real> krylov_precond;
@@ -249,9 +268,8 @@ template <class Real> void channel_with_particle(sctl::Comm comm) {
         }
     }
 
-    // sctl::Vector<Real> A11invF = AinvApply(rhs);
-    solver(&sigma, BIO, rhs, gmres_tol, -1);
-    // solver(&sigma, BIO_precond, A11invF, gmres_tol, -1, false, nullptr, &krylov_precond);
+    sctl::Vector<Real> A11invF = AinvApply(rhs);
+    solver(&sigma, BIO_precond, A11invF, gmres_tol);
 
     { 
         // Create uniform grid in cylindrical coordinates for targets inside channel
@@ -293,9 +311,8 @@ template <class Real> void channel_with_particle(sctl::Comm comm) {
     }
 }
 
-/**
-    Example of a 2 periodic array of several loops sandwiched between two infinite planes.
-*/
+// Doubly-periodic array of toroidal loops between two infinite flat walls, driven by a
+// background pressure drop; writes the solution flow to vis/.
 template <class Real> void planes_with_loops(sctl::Comm comm) {
 
     const Real SL_scal = 1.0;

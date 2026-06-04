@@ -1,6 +1,30 @@
-/*
-    Tests the periodicity of the solutions.
-*/
+// =============================================================================
+// test_periodicity.cpp
+//
+// Sanity check that the computed solution is genuinely periodic. After solving,
+// the velocity is evaluated at matching points on opposite faces of the unit
+// cell and the difference is printed; it should be at the solver tolerance.
+//
+// Usage:
+//   make test_peri
+//   mpirun -n 1 --map-by numa:pe=$OMP_NUM_THREADS ./bin/test_periodicity \
+//          <N_p> <N_f> <peri_mode> <Nptcl> <gmres_tol> <tol>
+//
+// Arguments:
+//   N_p        panels (per channel for peri_mode 1, per particle otherwise)
+//   N_f        azimuthal Fourier modes
+//   peri_mode  1 = X (channel), 2 = XY (wall-bound), 3 = XYZ (suspension)
+//   Nptcl      number of particles
+//   gmres_tol  GMRES relative tolerance
+//   tol        layer-potential quadrature tolerance
+//   Example:   ./bin/test_periodicity 3 24 3 1 1e-7 1e-8
+//
+// Method:
+//   The combined-field BIE is solved for the chosen periodicity, the background
+//   flow is subtracted, and the disturbance velocity is sampled on a small grid
+//   on each pair of opposing periodic faces. The printed face-to-face
+//   differences quantify the residual periodicity error.
+// =============================================================================
 
 // Boundary integral operators
 #include "stokes_bio.hpp" 
@@ -16,6 +40,8 @@
 #include "utils_vis.hpp" 
 
 
+// Singly-periodic channel with a sphere: solve, then print the velocity difference
+// between matching points on the x=0 and x=1 faces (should be ~0).
 template <class Real> void test1peri(
     const sctl::Long Nelem_channel, 
     const sctl::Long FourierOrder, 
@@ -220,6 +246,7 @@ template <class Real> void test1peri(
     }
 }
 
+// Doubly-periodic wall-bound suspension: check periodicity across the x and y faces.
 template <class Real> void test2peri(
     const sctl::Long Nelem, 
     const sctl::Long FourierOrder, 
@@ -403,7 +430,7 @@ template <class Real> void test2peri(
     for (sctl::Long xind=0; xind<Ntrg_side; xind++) {
         for (sctl::Long zind=0; zind<Ntrg_side; zind++) {
             sctl::Long Ntrg_nodeind = xind*Ntrg_side + zind;
-            Y0[Ntrg_nodeind * 3 + 0] = (xind+3)*gap; // TRY: Changed here as well.
+            Y0[Ntrg_nodeind * 3 + 0] = (xind+3)*gap;
             Y0[Ntrg_nodeind * 3 + 1] = 0.;
             Y0[Ntrg_nodeind * 3 + 2] = (zind+3)*gap;
             Y1[Ntrg_nodeind * 3 + 0] = (xind+3)*gap;
@@ -428,6 +455,7 @@ template <class Real> void test2peri(
     }
 }
 
+// Triply-periodic suspension: check periodicity across the x, y, and z faces.
 template <class Real> void test3peri(
     const sctl::Long Nelem, 
     const sctl::Long FourierOrder, 

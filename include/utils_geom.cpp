@@ -1,3 +1,13 @@
+// =============================================================================
+// utils_geom.cpp
+//
+// Template implementation of the PeriodicGeom class declared in utils_geom.hpp.
+// Not a standalone translation unit: it is included at the bottom of
+// utils_geom.hpp. See that header for the geometry parameterization and an
+// overview of the builders, periodic-imaging helpers, and target filters.
+// =============================================================================
+
+// Straight periodic cylindrical channel of radius r, optionally seeded with interior particles.
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_straight(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real r, const sctl::Comm& comm, const sctl::Vector<sctl::Long> ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
   comm_ = comm;
   sctl::Vector<Real> Xc, eps, orient;
@@ -42,6 +52,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   return std::make_tuple(elem_lst, normal_orient_);
 };
 
+// Converging-diverging periodic channel (radius profile conv_div_radius) packed with rotated spheroids.
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::build_conv_div(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real r1, const Real r2, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, sctl::Vector<Real>& ptcls_u0s, sctl::Vector<sctl::Long>& ptcls_ifprolate, const sctl::Long ptcl_ord, const sctl::Long N){
   comm_ = comm;
   sctl::Vector<Real> Xc, eps, orient;
@@ -67,7 +78,19 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
   sctl::Vector<Real> ptcls_thetas;
   sctl::Vector<Real> ptcls_phis;
   if (ptcls.Dim()>0) {
-    packed_spheroids_conv_div(ptcls_Xcs, ptcls_rs, ptcls_u0s, ptcls_thetas, ptcls_phis, ptcls_ifprolate, r1, r2, N);
+    if (ptcls.Dim() == 1) {
+      ptcls_Xcs.PushBack(0.5);
+      ptcls_Xcs.PushBack(0.5);
+      ptcls_Xcs.PushBack(0.5);
+      ptcls_rs.PushBack(0.07/10);
+      ptcls_u0s.PushBack(10);
+      ptcls_thetas.PushBack(0.0);
+      ptcls_phis.PushBack(0.0);
+      ptcls_ifprolate.PushBack(1);
+    } else {
+      packed_spheroids_conv_div(ptcls_Xcs, ptcls_rs, ptcls_u0s, ptcls_thetas, ptcls_phis, ptcls_ifprolate, r1, r2, N);
+    }
+    
 
     sctl::Vector<sctl::Long> ptcls_(ptcls_rs.Dim());
     ptcls_ = ptcl_ord;
@@ -85,6 +108,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
 
 }
 
+// Single sphere of radius 0.1 centered in the unit cell (also used to build the particle preconditioner).
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_ptcls1(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
   comm_ = comm;
   sctl::Long Nelem_ptcl_tot = 0;
@@ -112,6 +136,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   return std::make_tuple(elem_lst, normal_orient_);
 }
 
+// Three hard-coded spheres in the unit cell.
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_ptcls3(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
   comm_ = comm;
   sctl::Long Nelem_ptcl_tot = 0;
@@ -149,6 +174,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   return std::make_tuple(elem_lst, normal_orient_);
 }
 
+// Three hard-coded, rotated spheroids in the unit cell.
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_spheroids3(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs){
   const sctl::Long geom_mode = 1; // spheroids
   
@@ -199,6 +225,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
   return std::make_tuple(elem_lst, normal_orient_, ptcls_thetas, ptcls_phis);
 }
 
+// Three hard-coded, rotated toroidal loops in the unit cell.
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,sctl::Vector<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_loops3(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs){
   const sctl::Long geom_mode = 2; // loops
   
@@ -207,7 +234,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
   SCTL_ASSERT(ptcls.Dim()==0);
   SCTL_ASSERT(ptcls_Xcs.Dim()==0);
   SCTL_ASSERT(ptcls_rs.Dim()==0);
-  // 3 spheroids in space
+  // 3 loops in space
   ptcls_Xcs.PushBack(0.2);
   ptcls_Xcs.PushBack(0.2);
   ptcls_Xcs.PushBack(0.2);
@@ -236,7 +263,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
   ptcls_phis[0] = 0;
   ptcls_phis[1] = 0;
   ptcls_phis[2] = sctl::const_pi<Real>() / 5.;
-  
+
   sctl::Vector<Real> Xc, eps, orient;
   sctl::Vector<sctl::Long> ElemOrderVec, FourierOrderVec;
   add_particles_rotated(ElemOrderVec, FourierOrderVec, Xc, eps, orient, ElemOrder, FourierOrder, ptcls, ptcls_rs, ptcls_Xcs, geom_mode, ptcls_thetas, ptcls_phis);
@@ -249,6 +276,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>,
   return std::make_tuple(elem_lst, normal_orient_, ptcls_thetas, ptcls_phis);
 }
 
+// Suspension of Nptcl spheres with centers/radii read from data/sphere_data_*.txt.
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_ptcls2(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, const sctl::Long Nptcl, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, const int geom_mode){
   comm_ = comm;
   sctl::Long Nelem_ptcl_tot = 0;
@@ -290,6 +318,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   return std::make_tuple(elem_lst, normal_orient_);
 }
 
+// Suspension of Nptcl randomly-sized, randomly-oriented loops seeded from the sphere data file.
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::many_loops2(const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Comm& comm, const sctl::Long Nptcl, sctl::Vector<sctl::Long>& ptcls, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_Xcs, sctl::Vector<Real>& ptcls_major_rs, sctl::Vector<Real>& ptcls_minor_rs,sctl::Vector<Real>& ptcls_thetas, sctl::Vector<Real>& ptcls_phis){
   comm_ = comm;
   std::string data_filename;
@@ -343,6 +372,7 @@ struct LocalGeomSample {
   Real eps;
 };
 
+// Rotate a local geometry sample (position and orientation frame) by the body angles (theta, phi).
 template <class Real>
 inline LocalGeomSample<Real> rotate_sample(const LocalGeomSample<Real>& sample,
                                            const Real theta_rotate,
@@ -365,6 +395,8 @@ inline LocalGeomSample<Real> rotate_sample(const LocalGeomSample<Real>& sample,
   return rotated;
 }
 
+// Append one panel of centerline nodes for a body, sampling its cross-section via
+// sample_local(theta) and optionally rotating each sample into the body frame.
 template <class Real, class SampleFn>
 void append_particle_nodes(sctl::Vector<sctl::Long>& ElemOrderVec,
                            sctl::Vector<sctl::Long>& FourierOrderVec,
@@ -407,6 +439,7 @@ void append_particle_nodes(sctl::Vector<sctl::Long>& ElemOrderVec,
 
 } 
 
+// Append axis-aligned sphere/spheroid/loop panels (selected by geom_mode) for every particle.
 template <class Real> void PeriodicGeom<Real>::add_particles(sctl::Vector<sctl::Long>& ElemOrderVec, sctl::Vector<sctl::Long>& FourierOrderVec, sctl::Vector<Real>& Xc, sctl::Vector<Real>& eps, sctl::Vector<Real>& orient, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real>& ptcls_rs, const sctl::Vector<Real>& ptcls_Xcs, const int geom_mode) {
   sctl::Long Nptcl = ptcls.Dim();
   for (sctl::Long p = 0; p < Nptcl; p++) {
@@ -443,6 +476,7 @@ template <class Real> void PeriodicGeom<Real>::add_particles(sctl::Vector<sctl::
   }
 }
 
+// Append axis-aligned (pro/oblate) spheroid panels for every particle, sized by (u0, a).
 template <class Real> void PeriodicGeom<Real>::add_spheroids(sctl::Vector<sctl::Long>& ElemOrderVec, sctl::Vector<sctl::Long>& FourierOrderVec, sctl::Vector<Real>& Xc, sctl::Vector<Real>& eps, sctl::Vector<Real>& orient, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real>& ptcls_rs, const sctl::Vector<Real>& ptcls_Xcs, const sctl::Vector<Real>& ptcls_u0s, const sctl::Vector<sctl::Long>& ptcls_ifprolate) {
   sctl::Long Nptcl = ptcls.Dim();
   for (sctl::Long p = 0; p < Nptcl; p++) {
@@ -475,8 +509,8 @@ template <class Real> void PeriodicGeom<Real>::add_spheroids(sctl::Vector<sctl::
                                    sample.y = y;
                                    sample.z = z;
                                    sample.ex = 0.;
-                                   sample.ey = 0.;
-                                   sample.ez = 1.;
+                                   sample.ey = 1.;
+                                   sample.ez = 0.;
                                    sample.eps = cylindrical_radius;
                                    return sample;
                                  });
@@ -484,6 +518,7 @@ template <class Real> void PeriodicGeom<Real>::add_spheroids(sctl::Vector<sctl::
   }
 }
 
+// Append spheroid panels for every particle, each rotated by its (theta, phi) body angles.
 template <class Real> void PeriodicGeom<Real>::add_spheroids_rotated(sctl::Vector<sctl::Long>& ElemOrderVec, sctl::Vector<sctl::Long>& FourierOrderVec, sctl::Vector<Real>& Xc, sctl::Vector<Real>& eps, sctl::Vector<Real>& orient, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real>& ptcls_rs, const sctl::Vector<Real>& ptcls_Xcs, const sctl::Vector<Real>& ptcls_u0s, const sctl::Vector<Real>& ptcls_thetas, const sctl::Vector<Real>& ptcls_phis, const sctl::Vector<sctl::Long>& ptcls_ifprolate) {
   sctl::Long Nptcl = ptcls.Dim();
   for (sctl::Long p = 0; p < Nptcl; p++) {
@@ -527,10 +562,9 @@ template <class Real> void PeriodicGeom<Real>::add_spheroids_rotated(sctl::Vecto
   }
 }
 
-/**
-    Given arrays of properties for spheroids, return the SlenderELem List representing this setup.
-*/
-template <class Real> sctl::SlenderElemList<Real> PeriodicGeom<Real>::spheroid_system(                                                           
+// Assemble a SlenderElemList from explicit per-spheroid arrays (center, axis ratio,
+// size, orientation, prolate/oblate flag).
+template <class Real> sctl::SlenderElemList<Real> PeriodicGeom<Real>::spheroid_system(                                                         
                                                                 const sctl::Long Nelem_ptcl, 
                                                                 const sctl::Long ElemOrder, 
                                                                 const sctl::Long FourierOrder, 
@@ -600,6 +634,7 @@ template <class Real> sctl::SlenderElemList<Real> PeriodicGeom<Real>::spheroid_s
 
 }
 
+// Assemble a SlenderElemList from explicit per-loop arrays (center, major/minor radius, orientation).
 template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> PeriodicGeom<Real>::loops_system(const sctl::Vector<sctl::Long> ptcls, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Vector<Real>& ptcls_Xcs, const sctl::Vector<Real>& ptcls_major_rs, const sctl::Vector<Real>& ptcls_minor_rs, const sctl::Vector<Real>& ptcls_thetas, const sctl::Vector<Real>& ptcls_phis, sctl::Comm& comm) {
   comm_ = comm;
   sctl::Long Nptcl = ptcls.Dim();
@@ -647,6 +682,7 @@ template <class Real> std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>>
   return std::make_tuple(elem_lst, normal_orient_);
 }
 
+// Append sphere/spheroid/loop panels (geom_mode) for every particle, each rotated by its (theta, phi).
 template <class Real> void PeriodicGeom<Real>::add_particles_rotated(sctl::Vector<sctl::Long>& ElemOrderVec, sctl::Vector<sctl::Long>& FourierOrderVec, sctl::Vector<Real>& Xc, sctl::Vector<Real>& eps, sctl::Vector<Real>& orient, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real>& ptcls_rs, const sctl::Vector<Real>& ptcls_Xcs, const int geom_mode, const sctl::Vector<Real> ptcls_thetas, const sctl::Vector<Real> ptcls_phis) {
   sctl::Long Nptcl = ptcls.Dim();
   for (sctl::Long p = 0; p < Nptcl; p++) {
@@ -685,6 +721,8 @@ template <class Real> void PeriodicGeom<Real>::add_particles_rotated(sctl::Vecto
   }
 }
 
+// Partition the elements across MPI ranks and initialize the local SlenderElemList;
+// returns the matching local slice of the normal-orientation vector.
 template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::InitElemList(sctl::SlenderElemList<Real>& elem_lst, const sctl::Vector<sctl::Long>& ElemOrder, const sctl::Vector<sctl::Long>& FourierOrder, const sctl::Vector<Real>& X, const sctl::Vector<Real>& R, const sctl::Vector<Real>& OrientVec, const sctl::Vector<Real>& NormalOrient, bool use_orient) {
   const sctl::Long Nelem = ElemOrder.Dim();
   // std::cout << "Nelem is " << Nelem << std::endl;
@@ -730,6 +768,8 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::InitElemList(sctl::
   return NormalOrient_;
 }
 
+// Return this rank's (local element count, global element offset) under the same
+// node-balanced partition used by InitElemList.
 template <class Real> std::tuple<sctl::Long,sctl::Long> PeriodicGeom<Real>::GetGlobalIdx(const sctl::Vector<sctl::Long>& ElemOrder, const sctl::Vector<sctl::Long>& FourierOrder, const sctl::Comm& comm) {
   const sctl::Long Nelem = ElemOrder.Dim();
   // std::cout << "Nelem is " << Nelem << std::endl;
@@ -781,6 +821,7 @@ template <class Real> std::tuple<sctl::Long,sctl::Long> PeriodicGeom<Real>::GetG
   return std::make_tuple(loc_elem_cnt,loc_elem_dsp);
 }
 
+// Tile a per-node scalar/vector field over the periodic image cells (counterpart of X_nbr_copy).
 template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::vec_nbr_copy(const sctl::Vector<Real> X, const sctl::Integer nbr_range, const sctl::Integer peri_mode) {
   sctl::Long Nrepeat = 2*nbr_range + 1;
   if (peri_mode==3) {
@@ -798,6 +839,7 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::vec_nbr_copy(const 
   return X_nbr;
 }
 
+// Integer-valued overload of vec_nbr_copy.
 template <class Real> sctl::Vector<sctl::Long> PeriodicGeom<Real>::vec_nbr_copy(const sctl::Vector<sctl::Long> X, const sctl::Integer nbr_range, const sctl::Integer peri_mode) {
   sctl::Long Nrepeat = 2*nbr_range + 1;
   if (peri_mode==3) {
@@ -813,9 +855,11 @@ template <class Real> sctl::Vector<sctl::Long> PeriodicGeom<Real>::vec_nbr_copy(
   return X_nbr;
 }
 
+// Replicate point coordinates X over the +/- nbr_range image cells along the
+// periodic directions (1D, 2D, or 3D set by peri_mode), shifting each copy by its lattice vector.
 template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::X_nbr_copy(const sctl::Vector<Real> X, const sctl::Integer nbr_range, const sctl::Integer peri_mode) {
   sctl::Long N = X.Dim();
-  if (nbr_range>0) { // duplicate geomtry to add images
+  if (nbr_range>0) { // duplicate geometry to add periodic images
     sctl::Long Nrepeat = 2*nbr_range + 1;
     if (peri_mode==3) {
       Nrepeat = Nrepeat * Nrepeat * Nrepeat;
@@ -868,6 +912,8 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::X_nbr_copy(const sc
 
 namespace {
 
+// Keep only the targets that lie outside every particle (predicate is_outside_particle).
+// Returns the exterior points and a per-target inside/outside flag (1 = filtered out).
 template <class Real, class ParticlePredicate>
 std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> filter_targets_generic(const sctl::Vector<Real>& X,
                                                                                 const sctl::Long Nptcl,
@@ -901,6 +947,7 @@ std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> filter_targets_generic(
 
 } 
 
+// Drop targets lying inside any axis-aligned particle (sphere/spheroid/loop by geom_mode).
 template <class Real> std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> PeriodicGeom<Real>::filter_target(const sctl::Vector<Real> X, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real> ptcls_rs, const sctl::Vector<Real> ptcls_Xcs, const int geom_mode) {
   const sctl::Long Nptcl = ptcls.Dim();
   return filter_targets_generic<Real>(X, Nptcl,
@@ -921,6 +968,7 @@ template <class Real> std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> P
                                      });
 }
 
+// As filter_target, but for particles rotated by per-particle (theta, phi).
 template <class Real> std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> PeriodicGeom<Real>::filter_target_rotated(const sctl::Vector<Real> X, const sctl::Vector<sctl::Long> ptcls, const sctl::Vector<Real> ptcls_rs, const sctl::Vector<Real> ptcls_Xcs, const int geom_mode, const sctl::Vector<Real> ptcls_thetas, const sctl::Vector<Real> ptcls_phis) {
   const sctl::Long Nptcl = ptcls.Dim();
   return filter_targets_generic<Real>(X, Nptcl,
@@ -943,6 +991,7 @@ template <class Real> std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> P
                                      });
 }
 
+// Drop targets inside any axis-aligned spheroid (explicit per-particle u0/size/prolate arrays).
 template <class Real> std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> PeriodicGeom<Real>::filter_spheroids(
                                                                                                 const sctl::Vector<Real> X,
                                                                                                 const sctl::Vector<Real> r_all,
@@ -960,6 +1009,7 @@ template <class Real> std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> P
                                      });
 }
 
+// As filter_spheroids, but for spheroids rotated by per-particle (theta, phi).
 template <class Real> std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> PeriodicGeom<Real>::filter_spheroids_rotated(
                                                                                                 const sctl::Vector<Real> X,
                                                                                                 const sctl::Vector<Real> r_all,
@@ -981,6 +1031,7 @@ template <class Real> std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> P
                                      });
 }
 
+// Drop targets inside any rotated toroidal loop (explicit per-particle radii/orientation).
 template <class Real> std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> PeriodicGeom<Real>::filter_loops_rotated(
                                                                                                 const sctl::Vector<Real> X,
                                                                                                 const sctl::Vector<Real> major_r_all,
@@ -1002,6 +1053,7 @@ template <class Real> std::tuple<sctl::Vector<Real>, sctl::Vector<sctl::Long>> P
 
 namespace {
 
+// Map a body-relative offset into the particle's local frame (inverse body rotation).
 template <class Real>
 inline void rotate_relative_coords(const Real v1,
                                   const Real v2,
@@ -1021,6 +1073,8 @@ inline void rotate_relative_coords(const Real v1,
   v3_rotated = cos_phi_rotate * sin_theta_rotate * v1 + sin_phi_rotate * sin_theta_rotate * v2 + cos_theta_rotate * v3;
 }
 
+// True if a local-frame point lies within the buffer-scaled spheroid of transverse
+// semi-axis A and axial semi-axis C.
 template <class Real>
 inline bool inside_spheroid_core(const Real v1,
                                  const Real v2,
@@ -1036,6 +1090,7 @@ inline bool inside_spheroid_core(const Real v1,
   return x1sq * C2inv + (x2sq + x3sq) * A2inv < buffer;
 }
 
+// True if a local-frame point lies within the buffer-scaled tube of a torus.
 template <class Real>
 inline bool inside_loop_core(const Real v1,
                              const Real v2,
@@ -1049,6 +1104,7 @@ inline bool inside_loop_core(const Real v1,
   return r2 > inner_r * inner_r && r2 < outer_r * outer_r && v3 < minor_r * buffer && v3 > -minor_r * buffer;
 }
 
+// Transverse semi-axis of a spheroid with scale a and axial parameter u0.
 template <class Real>
 inline Real spheroid_axis_length(const Real a, const Real u0, const int if_prolate) {
   return if_prolate ? a * sctl::sqrt(u0 * u0 - 1) : a * sctl::sqrt(u0 * u0 + 1);
@@ -1056,11 +1112,13 @@ inline Real spheroid_axis_length(const Real a, const Real u0, const int if_prola
 
 } // namespace
 
+// True if the point lies outside the sphere (with a small safety buffer).
 template <class Real> bool PeriodicGeom<Real>::outside_sphere(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real pr) {
   const Real d = (x1 - pXc1) * (x1 - pXc1) + (x2 - pXc2) * (x2 - pXc2) + (x3 - pXc3) * (x3 - pXc3);
   return d >= pr * pr * 1.05;
 }
 
+// True if the point lies outside the axis-aligned spheroid (buffered).
 template <class Real> bool PeriodicGeom<Real>::outside_spheroid(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real a, const Real u0, const int if_prolate) {
   const Real v1 = x1 - pXc1;
   const Real v2 = x2 - pXc2;
@@ -1070,6 +1128,7 @@ template <class Real> bool PeriodicGeom<Real>::outside_spheroid(const Real x1, c
   return !inside_spheroid_core<Real>(v1, v2, v3, A, C, 1.25);
 }
 
+// True if the point lies outside the rotated spheroid (buffered).
 template <class Real> bool PeriodicGeom<Real>::outside_spheroid_rotated(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real a, const Real u0, const int if_prolate, const Real ptheta, const Real pphi) {
   const Real v1 = x1 - pXc1;
   const Real v2 = x2 - pXc2;
@@ -1082,6 +1141,7 @@ template <class Real> bool PeriodicGeom<Real>::outside_spheroid_rotated(const Re
   return !inside_spheroid_core<Real>(v1_rotated, v2_rotated, v3_rotated, A, C, 1.05);
 }
 
+// True if the point lies outside the axis-aligned loop tube (buffered).
 template <class Real> bool PeriodicGeom<Real>::outside_loop(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real major_r, const Real minor_r) {
   const Real v1 = x1 - pXc1;
   const Real v2 = x2 - pXc2;
@@ -1089,6 +1149,7 @@ template <class Real> bool PeriodicGeom<Real>::outside_loop(const Real x1, const
   return !inside_loop_core<Real>(v1, v2, v3, major_r, minor_r, 1.25);
 }
 
+// True if the point lies outside the rotated loop tube (buffered).
 template <class Real> bool PeriodicGeom<Real>::outside_loop_rotated(const Real x1, const Real x2, const Real x3, const Real pXc1, const Real pXc2, const Real pXc3, const Real major_r, const Real minor_r, const Real ptheta, const Real pphi) {
   const Real v1 = x1 - pXc1;
   const Real v2 = x2 - pXc2;
@@ -1098,6 +1159,8 @@ template <class Real> bool PeriodicGeom<Real>::outside_loop_rotated(const Real x
   return !inside_loop_core<Real>(v1_rotated, v2_rotated, v3_rotated, major_r, minor_r, 1.25);
 }
 
+// Scatter Nobj small spheres along the channel centerline, segment by segment, with
+// randomized transverse offsets, until Nobj particles have been placed.
 template <class Real> void PeriodicGeom<Real>::many_sphs(sctl::Vector<Real>& ptcls_Xcs, sctl::Vector<Real>& ptcls_rs, const sctl::Vector<Real>& Channel_Xc, const sctl::Long Channel_mode, const sctl::Vector<Real>& Channel_eps, const sctl::Long Nobj) {
   srand48(2);
 
@@ -1145,10 +1208,12 @@ template <class Real> void PeriodicGeom<Real>::many_sphs(sctl::Vector<Real>& ptc
   }
 }
 
+// Load an N-spheroid suspension from data/bie_spheroids/, assign random orientations,
+// and keep only the spheroids that fit entirely inside the conv-div channel.
 template <class Real> void PeriodicGeom<Real>::packed_spheroids_conv_div(sctl::Vector<Real>& ptcls_Xcs, sctl::Vector<Real>& ptcls_rs, sctl::Vector<Real>& ptcls_u0s, sctl::Vector<Real>& ptcls_thetas, sctl::Vector<Real>& ptcls_phis, sctl::Vector<sctl::Long>& ptcls_ifprolate, const Real r1, const Real r2, const sctl::Long N) {
   const Real buffer = 1.15;
 
-  // Clear all inputting arrays for populating later
+  // Clear the output arrays before populating them.
   ptcls_Xcs.ReInit(0);
   ptcls_rs.ReInit(0);
   ptcls_u0s.ReInit(0);
@@ -1244,6 +1309,7 @@ template <class Real> void PeriodicGeom<Real>::packed_spheroids_conv_div(sctl::V
   }
 }
 
+// Local centerline of a torus (radius major_r ring, constant tube radius minor_r) at angle theta.
 template <class Real> void PeriodicGeom<Real>::loop_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real major_r, const Real minor_r){
   x = major_r * sctl::cos<Real>(theta);
   y = major_r * sctl::sin<Real>(theta);
@@ -1254,6 +1320,7 @@ template <class Real> void PeriodicGeom<Real>::loop_geom(Real& x, Real& y, Real&
   r = minor_r;
 };
 
+// Local centerline of a sphere expressed as a surface of revolution about the x-axis.
 template <class Real> void PeriodicGeom<Real>::sphere_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real loop_rad){
   x = loop_rad*sctl::cos<Real>(theta);
   y = 0;
@@ -1264,6 +1331,7 @@ template <class Real> void PeriodicGeom<Real>::sphere_geom(Real& x, Real& y, Rea
   ez = 0;
 }
 
+// Local centerline of a fixed prolate spheroid (axis ratio u0 = 1.1) about the x-axis.
 template <class Real> void PeriodicGeom<Real>::spheroid_geom(Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta, const Real loop_rad){
   Real u0 = 1.1;
   x = loop_rad * u0 * sctl::cos<Real>(theta);
@@ -1271,8 +1339,8 @@ template <class Real> void PeriodicGeom<Real>::spheroid_geom(Real& x, Real& y, R
   z = 0.;
   r = loop_rad * sctl::sqrt<Real>(u0*u0 - 1) * sctl::sin<Real>(theta);
   ex = 0;
-  ey = 0;
-  ez = 1;
+  ey = 1;
+  ez = 0;
 }
 
 
@@ -1310,7 +1378,7 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::exact_field_fmm(con
       sctl::Vector<Real> Uloc(Xtrg.Dim());
       sctl::Vector<Real> Xsrc_plane;
       fmm.SetSrcDensity("Src", sigma_);
-      for (int k3=-Ncopy; k3<Ncopy; k3++) {
+      for (int k3=-Ncopy; k3<=Ncopy; k3++) {
         std::cout << "K3 = " << k3 << std::endl;
         Uloc.SetZero(); // reset U
         Xsrc_plane = Xsrc_ + k3 * Zshift; // Shift 2D grid by k3*(0,0,1) for each point.
@@ -1329,6 +1397,8 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::exact_field_fmm(con
     return U;
 }
 
+// Per-node normal-orientation signs: channel_sign on channel nodes, particle_sign on
+// particle nodes (selects the interior/exterior side for the double-layer self term).
 template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::make_normal_orient(const sctl::Long channel_panels,
                                                 const sctl::Long particle_panels,
                                                 const sctl::Long ElemOrder,
@@ -1349,6 +1419,8 @@ template <class Real> sctl::Vector<Real> PeriodicGeom<Real>::make_normal_orient(
       return normal_orient;
 }
 
+// Smooth converging-diverging channel radius profile r(x) (cosine tapers between
+// the wide radius 2*r1+r2 and the narrow radius r2) over the periodic cell.
 template <class Real> Real PeriodicGeom<Real>::conv_div_radius(const Real x, const Real r1, const Real r2) {
     const Real cutoff1 = 0.25;
     const Real cutoff2 = 0.35;

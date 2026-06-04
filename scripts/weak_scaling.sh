@@ -24,5 +24,5 @@ cd ${WORK_DIR}
 Nptcl=$((NTASK*25)) 
 echo "Nprocess in this run: $NTASK, Nptcls in this run: $Nptcl; Number of threads: $OMP_NUM_THREADS."
 
-make test2 -j &&
-mpirun -n $NTASK --report-bindings --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2 6 64 1 3 $Nptcl 0 1e-9 1e-14 > ${WORK_DIR}/results/${Nptcl}ptcls_3peri_${NTASK}proc.txt 
+make timing -j &&
+mpirun -n $NTASK --report-bindings --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/timing 6 64 1 3 $Nptcl 0 1e-9 1e-14 > ${WORK_DIR}/out/${Nptcl}ptcls_3peri_${NTASK}proc.txt 
