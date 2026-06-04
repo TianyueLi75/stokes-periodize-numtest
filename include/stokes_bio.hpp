@@ -1,3 +1,31 @@
+// =============================================================================
+// stokes_bio.hpp
+//
+// StokesBIO: combined-field Stokes boundary integral operator.
+//
+// Thin wrapper around the CSBQ BoundaryIntegralOp that assembles the unified
+// single- plus double-layer operator
+//
+//     u(x) = SL_scal * S[mu](x) + DL_scal * D[mu](x),
+//
+// where S and D are the Stokes single- and double-layer potentials and mu is the
+// surface density. The class manages both layer potentials together: adding
+// element lists, setting target points and normals, choosing the periodicity
+// (X / XY / XYZ), setting the quadrature accuracy, and applying the operator
+// (ComputePotential), as well as the individual S and D applications and the
+// sqrt-weight scalings used for symmetric preconditioning. The single-layer
+// self-interaction uses a volume-potential correction (stokes_sl_volpot).
+//
+// Usage:
+//   Header-only template. Include this header; the implementation in
+//   stokes_bio.cpp is pulled in automatically at the bottom of the file.
+//       StokesBIO<Real> op(SL_scal, DL_scal, comm);
+//       op.AddElemList(elem_lst);
+//       op.SetAccuracy(tol);
+//       op.SetTargetCoord(X);
+//       op.SetPeriodicity(sctl::Periodicity::XYZ, 1.0);
+//       op.ComputePotential(U, mu);
+// =============================================================================
 #ifndef _UTILS_STOKESBIO_HPP_
 #define _UTILS_STOKESBIO_HPP_
 

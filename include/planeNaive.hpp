@@ -1,10 +1,31 @@
+// =============================================================================
+// planeNaive.hpp
+//
+// PlaneIntegral: flat bounding-wall element list for the CSBQ layer-potential
+// framework.
+//
+// Represents the two flat walls of the doubly-periodic channel -- planes at
+// z = z_offset and z = 1 - z_offset -- each subdivided into Nelem_x x Nelem_y
+// panels carrying order-`order` tensor-product Gauss-Legendre nodes (with inward
+// normals). The class implements the ElementListBase interface (node
+// coordinates, far-field nodes and weights, self-interaction, and VTU output) so
+// the walls can be added to a StokesBIO operator alongside the slender-body
+// surfaces. The single-layer self-interaction uses a regularized (epsilon-
+// mollified) Stokeslet; the double-layer self-interaction is taken to be zero.
+//
+// Usage:
+//   Header-only template; the implementation in planeNaive.cpp is included at
+//   the bottom of this header.
+//       sctl::PlaneIntegral<Real> plane(order, Nelem_x, Nelem_y, z_offset);
+//       op.AddElemList(plane, "walls");
+// =============================================================================
 #ifndef _PLANENAIVE_HPP_
 #define _PLANENAIVE_HPP_
 
 #include <sctl.hpp>
 
 namespace sctl {
-    // Element List that includes BOTH top and bottom planes with z_offset from z=0 and z=1 (symmetric for now).
+    // Element list spanning both walls, offset by z_offset from z=0 and z=1 (symmetric about the cell midplane).
     template <class Real> class PlaneIntegral : public ElementListBase<Real> { 
             static constexpr Long KDIM = 3;
 

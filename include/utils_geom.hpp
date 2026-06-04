@@ -1,3 +1,32 @@
+// =============================================================================
+// utils_geom.hpp
+//
+// PeriodicGeom: geometry construction and bookkeeping for periodic Stokes tests.
+//
+// Every non-planar surface is a surface of revolution discretized in the CSBQ
+// slender-body framework: about a centerline x_c(s) with cross-sectional radius
+// r(s) and orthonormal frame (e_1, e_2), surface points are
+//
+//     y(s, theta) = x_c(s) + r(s) [ e_1(s) cos(theta) + e_2(s) sin(theta) ],
+//
+// sampled at N_p panels x p Chebyshev nodes in s, crossed with N_f Fourier nodes
+// in theta. This class builds the resulting SlenderElemList for a variety of
+// configurations -- straight and converging-diverging channels, and suspensions
+// of spheres, spheroids, or toroidal loops, either analytically or from the
+// particle data in data/sphere_data_*.txt -- and returns the per-node normal
+// orientation used by the double-layer self term.
+//
+// It also provides the periodic-imaging helpers (X_nbr_copy / vec_nbr_copy that
+// tile the geometry over neighbouring cells), interior-target filters that drop
+// evaluation points lying inside particles (filter_target and friends), and an
+// FMM-based direct lattice sum (exact_field_fmm) used to form reference fields.
+//
+// Usage:
+//   Header-only template; the implementation in utils_geom.cpp is included at
+//   the bottom of this header.
+//       PeriodicGeom<Real> geom;
+//       auto [elem_lst, normals] = geom.build_straight(...);
+// =============================================================================
 #ifndef _UTILS_GEOM_HPP_
 #define _UTILS_GEOM_HPP_
 

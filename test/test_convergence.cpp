@@ -1,6 +1,34 @@
-/*
-    Self-convergence tests on singly-, doubly-, and triply- periodic examples.
-*/
+// =============================================================================
+// test_convergence.cpp
+//
+// Self-convergence study of the periodic Stokes solver. For each test case the
+// solution is computed over a range of discretizations; the finest run
+// is written to out/ and serves as the reference against which the coarser
+// runs are measured. Produces the self-convergence figure (fig. 6) in
+// the accompanying paper.
+//
+// Usage:
+//   make test_selfconv
+//   mpirun -n 1 --map-by numa:pe=$OMP_NUM_THREADS ./bin/test_convergence \
+//          <test_mode> <peri_mode> <Nptcl> <geom_mode>
+//
+// Arguments:
+//   test_mode  0 = singly-periodic channel with a spherical obstacle
+//              1 = doubly-periodic flow between flat walls past particles
+//              2 = triply-periodic spherical suspension
+//   peri_mode  periodicity of the run (1 = X, 2 = XY, 3 = XYZ)
+//   Nptcl      number of particles
+//   geom_mode  particle shape: 0 = sphere, 1 = spheroid, 2 = loop
+//   Example:   ./bin/test_convergence 2 3 25 0
+//
+// Method:
+//   The combined-field BIE is solved with the surface-mean projection and the
+//   block-diagonal preconditioner (cylinder self-interaction for the channel,
+//   sphere self-interaction for particles). The pressure-driven background flow
+//   provides the RHS; the relative error is reported after removing the constant
+//   mean offset between solution and reference. The (N_p, N_f) sweep is hard-
+//   coded per test_mode in main().
+// =============================================================================
 
 // Boundary integral operators
 #include "stokes_bio.hpp" 
@@ -146,7 +174,7 @@ template <class Real> void channel_sphere_self_conv(
     LayerPotenOp0.SetTargetCoord(X0surf);
     LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, period_length);
 
-    // peridozizedlayer potential operator
+    // periodized layer-potential operator
     const auto BIO = [&wts,&surface_area,&elem_lst0,&LayerPotenOp0,&DL_scal,&NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
         sctl::Vector<Real> sigma_mean, sigma0;
         { // compute sigma_mean and sigma0 = sigma - sigma_mean
@@ -256,6 +284,7 @@ template <class Real> void channel_sphere_self_conv(
     }
 }
 
+// Self-convergence for a periodic particle suspension (periodicity selected by peri_mode).
 template <class Real> void particle_self_conv(
     const sctl::Long Nelem, 
     const sctl::Long FourierOrder, 
@@ -489,6 +518,8 @@ template <class Real> void particle_self_conv(
 
 }
 
+// Self-convergence for a doubly-periodic suspension confined between two flat walls
+// (single MPI process only).
 template <class Real> void plane_ptcl_self_conv(
     const sctl::Long Nelem, 
     const sctl::Long FourierOrder, 
@@ -745,13 +776,13 @@ int main(int argc, char** argv) {
         for (int i=1; i<6; i += 2) {
             Nelem_lst.PushBack(2*i);
         }
-        // Nelem_lst.PushBack(18);
+        Nelem_lst.PushBack(18);
 
         FourierOrder_lst.PushBack(4);
         FourierOrder_lst.PushBack(16);
         FourierOrder_lst.PushBack(32);
         FourierOrder_lst.PushBack(64);
-        // FourierOrder_lst.PushBack(96);
+        FourierOrder_lst.PushBack(96);
         
     } else if (test_mode == 1) {
         if (geom_mode == 0) {

@@ -1,3 +1,13 @@
+// =============================================================================
+// utils_vis.cpp
+//
+// Template implementation of the visualization helpers (VolumeVis, XsectionVis,
+// CubeVolumeVisShifted) declared in utils_vis.hpp. Not a standalone translation
+// unit: it is included at the bottom of utils_vis.hpp.
+// =============================================================================
+
+// Build interior target points for each element by sweeping its surface samples
+// radially inward toward the per-cross-section centroid.
 template <class Real> VolumeVis<Real>::VolumeVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm) : comm_(comm) {
   Nelem = elem_lst.Size();
   sctl::Vector<Real> s_param, sin_theta, cos_theta;
@@ -43,6 +53,7 @@ template <class Real> void VolumeVis<Real>::WriteVTK(const std::string& fname, c
   vtu_data.WriteVTK(fname, comm_);
 }
 
+// Emit hexahedral VTK cells over the (s, theta, r) sample lattice of each element.
 template <class Real> void VolumeVis<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
   for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
   for (const auto& x :     F) vtu_data.value.PushBack((float)x);
@@ -70,6 +81,8 @@ template <class Real> void VolumeVis<Real>::GetVTUData(sctl::VTUData& vtu_data, 
   }
 }
 
+// Build an N^3 uniform grid on a cube of edge L centered at (0.5, 0.5, 0.5),
+// partitioned across MPI ranks along the slowest index.
 template <class Real> CubeVolumeVisShifted<Real>::CubeVolumeVisShifted(const sctl::Long N_, Real L, const sctl::Comm& comm_) : N(N_), comm(comm_) {
   const sctl::Long pid = comm.Rank();
   const sctl::Long Np = comm.Size();
@@ -95,6 +108,7 @@ template <class Real> const sctl::Vector<Real>& CubeVolumeVisShifted<Real>::GetC
   return coord;
 }
 
+// Emit hexahedral VTK cells over this rank's slab of the uniform grid.
 template <class Real> void CubeVolumeVisShifted<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
   for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
   for (const auto& x :     F) vtu_data.value.PushBack((float)x);
@@ -124,6 +138,8 @@ template <class Real> void CubeVolumeVisShifted<Real>::WriteVTK(const std::strin
   vtu_data.WriteVTK(fname, comm);
 }
 
+// Like VolumeVis, but offsets the innermost samples slightly off the surface to
+// avoid stagnation points in cross-section mixing visualizations.
 template <class Real> XsectionVis<Real>::XsectionVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm) : comm_(comm) {
   Nelem = elem_lst.Size();
   sctl::Vector<Real> s_param, sin_theta, cos_theta;
@@ -138,7 +154,7 @@ template <class Real> XsectionVis<Real>::XsectionVis(const sctl::SlenderElemList
   }
   for (sctl::Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
     const Real t_order_inv = 1/(Real)t_order;
-    const Real r_order_inv = (1-1e-2)/(Real)(r_order-1); // make points further from surface to avoid stagnate points for mixing visualization.
+    const Real r_order_inv = (1-1e-2)/(Real)(r_order-1); // offset points off the surface to avoid stagnation points in mixing visualizations.
     sctl::Vector<Real> X_, Xc(COORD_DIM);
     elem_lst.GetGeom(&X_, nullptr, nullptr, nullptr, nullptr, s_param, sin_theta, cos_theta, elem_idx);
     for (sctl::Long i = 0; i < s_order; i++) {
@@ -173,6 +189,7 @@ template <class Real> void XsectionVis<Real>::WriteVTK(const std::string& fname,
   vtu_data.WriteVTK(fname, comm_);
 }
 
+// Emit hexahedral VTK cells over the (s, theta, r) sample lattice of each element.
 template <class Real> void XsectionVis<Real>::GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const {
   for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
   for (const auto& x :     F) vtu_data.value.PushBack((float)x);

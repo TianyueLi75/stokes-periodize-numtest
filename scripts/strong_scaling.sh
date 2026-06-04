@@ -22,5 +22,5 @@ echo "Nprocess in this run: $NTASK"
 
 # Strong scaling: tol = 1e-12, gmres_tol = 1e-8
 
-make test2 -j &&
-mpirun -n $NTASK --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/test2 3 48 0 3 2000 0 1e-8 1e-12 > ${WORK_DIR}/results/2000ptcls_3peri_${NTASK}proc_64cpus.txt 
+make timing -j &&
+mpirun -n $NTASK --map-by slot:pe=${OMP_NUM_THREADS} ${WORK_DIR}/bin/timing 3 48 0 3 2000 0 1e-8 1e-12 > ${WORK_DIR}/out/2000ptcls_3peri_${NTASK}proc_64cpus.txt 

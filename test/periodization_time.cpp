@@ -1,9 +1,33 @@
-/*
-    Compare the setup and eval time when using the periodized solver (skip precomputation cost)
-    to time when using the free-space solver
-    to get the periodization overhead.
-    Example uses triply-periodized operator.
-*/
+// =============================================================================
+// periodization_time.cpp
+//
+// Measure the runtime overhead of periodization relative to a free-space solve.
+// The same suspension is solved twice -- once with the triply-periodic operator
+// and once with the free-space operator -- and the layer-potential setup and
+// per-evaluation times are compared for both on-surface and off-surface
+// targets. Produces the periodization-overhead table (tab. 4) in the accompanying paper.
+//
+// Usage:
+//   make timing_periodization
+//   mpirun -n <Nproc> --map-by numa:pe=$OMP_NUM_THREADS ./bin/periodization_time \
+//          <N_p> <N_f> <Nptcl> <gmres_tol> <tol>
+//
+// Arguments:
+//   N_p        panels per sphere
+//   N_f        azimuthal Fourier modes per sphere
+//   Nptcl      number of spheres
+//   gmres_tol  GMRES relative tolerance
+//   tol        layer-potential quadrature tolerance
+//   Example:   ./bin/periodization_time 6 32 200 1e-8 1e-11
+//
+// Method:
+//   Both operators use the combined-field representation with block-diagonal 
+//   sphere preconditioner. The periodized operator contains the surface-mean
+//   projection. Setup time excludes the periodization-operator precomputation 
+//   (which is cached); evaluation time is averaged over repeated applications. 
+//   The periodic minus free-space gap isolates the cost of the near-face image 
+//   interactions.
+// =============================================================================
 
 // Boundary integral operators
 #include "stokes_bio.hpp" 
@@ -17,6 +41,8 @@
 // Visualization
 #include "utils_vis.hpp" 
 
+// Solve the same suspension with the triply-periodic and free-space operators and report
+// the setup/evaluation timing gap (the periodization overhead).
 template <class Real> void periodization_time(
     const sctl::Long Nelem, 
     const sctl::Long FourierOrder, 

@@ -1,8 +1,30 @@
-/*
-    Time the precomputation time corresponding to certain quadrature tolerance levels.
-    No MPI parallel
-    Based on https://github.com/dmalhotra/stokes-periodize test/test2.cpp
-*/
+// =============================================================================
+// precompute_time.cpp
+//
+// Time the precomputation of the periodization operator as a function of the
+// multipole order, which is selected through the quadrature tolerance. Produces
+// the precomputation-scaling figure (fig. 8) in the accompanying paper. Single process
+// (no MPI parallelism across ranks).
+//
+// Usage:
+//   make timing_precomp
+//   mpirun -n 1 --map-by numa:pe=$OMP_NUM_THREADS ./bin/precompute_time \
+//          <quad_tol> <SL_scal> <DL_scal>
+//
+// Arguments:
+//   quad_tol   layer-potential quadrature tolerance (sets the multipole order m)
+//   SL_scal    single-layer weight in the combined-field operator
+//   DL_scal    double-layer weight in the combined-field operator
+//   Example:   ./bin/precompute_time 1e-11 1.0 0.0
+//
+// Method:
+//   A single straight periodic channel is discretized and one application of the
+//   triply-periodic combined-field operator is performed. The profiler captures
+//   the operator-precomputation cost, which scales as O(m^6) in the multipole
+//   order. Sweeping quad_tol traces out that scaling.
+//
+//   Based on test/test2.cpp from https://github.com/dmalhotra/stokes-periodize.
+// =============================================================================
 
 // Boundary integral operators
 #include "stokes_bio.hpp" 
@@ -13,6 +35,8 @@
 // Other util functions
 #include "utils_tests.cpp" 
 
+// Build and apply the triply-periodic operator once on a straight channel so the profiler
+// captures the periodization-operator precomputation cost at the multipole order set by tol.
 template <class Real> void precompute_time(
     const Real tol, 
     const Real SL_scal, 

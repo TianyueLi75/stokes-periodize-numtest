@@ -87,8 +87,8 @@ TEST_BIN = \
 	$(BINDIR)/precompute_time \
 	$(BINDIR)/test_convergence \
 	$(BINDIR)/test_periodicity \
-	$(BINDIR)/test2_ptcl_conv \
-	$(BINDIR)/test2 \
+	$(BINDIR)/test_manufactured_soln \
+	$(BINDIR)/timing \
 
 # Test target: build all test binaries
 test: $(TEST_BIN)
@@ -97,7 +97,7 @@ test: $(TEST_BIN)
 examples: $(BINDIR)/examples
 
 # Timing call for scaling; also includes visualization.
-timing: ${BINDIR}/test2
+timing: ${BINDIR}/timing
 
 # Timing call for precomputing periodizing operators
 timing_precomp: ${BINDIR}/precompute_time
@@ -106,7 +106,7 @@ timing_precomp: ${BINDIR}/precompute_time
 timing_periodization: ${BINDIR}/periodization_time
 
 # Test accuracy of singly-periodic code through manufactured solutions on singly-periodic spherical suspensions
-test_manufactured_soln: $(BINDIR)/test2_ptcl_conv
+test_manufactured_soln: $(BINDIR)/test_manufactured_soln
 # Test self convergence of solver in singly, doubly, or triply periodic geometries
 test_selfconv: $(BINDIR)/test_convergence
 

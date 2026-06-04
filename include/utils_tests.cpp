@@ -1,8 +1,24 @@
-// Support functions for test scripts: background flows, integrating functions, computing slip velocity, preconditioning, and renormalizing error.
+// =============================================================================
+// utils_tests.cpp
+//
+// Shared support routines for the test drivers in test/. This is a header-only
+// collection of free function templates included directly with
+// `#include "utils_tests.cpp"`; it is not compiled on its own.
+//
+// Contents:
+//   bg_flow_1peri / bg_flow_2peri  periodic pressure-driven background flows
+//   SurfaceIntegral                quadrature-weighted surface integral
+//   AddConstVec                    add a constant per-component vector to a field
+//                                  (used to project the density to net force zero)
+//   GetVslip                       tangential surface slip velocity on spheroids
+//   precond_channel / precond_ptcl block-diagonal left preconditioners built
+//                                  from a one-panel cylinder / single-sphere
+//                                  self-interaction, cached in data/*.mat
+//   renormalize_error              remove the constant mean offset before
+//                                  computing the maximum relative error
+// =============================================================================
 
-/**
- * Background flow with unit pressure gradient along X-axis.
- */
+// Singly-periodic pressure-driven background flow (the pipe Poiseuille profile).
 template <class Real> sctl::Vector<Real> bg_flow_1peri(const sctl::Vector<Real>& X) {
     const sctl::Long N = X.Dim()/3;
     sctl::Vector<Real> U(N*3);
@@ -15,6 +31,7 @@ template <class Real> sctl::Vector<Real> bg_flow_1peri(const sctl::Vector<Real>&
     return U;
 }
 
+// Doubly-periodic pressure-driven background flow (plane Poiseuille between walls).
 template <class Real> sctl::Vector<Real> bg_flow_2peri(const sctl::Vector<Real>& X) {
     const sctl::Long N = X.Dim()/3;
     sctl::Vector<Real> U(N*3);
@@ -27,10 +44,8 @@ template <class Real> sctl::Vector<Real> bg_flow_2peri(const sctl::Vector<Real>&
     return U;
 }
 
-/**
-    Takes the surface integral, populate into <I>, using weights <wts>   
-    Supporting functions for imposing net-force-zero densities during gmres solve.
-*/
+// Quadrature-weighted surface integral of a dof-fast/node-slow field into I.
+// Used to extract the surface-mean density during the GMRES solve.
 template <class Real> void SurfaceIntegral(sctl::Vector<Real>& I, const sctl::Vector<Real>& vals, const sctl::Vector<Real>& wts) {
   const sctl::Long dof = vals.Dim() / wts.Dim();
   SCTL_ASSERT(vals.Dim() == wts.Dim() * dof);
@@ -43,10 +58,8 @@ template <class Real> void SurfaceIntegral(sctl::Vector<Real>& I, const sctl::Ve
   }
 }
 
-/**
-    Assuming <vals> is a dimension-fast-node-slow list of values, add <c0> to each node (if dimension matches).
-    Supporting functions for imposing net-force-zero densities during gmres solve.
-*/
+// Add the per-component constant c0 to every node of a dof-fast/node-slow field.
+// Used to restore the surface-mean density removed during the GMRES solve.
 template <class Real> void AddConstVec(sctl::Vector<Real>& vals, const sctl::Vector<Real>& c0) {
   const sctl::Long dof = c0.Dim();
   const sctl::Long N = vals.Dim() / dof;
@@ -58,6 +71,8 @@ template <class Real> void AddConstVec(sctl::Vector<Real>& vals, const sctl::Vec
   }
 }
 
+// Tangential (zero normal component) sinusoidal slip velocity on the surface of
+// each rotated spheroid, with a randomly scaled magnitude per particle.
 template <class Real> sctl::Vector<Real> GetVslip(const sctl::Vector<Real>& ptcls_Xnsurf, const sctl::Vector<Real>& ptcls_Xcs, const sctl::Vector<Real>& ptcls_sizes, const sctl::Vector<Real>& ptcls_u0s, const sctl::Vector<Real>& ptcls_thetas, const sctl::Vector<Real>& ptcls_phis, const sctl::Vector<sctl::Long>& ptcls_ifprolate, const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder) {
     const sctl::Long Nnodes_per_ptcl = Nelem * ElemOrder * FourierOrder;
     const sctl::Long Nptcls = ptcls_sizes.Dim();
@@ -103,12 +118,12 @@ template <class Real> sctl::Vector<Real> GetVslip(const sctl::Vector<Real>& ptcl
                     
                     Real mag2_tang = t1_unrotated*t1_unrotated + t2_unrotated*t2_unrotated + t3_unrotated*t3_unrotated;
                     Real mag_tang = sctl::sqrt<Real>(mag2_tang);
-                    // tangential sinusoidal slip, spheroid-cetnered space
+                    // tangential sinusoidal slip, in the spheroid-centered frame
                     sctl::Vector<Real> Vslip_here_unrotated(3);
                     Vslip_here_unrotated[0] = coeff * t1_unrotated / mag_tang;
                     Vslip_here_unrotated[1] = coeff * t2_unrotated / mag_tang;
                     Vslip_here_unrotated[2] = coeff * t3_unrotated / mag_tang;
-                    // tagential slip, rotated
+                    // tangential slip, rotated into the lab frame
                     sctl::Vector<Real> Vslip_here_rotated(3);
                     Vslip_here_rotated[0] = cos_phi_rotate * cos_theta_rotate * Vslip_here_unrotated[0] - sin_phi_rotate * Vslip_here_unrotated[1] + cos_phi_rotate * sin_theta_rotate * Vslip_here_unrotated[2];
                     Vslip_here_rotated[1] = sin_phi_rotate * cos_theta_rotate * Vslip_here_unrotated[0] + cos_phi_rotate * Vslip_here_unrotated[1] + sin_phi_rotate * sin_theta_rotate * Vslip_here_unrotated[2];
@@ -129,15 +144,9 @@ template <class Real> sctl::Vector<Real> GetVslip(const sctl::Vector<Real>& ptcl
 }
 
 
-/*
-    Channel_radius for different geometries implemented in utils.cpp:
-        straight: (param) 0.2
-        sinusoidal: (param) 0.1
-        conv div: (param, avg) 0.15
-        spiral: (param) 0.05
-        trefoil: (fixed) 0.035 
-*/
-// Note: physical length of cylinder precond panel is based on the number of elements on the whole channel, but the discretization only has one panel on the precond cylinder.
+// Build (and cache to data/) the block-diagonal channel preconditioner: the
+// SVD-pseudo-inverted self-interaction of a single cylinder panel whose physical
+// length matches one of the Nelem channel panels. Returns the block size A11size.
 template <class Real> sctl::Long precond_channel(sctl::Matrix<Real>& PrecondMat0, sctl::Matrix<Real>& PrecondMat1, const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real channel_radius, const Real SL_scal, const Real DL_scal, sctl::Comm comm) {
     // Store preconditioner matrix, or make new if not present.
     std::string precond0_file = "data/precond0_cyln_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
@@ -210,6 +219,8 @@ template <class Real> sctl::Long precond_channel(sctl::Matrix<Real>& PrecondMat0
     return A11size;
 }
 
+// Build (and cache to data/) the block-diagonal particle preconditioner: the
+// SVD-pseudo-inverted self-interaction of a single sphere. Returns A11size.
 template <class Real> sctl::Long precond_ptcl(sctl::Matrix<Real>& PrecondMat0, sctl::Matrix<Real>& PrecondMat1, const sctl::Long Nelem, const sctl::Long ElemOrder, const sctl::Long FourierOrder, const Real SL_scal, const Real DL_scal, sctl::Comm comm) {
     // Store preconditioner matrix, or make new if not present.
     std::string precond0_file = "data/precond0_ptcl_Np"+std::to_string(Nelem)+"_Nf"+std::to_string(FourierOrder)+".mat";
@@ -274,9 +285,8 @@ template <class Real> sctl::Long precond_ptcl(sctl::Matrix<Real>& PrecondMat0, s
     return A11size;
 }
 
-/**
- Differences between solutions possibly a constant, so remove mean from error before taking max relative errors.
-*/
+// Remove the (globally reduced) constant mean offset from the error field, since
+// two valid pressure-driven solutions may differ by an additive constant.
 template <class Real> void renormalize_error(sctl::Vector<Real>& err, sctl::Comm comm) {
     sctl::Long Nnodes = err.Dim()/3;
     // Subtract mean to remove constant difference
@@ -300,7 +310,7 @@ template <class Real> void renormalize_error(sctl::Vector<Real>& err, sctl::Comm
     Nnodes_loc[0] = Nnodes;
     sctl::Vector<sctl::Long> Nnodes_all(1); 
     Nnodes_all[0] = 0;
-    comm.Allreduce((sctl::Iterator<Real>) Nnodes_loc.begin(), (sctl::Iterator<Real>) Nnodes_all.begin(), 1, sctl::CommOp::SUM);
+    comm.Allreduce((sctl::Iterator<sctl::Long>) Nnodes_loc.begin(), (sctl::Iterator<sctl::Long>) Nnodes_all.begin(), 1, sctl::CommOp::SUM);
     // avg err
     sctl::Vector<Real> avg_err = sum_err / Nnodes_all[0];
     AddConstVec(err,-avg_err); // relative error with offset: max ((Ucalc - C) - Uexact) / Uexact, since C = Ucalc_exact - Uexact ~ E[Ucalc - Uexact]

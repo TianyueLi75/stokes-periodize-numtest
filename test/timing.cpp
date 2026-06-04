@@ -1,6 +1,36 @@
-/*
-    Simulation and timing of (singly, doubly, or triply) periodic spherical suspensions with background pressure drop.
-*/
+// =============================================================================
+// timing.cpp
+//
+// Solve, time, and visualize periodic Stokes flow through a polydisperse sphere
+// suspension. Driver for the weak/strong scaling study (tab. 5, fig. 10) and the streamline
+// figures (fig. 9) in the accompanying paper.
+//
+// Usage:
+//   make timing
+//   mpirun -n <Nproc> --map-by slot:pe=$OMP_NUM_THREADS ./bin/timing \
+//          <N_p> <N_f> <write_ref> <peri_mode> <Nptcl> <bc_slip> <gmres_tol> <tol>
+//
+// Arguments:
+//   N_p        panels per sphere
+//   N_f        azimuthal Fourier modes per sphere
+//   write_ref  1 to evaluate on a unit-cell grid and write VTK to vis/, else 0
+//   peri_mode  periodicity: 1 = X, 2 = XY, 3 = XYZ
+//   Nptcl      number of spheres (centers/radii read from data/sphere_data_*.txt)
+//   bc_slip    1 for a prescribed surface-slip BC, 0 for no-slip pressure drive
+//   gmres_tol  GMRES relative tolerance
+//   tol        layer-potential quadrature tolerance
+//   Example:   ./bin/timing 6 64 1 3 2000 0 1e-9 1e-14
+//
+// Method:
+//   Exterior Dirichlet flow is represented by the combined-field operator
+//   u = SL_scal * S[mu] + DL_scal * D[mu]. The surface mean of the density is
+//   projected out and added back so the periodized operator remains consistent
+//   under the net-force-zero compatibility condition for lattice sums. GMRES is
+//   accelerated by a block-diagonal left preconditioner (one-sphere
+//   self-interaction; see precond_ptcl) and Krylov-subspace recycling. The RHS
+//   is either the periodic background Poiseuille flow (no-slip) or a tangential
+//   surface slip velocity carrying zero net force.
+// =============================================================================
 
 // Boundary integral operators
 #include "stokes_bio.hpp" 
@@ -15,6 +45,8 @@
 #include "utils_vis.hpp" 
 
 // Helper functions to compute the slip velocity on surface of the suspension to remain net-force-zero.
+
+// Orthonormal change-of-basis frame whose third axis points along (Xc - cell center).
 template <class Real> sctl::Vector<sctl::Vector<Real>> get_rot_mat(const sctl::Vector<Real> Xc) {
     sctl::Vector<Real> center;
     center = {0.5,0.5,0.5};
@@ -43,6 +75,7 @@ template <class Real> sctl::Vector<sctl::Vector<Real>> get_rot_mat(const sctl::V
     return R;
 }
 
+// Orthonormal frame whose third axis points along Ftot; returns |Ftot|^2.
 template <class Real> Real get_rot_mat_direction(const sctl::Vector<Real> Ftot, sctl::Vector<sctl::Vector<Real>>* R) {
     Real utilde = Ftot[0]*Ftot[0] + Ftot[1]*Ftot[1] + Ftot[2]*Ftot[2]; // technically radius * translational_velocity.
     sctl::Vector<Real> r1, r2, r3; // unit vectors for rotation matrix
@@ -61,6 +94,7 @@ template <class Real> Real get_rot_mat_direction(const sctl::Vector<Real> Ftot, 
     return utilde;
 }
 
+// Axisymmetric squirmer-type tangential surface slip on one sphere about its (Xc-based) axis.
 template <class Real> sctl::Vector<Real> vslip(const sctl::Vector<Real> Xtrg, const sctl::Vector<Real> Xc, const Real r) {
     sctl::Long Ntrg = Xtrg.Dim()/3;
     sctl::Vector<Real> Utrg(Xtrg.Dim());
@@ -98,6 +132,7 @@ template <class Real> sctl::Vector<Real> vslip(const sctl::Vector<Real> Xtrg, co
     return Utrg;
 }
 
+// As vslip, but aligned and scaled so the sphere's slip cancels the residual force Ftot.
 template <class Real> sctl::Vector<Real> vslip_direction(const sctl::Vector<Real> Xtrg, const sctl::Vector<Real> Xc, const Real r, const sctl::Vector<Real> Ftot) {
     sctl::Long Ntrg = Xtrg.Dim()/3;
     sctl::Vector<Real> Utrg(Xtrg.Dim());
@@ -137,11 +172,9 @@ template <class Real> sctl::Vector<Real> vslip_direction(const sctl::Vector<Real
     return Utrg;
 }
 
-/**
- * Set up slip velocities on spheres such that total hydro. force is 0 in each unit box, 
- * using formula for drag on sphere traveling along direction with velocity U, 
- * setting U = 1 and direction tangential to Xc-[0.5,0.5,0.5] || x-y plane for all but last sphere. Last sphere U scaled to enforce net force 0.
-*/
+// Assemble the surface slip velocity for the whole suspension with zero net force per
+// cell: all but the last sphere get a unit-velocity slip, and the last is scaled to
+// cancel the accumulated Stokes drag.
 template <class Real> sctl::Vector<Real> total_vslip(const sctl::Vector<Real> X0, const sctl::Long ptcl_gridsize, const sctl::Long Nptcl, const sctl::Vector<Real> ptcls_Xcs, const sctl::Vector<Real> ptcls_rs) {
     sctl::Vector<Real> Uslip(X0.Dim());
     // Set up for total force calculation
@@ -181,9 +214,7 @@ template <class Real> sctl::Vector<Real> total_vslip(const sctl::Vector<Real> X0
     return Uslip;
 }
 
-/**
- * Set up and plot vslip on <Nptcl> system.
-*/
+// Build the slip velocity on an Nptcl suspension and write it to VTK (no solve).
 template <class Real> void plot_setup(sctl::Long Nelem, sctl::Long FourierOrder, sctl::Comm comm, sctl::Long Nptcl) {
 
     const sctl::Long ElemOrder = 10;
@@ -214,11 +245,8 @@ template <class Real> void plot_setup(sctl::Long Nelem, sctl::Long FourierOrder,
     elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_vslip",Uslip,comm);
 }
 
-/**
- * Set up, solve, time, and evaluate with given BC (slip or no-slip). 
- * Accomodates any periodicity, no bounding surfaces, only particles. 
- * Particle files generated using spheres
-*/
+// Set up, solve, time, and evaluate a particle-only suspension (no bounding surfaces)
+// at any periodicity, with either a slip or a no-slip (pressure-driven) boundary condition.
 template <class Real> void timing_run(
     const sctl::Long Nelem, 
     const sctl::Long FourierOrder, 

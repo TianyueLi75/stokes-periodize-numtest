@@ -1,4 +1,12 @@
+// =============================================================================
+// stokes_bio.cpp
+//
+// Template implementation of the StokesBIO class declared in stokes_bio.hpp.
+// Not a standalone translation unit: it is included at the bottom of
+// stokes_bio.hpp. See that header for the operator definition and usage.
+// =============================================================================
 
+// Single-layer volume-potential correction supplied to the FMM kernel.
 template <class Real> void StokesBIO<Real>::stokes_sl_volpot(sctl::Matrix<Real>& U, const sctl::Vector<Real>& X) {
   const sctl::Long N = X.Dim() / 3;
   SCTL_ASSERT(X.Dim() == N * 3);
@@ -14,6 +22,7 @@ template <class Real> void StokesBIO<Real>::stokes_sl_volpot(sctl::Matrix<Real>&
   }
 }
 
+// Construct the combined-field operator with single- and double-layer weights.
 template <class Real> StokesBIO<Real>::StokesBIO(const Real SL_scal, const Real DL_scal, const sctl::Comm comm)
   : comm_(comm), SL_scal_(SL_scal), DL_scal_(DL_scal), LayerPotenSL(ker_FxU, false, comm), LayerPotenDL(ker_DxU, false, comm) {
   LayerPotenSL.SetAccuracy(1e-14);
@@ -22,11 +31,13 @@ template <class Real> StokesBIO<Real>::StokesBIO(const Real SL_scal, const Real 
   LayerPotenDL.SetFMMKer(ker_DxU, ker_DxU, ker_DxU, ker_FSxU, ker_FSxU, ker_FSxU, ker_FxU, ker_FxU);
 };
 
+// Set the periodicity direction and period length of both layer potentials.
 template <class Real> void StokesBIO<Real>::SetPeriodicity(sctl::Periodicity periodicity, Real period_length) {
   LayerPotenSL.SetPeriodicity(periodicity, period_length);
   LayerPotenDL.SetPeriodicity(periodicity, period_length);
 }
 
+// Set the quadrature accuracy of both layer potentials.
 template <class Real> void StokesBIO<Real>::SetAccuracy(Real tol) {
   LayerPotenSL.SetAccuracy(tol);
   LayerPotenDL.SetAccuracy(tol);
@@ -80,6 +91,7 @@ template <class Real> void StokesBIO<Real>::ClearSetup() const {
   LayerPotenDL.ClearSetup();
 }
 
+// Apply the combined-field operator: U = SL_scal * S[F] + DL_scal * D[F].
 template <class Real> void StokesBIO<Real>::ComputePotential(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const {
   sctl::Vector<Real> Us, Ud;
   if (SL_scal_ && LayerPotenSL.Dim(0)) {

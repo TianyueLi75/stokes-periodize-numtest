@@ -1,3 +1,23 @@
+// =============================================================================
+// utils_vis.hpp
+//
+// Visualization helpers that generate volumetric target points and write the
+// associated fields as VTK/VTU for rendering (e.g. in ParaView).
+//
+//   VolumeVis            samples the volume swept by a SlenderElemList, used to
+//                        visualize the flow inside channels and around particles
+//   XsectionVis          a coarser cross-sectional sampling of the same volume
+//   CubeVolumeVisShifted a uniform Cartesian grid on a cube of edge L centered in
+//                        the unit cell (shrunk slightly to stay off the faces),
+//                        partitioned across MPI ranks
+//
+// Each class exposes GetCoord() for the target points, GetVTUData() to pack a
+// field into a VTU structure, and WriteVTK() to write it to disk.
+//
+// Usage:
+//   Header-only template; the implementation in utils_vis.cpp is included at the
+//   bottom of this header.
+// =============================================================================
 #ifndef _UTILS_VIS_HPP_
 #define _UTILS_VIS_HPP_
 
