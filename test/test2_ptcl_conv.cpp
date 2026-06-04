@@ -317,36 +317,13 @@ template <class Real> void manufactured_soln_1peri(
     sctl::Vector<Real> err = U - field_on_trg;
 
     // Subtract mean to remove constant difference
-    sctl::Vector<Real> sum_err(3);
-    sum_err = 0.;
-    for (sctl::Long i=0; i<err.Dim()/3; i++) {
-        for (sctl::Long k=0; k<3; k++) {
-            sum_err[k] += err[i*3+k];
-        }
-    }
-    sctl::Long err_size = err.Dim()/3;
-    // gather from all MPI proc.
-    sctl::Vector<Real> sum_err_loc = sum_err;
-    sctl::Vector<Real> sum_err_all(3);
-    sum_err_all = 0;
-    comm.Allreduce((sctl::Iterator<Real>) sum_err_loc.begin(), (sctl::Iterator<Real>) sum_err_all.begin(), 1, sctl::CommOp::SUM);
-    comm.Allreduce((sctl::Iterator<Real>) sum_err_loc.begin()+1, (sctl::Iterator<Real>) sum_err_all.begin()+1, 1, sctl::CommOp::SUM);
-    comm.Allreduce((sctl::Iterator<Real>) sum_err_loc.begin()+2, (sctl::Iterator<Real>) sum_err_all.begin()+2, 1, sctl::CommOp::SUM);
-    sum_err = sum_err_all;
-
-    sctl::Vector<sctl::Long> err_size_loc(1);
-    err_size_loc[0] = err_size;
-    sctl::Vector<sctl::Long> err_size_all(1); 
-    err_size_all[0] = 0;
-    comm.Allreduce((sctl::Iterator<Real>) err_size_loc.begin(), (sctl::Iterator<Real>) err_size_all.begin(), 1, sctl::CommOp::SUM);
-    // avg err
-    sctl::Vector<Real> avg_err = sum_err / err_size_all[0];
-    AddConstVec(err,-avg_err); // relative error with offset: max ((Ucalc - C) - Uexact) / Uexact, since C = Ucalc_exact - Uexact ~ E[Ucalc - Uexact]
-
+    renormalize_error(err, comm);
+    
     double max_err = 0;
     Real max_u = 0.;
     for (const auto e : err) max_err = std::max<Real>(max_err, sctl::fabs(e));
     for (const auto e : field_on_trg) max_u = std::max<Real>(max_u, sctl::fabs(e));
+
     sctl::Vector<Real> err_loc(1);
     err_loc[0] = max_err;
     sctl::Vector<Real> err_all(1);

@@ -14,6 +14,8 @@
 // Other util functions
 #include "utils_tests.cpp" 
 
+// Visualization
+#include "utils_vis.hpp" 
 
 template <class Real> void periodization_time(
     const sctl::Long Nelem, 

@@ -4,14 +4,12 @@ PVFMM_DIR ?= ./extern/pvfmm
 -include $(PVFMM_DIR)/MakeVariables
 
 # Directories for SCTL includes and quadrature tables
-SCTL_INCLUDE_DIR ?= $(PVFMM_DIR)/SCTL/include # WITH FMM
-# SCTL_INCLUDE_DIR ?= ./extern/CSBQ/SCTL/include # NO FMM
+SCTL_INCLUDE_DIR ?= $(PVFMM_DIR)/SCTL/include 
 CSBQ_INCLUDE_DIR ?= ./extern/CSBQ/include
 SCTL_DATA_PATH ?= ./extern/CSBQ/data
 
 # Compiler settings
-CXX = $(CXX_PVFMM) # WITH FMM
-# CXX = mpicxx # NO FMM
+CXX = $(CXX_PVFMM) 
 CXXFLAGS = -std=c++17 -fopenmp # Need C++11 and OpenMP
 
 # Define the path for quadrature tables and enable quadruple precision (for reading quadrature tables)
@@ -83,46 +81,39 @@ OBJDIR = ./obj
 INCDIR = ./include
 TESTDIR = ./test
 
-# TEST_BIN = \
-#     $(BINDIR)/test \
-#     $(BINDIR)/test1
+TEST_BIN = \
+    $(BINDIR)/examples \
+    $(BINDIR)/periodization_time \
+	$(BINDIR)/precompute_time \
+	$(BINDIR)/test_convergence \
+	$(BINDIR)/test_periodicity \
+	$(BINDIR)/test2_ptcl_conv \
+	$(BINDIR)/test2 \
 
-# # Test target: build all test binaries
-# test: $(TEST_BIN)
+# Test target: build all test binaries
+test: $(TEST_BIN)
 
-# Example script with visualizations in all periodicity
+# Example script with visualizations in singly- and doubly-periodicity
 examples: $(BINDIR)/examples
-# Example script with particle dispersion through trefoil channel, simple Euler time step.
-dispersion: $(BINDIR)/dispersion
 
-# Timing call in different periodicity
+# Timing call for scaling; also includes visualization.
 timing: ${BINDIR}/test2
 
-# Test accuracy of particle periodic code by manufactured solutions
+# Timing call for precomputing periodizing operators
+timing_precomp: ${BINDIR}/precompute_time
+
+# Timing call for checking periodization overhead
+timing_periodization: ${BINDIR}/periodization_time
+
+# Test accuracy of singly-periodic code through manufactured solutions on singly-periodic spherical suspensions
 test_manufactured_soln: $(BINDIR)/test2_ptcl_conv
-# Test self convergence of channel with or without particles
+# Test self convergence of solver in singly, doubly, or triply periodic geometries
 test_selfconv: $(BINDIR)/test_convergence
 
-
-# DEBUGGING
-# Debug periodicity
+# Verification: check periodicity at two sides of periodic box.
 test_peri: $(BINDIR)/test_periodicity
-# Comparing 1-peri vs 3-peri of channel flow, should give same solution.
-test_3peri: ${BINDIR}/test_3peri
 
 
-# OLDER TESTS
-# [Deprecated] Periodic channel code with or without particles.
-test1: $(BINDIR)/test1
-
-# [Deprecated] A particle in free space, direct sum periodicity
-test3_copies: $(BINDIR)/test3_copies
-
-# [Delete later]: manufacture solution tests for spheroid and loops
-test_particles: $(BINDIR)/test_spheroid_loop
-
-# [Delete later]: spheroid set
-vslip: $(BINDIR)/test_vslip
 
 # Rules for building binaries
 $(BINDIR)/%: $(OBJDIR)/%.o
