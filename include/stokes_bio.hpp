@@ -1,57 +1,36 @@
-#ifndef _PERIODIZE_UTILS_HPP_
-#define _PERIODIZE_UTILS_HPP_
+// =============================================================================
+// stokes_bio.hpp
+//
+// StokesBIO: combined-field Stokes boundary integral operator.
+//
+// Thin wrapper around the CSBQ BoundaryIntegralOp that assembles the unified
+// single- plus double-layer operator
+//
+//     u(x) = SL_scal * S[mu](x) + DL_scal * D[mu](x),
+//
+// where S and D are the Stokes single- and double-layer potentials and mu is the
+// surface density. The class manages both layer potentials together: adding
+// element lists, setting target points and normals, choosing the periodicity
+// (X / XY / XYZ), setting the quadrature accuracy, and applying the operator
+// (ComputePotential), as well as the individual S and D applications and the
+// sqrt-weight scalings used for symmetric preconditioning. The single-layer
+// self-interaction uses a volume-potential correction (stokes_sl_volpot).
+//
+// Usage:
+//   Header-only template. Include this header; the implementation in
+//   stokes_bio.cpp is pulled in automatically at the bottom of the file.
+//       StokesBIO<Real> op(SL_scal, DL_scal, comm);
+//       op.AddElemList(elem_lst);
+//       op.SetAccuracy(tol);
+//       op.SetTargetCoord(X);
+//       op.SetPeriodicity(sctl::Periodicity::XYZ, 1.0);
+//       op.ComputePotential(U, mu);
+// =============================================================================
+#ifndef _UTILS_STOKESBIO_HPP_
+#define _UTILS_STOKESBIO_HPP_
 
 #include <csbq.hpp>
-
-/**
- * Visualize volume inside SlenderElemList.
- */
-template <class Real> class VolumeVis {
-    static constexpr sctl::Integer COORD_DIM = 3;
-    static constexpr sctl::Integer s_order = 20;
-    static constexpr sctl::Integer t_order = 60;
-    static constexpr sctl::Integer r_order = 12;
-  public:
-
-    VolumeVis() = default;
-
-    /**
-     * @brief Construct a new VolumeVis object.
-     *
-     * @param elem_lst the geometry.
-     * @param comm MPI communicator.
-     */
-    VolumeVis(const sctl::SlenderElemList<Real>& elem_lst, const sctl::Comm& comm = sctl::Comm::Self());
-
-    /**
-     * @brief Get the coordinates of the discretization points.
-     *
-     * @return const Vector<Real>& Vector containing the coordinates.
-     */
-    const sctl::Vector<Real>& GetCoord() const;
-
-    /**
-     * @brief Write the volume to a VTK file.
-     *
-     * @param fname File name.
-     * @param F Data associated with the discretization points.
-     */
-    void WriteVTK(const std::string& fname, const sctl::Vector<Real>& F) const;
-
-    /**
-     * @brief Get VTU data.
-     *
-     * @param vtu_data VTU data object.
-     * @param F Data associated with the discretization points.
-     */
-    void GetVTUData(sctl::VTUData& vtu_data, const sctl::Vector<Real>& F) const;
-
-  private:
-
-    sctl::Comm comm_;
-    sctl::Long Nelem;
-    sctl::Vector<Real> coord;
-};
+#include <tuple>
 
 /**
  * PVFMM cannot handle combined field kernel. Compute SL and DL separately and add them.
@@ -64,6 +43,18 @@ template <class Real> class StokesBIO {
     StokesBIO& operator= (const StokesBIO&) = delete;
 
     StokesBIO(const Real SL_scal, const Real DL_scal, const sctl::Comm comm);
+
+    /**
+     * Set periodicity.
+     *
+     * @param[in] periodicity periodicity type (NONE, X, XY, XYZ).
+     *
+     * @param[in] period_length length of the periodic box in each dimension.
+     * Must be positive if periodicity is not NONE.
+     *
+     * @remark Periodicity only supported in 3D and with PVFMM.
+     */
+    void SetPeriodicity(sctl::Periodicity periodicity, Real period_length = 0);
 
     /**
      * Specify quadrature accuracy tolerance.
@@ -80,8 +71,10 @@ template <class Real> class StokesBIO {
      * elements.
      *
      * @param[in] name a string name for this element list.
+     * 
+     * @param[in] sl, dl booleans for whether the element list object will be added to the SL and/or DL operator.
      */
-    template <class ElemLstType> void AddElemList(const ElemLstType& elem_lst, const std::string& name = std::to_string(typeid(ElemLstType).hash_code()));
+    template <class ElemLstType> void AddElemList(const ElemLstType& elem_lst, const std::string& name = std::to_string(typeid(ElemLstType).hash_code()), const bool sl = true, const bool dl = true);
 
     /**
      * Get const reference to an element-list.
@@ -148,6 +141,29 @@ template <class Real> class StokesBIO {
     void ComputePotential(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const;
 
     /**
+     * Evaluate only the single-layer potential.
+     *
+     * @param[out] U the potential computed at each target point in
+     * array-of-struct order.
+     *
+     * @param[in] F the charge density at each surface discretization node in
+     * array-of-struct order.
+     */
+    void ComputeSL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const;
+
+    /**
+     * Evaluate only the double-layer potential.
+     *
+     * @param[out] U the potential computed at each target point in
+     * array-of-struct order.
+     *
+     * @param[in] F the charge density at each surface discretization node in
+     * array-of-struct order.
+     */
+    void ComputeDL(sctl::Vector<Real>& U, const sctl::Vector<Real>& F) const;
+
+
+    /**
      * Scale input vector by sqrt of the area of the element.
      * TODO: replace by sqrt of surface quadrature weights (not sure if it makes a difference though)
      */
@@ -162,6 +178,9 @@ template <class Real> class StokesBIO {
 
   private:
 
+    // In 3-periodic, this allows adding a uniform volume potential to balance the total force density on the surface.
+    static void stokes_sl_volpot(sctl::Matrix<Real>& U, const sctl::Vector<Real>& X);
+
     const sctl::Stokes3D_FxU ker_FxU;
     const sctl::Stokes3D_DxU ker_DxU;
     const sctl::Stokes3D_FxUP ker_FxUP;
@@ -173,6 +192,6 @@ template <class Real> class StokesBIO {
     sctl::BoundaryIntegralOp<Real, sctl::Stokes3D_DxU> LayerPotenDL;
 };
 
-#include <utils.cpp>
+#include <stokes_bio.cpp>
 
-#endif // _PERIODIZE_UTILS_HPP_
+#endif 

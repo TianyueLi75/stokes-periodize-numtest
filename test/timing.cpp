@@ -1,0 +1,529 @@
+// =============================================================================
+// timing.cpp
+//
+// Solve, time, and visualize periodic Stokes flow through a polydisperse sphere
+// suspension. Driver for the weak/strong scaling study (tab. 5, fig. 10) and the streamline
+// figures (fig. 9) in the accompanying paper.
+//
+// Usage:
+//   make timing
+//   mpirun -n <Nproc> --map-by slot:pe=$OMP_NUM_THREADS ./bin/timing \
+//          <N_p> <N_f> <write_ref> <peri_mode> <Nptcl> <bc_slip> <gmres_tol> <tol>
+//
+// Arguments:
+//   N_p        panels per sphere
+//   N_f        azimuthal Fourier modes per sphere
+//   write_ref  1 to evaluate on a unit-cell grid and write VTK to vis/, else 0
+//   peri_mode  periodicity: 1 = X, 2 = XY, 3 = XYZ
+//   Nptcl      number of spheres (centers/radii read from data/sphere_data_*.txt)
+//   bc_slip    1 for a prescribed surface-slip BC, 0 for no-slip pressure drive
+//   gmres_tol  GMRES relative tolerance
+//   tol        layer-potential quadrature tolerance
+//   Example:   ./bin/timing 6 64 1 3 2000 0 1e-9 1e-14
+//
+// Method:
+//   Exterior Dirichlet flow is represented by the combined-field operator
+//   u = SL_scal * S[mu] + DL_scal * D[mu]. The surface mean of the density is
+//   projected out and added back so the periodized operator remains consistent
+//   under the net-force-zero compatibility condition for lattice sums. GMRES is
+//   accelerated by a block-diagonal left preconditioner (one-sphere
+//   self-interaction; see precond_ptcl) and Krylov-subspace recycling. The RHS
+//   is either the periodic background Poiseuille flow (no-slip) or a tangential
+//   surface slip velocity carrying zero net force.
+// =============================================================================
+
+// Boundary integral operators
+#include "stokes_bio.hpp" 
+
+// Geometry for tests
+#include "utils_geom.hpp"
+
+// Other util functions
+#include "utils_tests.cpp" 
+
+// Visualization
+#include "utils_vis.hpp" 
+
+// Helper functions to compute the slip velocity on surface of the suspension to remain net-force-zero.
+
+// Orthonormal change-of-basis frame whose third axis points along (Xc - cell center).
+template <class Real> sctl::Vector<sctl::Vector<Real>> get_rot_mat(const sctl::Vector<Real> Xc) {
+    sctl::Vector<Real> center;
+    center = {0.5,0.5,0.5};
+    sctl::Vector<Real> r1 = Xc - center;
+    Real r1norm = r1[0]*r1[0] + r1[1]*r1[1] + r1[2]*r1[2];
+    sctl::Vector<Real> r2, r3;
+    if (r1norm > 1e-5) {
+        r2 = {r1[1], -r1[0], 0.};
+        Real r2norm = r2[0]*r2[0] + r2[1]*r2[1] + r2[2]*r2[2];
+        r2 = r2 / sctl::sqrt<Real>(r2norm);
+        r1 = r1 / sctl::sqrt<Real>(r1norm);
+        r3 = { \
+            r1[1]*r2[2] - r1[2]*r2[1], \
+            -r1[0]*r2[2] + r1[2]*r2[0], \
+            r1[0]*r2[1] - r1[1]*r2[0]
+        };
+        r3 = -r3;
+    } else {
+        r1 = {1.,0.,0.};
+        r2 = {0.,1.,0.};
+        r3 = {0.,0.,1.};
+    }
+    
+    sctl::Vector<sctl::Vector<Real>> R;
+    R = {r1, r3, r2}; // Same order as x-y-z.
+    return R;
+}
+
+// Orthonormal frame whose third axis points along Ftot; returns |Ftot|^2.
+template <class Real> Real get_rot_mat_direction(const sctl::Vector<Real> Ftot, sctl::Vector<sctl::Vector<Real>>* R) {
+    Real utilde = Ftot[0]*Ftot[0] + Ftot[1]*Ftot[1] + Ftot[2]*Ftot[2]; // technically radius * translational_velocity.
+    sctl::Vector<Real> r1, r2, r3; // unit vectors for rotation matrix
+    r1 = {-Ftot[1], Ftot[0], 0.}; // normal to Ftot, but rotated cw instead of ccw.
+    Real r1norm = r1[0]*r1[0] + r1[1]*r1[1] + r1[2]*r1[2];
+    r2 = Ftot / sctl::sqrt<Real>(utilde);
+    r1 = r1 / sctl::sqrt<Real>(r1norm);
+    r3 = { \
+        r1[1]*r2[2] - r1[2]*r2[1], \
+        -r1[0]*r2[2] + r1[2]*r2[0], \
+        r1[0]*r2[1] - r1[1]*r2[0]
+    };
+    r3 = -r3;
+    
+    (*R) = {r1, r3, r2}; // Same order as x-y-z.
+    return utilde;
+}
+
+// Axisymmetric squirmer-type tangential surface slip on one sphere about its (Xc-based) axis.
+template <class Real> sctl::Vector<Real> vslip(const sctl::Vector<Real> Xtrg, const sctl::Vector<Real> Xc, const Real r) {
+    sctl::Long Ntrg = Xtrg.Dim()/3;
+    sctl::Vector<Real> Utrg(Xtrg.Dim());
+    sctl::Vector<sctl::Vector<Real>> R = get_rot_mat(Xc);
+    auto COB = [&R](sctl::Vector<Real> v, bool RT) {
+        sctl::Vector<Real> vr(3);
+        if (RT) { // If using R transposed
+            vr[0] = R[0][0] * v[0] + R[1][0] * v[1] + R[2][0] * v[2];
+            vr[1] = R[0][1] * v[0] + R[1][1] * v[1] + R[2][1] * v[2];
+            vr[2] = R[0][2] * v[0] + R[1][2] * v[1] + R[2][2] * v[2];
+        } else {
+            vr[0] = R[0][0] * v[0] + R[0][1] * v[1] + R[0][2] * v[2];
+            vr[1] = R[1][0] * v[0] + R[1][1] * v[1] + R[1][2] * v[2];
+            vr[2] = R[2][0] * v[0] + R[2][1] * v[1] + R[2][2] * v[2];
+        }
+        return vr;
+    };
+    for (sctl::Long i=0; i < Ntrg; i++) {
+        sctl::Vector<Real> Xtrg_here(3,(sctl::Iterator<Real>)Xtrg.begin()+i*3,true);
+        sctl::Vector<Real> XtoXc_here = Xtrg_here - Xc;
+        sctl::Vector<Real> Xtrg_rot = COB(XtoXc_here, false);
+        Real phi = sctl::atan2<Real>(Xtrg_rot[1],Xtrg_rot[0]);
+        Real theta = sctl::acos<Real>((Xtrg_rot[2])/r);
+        sctl::Vector<Real> vslip_here;
+        vslip_here = { \
+            - sctl::sin<Real>(theta) * sctl::cos<Real>(theta) * sctl::cos<Real>(phi), \
+            - sctl::sin<Real>(theta) * sctl::cos<Real>(theta) * sctl::sin<Real>(phi), \
+            sctl::sin<Real>(theta) * sctl::sin<Real>(theta) 
+        };
+        sctl::Vector<Real> Utrg_here = COB(vslip_here,true);
+        Utrg[i*3+0] = Utrg_here[0];
+        Utrg[i*3+1] = Utrg_here[1];
+        Utrg[i*3+2] = Utrg_here[2];
+    }
+    return Utrg;
+}
+
+// As vslip, but aligned and scaled so the sphere's slip cancels the residual force Ftot.
+template <class Real> sctl::Vector<Real> vslip_direction(const sctl::Vector<Real> Xtrg, const sctl::Vector<Real> Xc, const Real r, const sctl::Vector<Real> Ftot) {
+    sctl::Long Ntrg = Xtrg.Dim()/3;
+    sctl::Vector<Real> Utrg(Xtrg.Dim());
+    sctl::Vector<sctl::Vector<Real>> R;
+    Real utilde = get_rot_mat_direction(-Ftot, &R); 
+    auto COB = [&R](sctl::Vector<Real> v, bool RT) {
+        sctl::Vector<Real> vr(3);
+        if (RT) { // If using R transposed
+            vr[0] = R[0][0] * v[0] + R[1][0] * v[1] + R[2][0] * v[2];
+            vr[1] = R[0][1] * v[0] + R[1][1] * v[1] + R[2][1] * v[2];
+            vr[2] = R[0][2] * v[0] + R[1][2] * v[1] + R[2][2] * v[2];
+        } else {
+            vr[0] = R[0][0] * v[0] + R[0][1] * v[1] + R[0][2] * v[2];
+            vr[1] = R[1][0] * v[0] + R[1][1] * v[1] + R[1][2] * v[2];
+            vr[2] = R[2][0] * v[0] + R[2][1] * v[1] + R[2][2] * v[2];
+        }
+        return vr;
+    };
+    for (sctl::Long i=0; i < Ntrg; i++) {
+        sctl::Vector<Real> Xtrg_here(3,(sctl::Iterator<Real>)Xtrg.begin()+i*3,true);
+        sctl::Vector<Real> XtoXc_here = Xtrg_here - Xc;
+        sctl::Vector<Real> Xtrg_rot = COB(XtoXc_here, false);
+        Real phi = sctl::atan2<Real>(Xtrg_rot[1],Xtrg_rot[0]);
+        Real theta = sctl::acos<Real>((Xtrg_rot[2])/r);
+        sctl::Vector<Real> vslip_here;
+        vslip_here = { \
+            - sctl::sin<Real>(theta) * sctl::cos<Real>(theta) * sctl::cos<Real>(phi), \
+            - sctl::sin<Real>(theta) * sctl::cos<Real>(theta) * sctl::sin<Real>(phi), \
+            sctl::sin<Real>(theta) * sctl::sin<Real>(theta) 
+        };
+        vslip_here = sctl::sqrt<Real>(utilde) / r * vslip_here; // rescaled by required translational velocity
+        sctl::Vector<Real> Utrg_here = COB(vslip_here,true);
+        Utrg[i*3+0] = Utrg_here[0];
+        Utrg[i*3+1] = Utrg_here[1];
+        Utrg[i*3+2] = Utrg_here[2];
+    }
+    return Utrg;
+}
+
+// Assemble the surface slip velocity for the whole suspension with zero net force per
+// cell: all but the last sphere get a unit-velocity slip, and the last is scaled to
+// cancel the accumulated Stokes drag.
+template <class Real> sctl::Vector<Real> total_vslip(const sctl::Vector<Real> X0, const sctl::Long ptcl_gridsize, const sctl::Long Nptcl, const sctl::Vector<Real> ptcls_Xcs, const sctl::Vector<Real> ptcls_rs) {
+    sctl::Vector<Real> Uslip(X0.Dim());
+    // Set up for total force calculation
+    sctl::Vector<Real> Ftot(3);
+    Ftot = 0.;
+    sctl::Vector<Real> center;
+    center = {0.5,0.5,0.5};
+    sctl::Vector<Real> r1, r2;
+    for (int ptcl_ind = 0; ptcl_ind < Nptcl-1; ptcl_ind++) {
+        sctl::Vector<Real> Xtrg_here(ptcl_gridsize, (sctl::Iterator<Real>) X0.begin()+ptcl_ind * ptcl_gridsize,true);
+        sctl::Vector<Real> Xc_here(3, (sctl::Iterator<Real>) ptcls_Xcs.begin()+ptcl_ind * 3,true);
+        Real r_here = ptcls_rs[ptcl_ind];
+        sctl::Vector<Real> Uslip_here = vslip(Xtrg_here, Xc_here, r_here);
+        for (int i=0; i<ptcl_gridsize; i++) {
+            Uslip[ptcl_ind*ptcl_gridsize + i] = Uslip_here[i];
+        }
+        // Sum up total force by Stokes drag law from this particle going U=1 velocity in angular direction
+        r1 = Xc_here - center;
+        Real r1norm = r1[0]*r1[0] + r1[1]*r1[1] + r1[2]*r1[2];
+        if (r1norm > 1e-5) {
+            r2 = {r1[1], -r1[0], 0.};
+            Real r2norm = r2[0]*r2[0] + r2[1]*r2[1] + r2[2]*r2[2];
+            r2 = r2 / sctl::sqrt<Real>(r2norm);
+        } else {
+            r2 = {0.,0.,1.}; // Catch-all, shouldn't be needed.
+        }
+        Ftot += r_here * r2;
+    }
+    // Set vslip on last sphere such that total force is zero in a periodic box.
+    sctl::Vector<Real> Xtrg_here(ptcl_gridsize, (sctl::Iterator<Real>) X0.begin()+(Nptcl-1) * ptcl_gridsize,true);
+    sctl::Vector<Real> Xc_here(3, (sctl::Iterator<Real>) ptcls_Xcs.begin()+(Nptcl-1) * 3,true);
+    Real r_here = ptcls_rs[Nptcl-1];
+    sctl::Vector<Real> Uslip_here = vslip_direction(Xtrg_here, Xc_here, r_here, Ftot);
+    for (int i=0; i<ptcl_gridsize; i++) {
+        Uslip[(Nptcl-1)*ptcl_gridsize + i] = Uslip_here[i];
+    }
+    return Uslip;
+}
+
+// Build the slip velocity on an Nptcl suspension and write it to VTK (no solve).
+template <class Real> void plot_setup(sctl::Long Nelem, sctl::Long FourierOrder, sctl::Comm comm, sctl::Long Nptcl) {
+
+    const sctl::Long ElemOrder = 10;
+    const sctl::Long geom_mode = 0;
+    
+    PeriodicGeom<Real> obj;
+    sctl::Vector<sctl::Long> ptcls;
+    sctl::Vector<Real> ptcls_Xcs, ptcls_rs, NormalOrient;
+    sctl::SlenderElemList<Real> elem_lst0;
+    if (Nptcl == 1) {
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+    } else { 
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+    }
+    Nptcl = ptcls_rs.Dim(); 
+
+    sctl::Vector<Real> X0; // target coordinates
+    elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
+    sctl::Long ptcl_gridsize = Nelem * ElemOrder * FourierOrder * 3; 
+    sctl::Long Nptcl_slip = elem_lst0.Size() / Nelem; 
+    sctl::Vector<Real> ptcls_Xcs_slip(Nptcl_slip * 3, (sctl::Iterator<Real>)ptcls_Xcs.begin() + comm.Rank()*Nptcl_slip*3, true);
+    sctl::Vector<Real> ptcls_rs_slip(Nptcl_slip,  (sctl::Iterator<Real>)ptcls_rs.begin()+comm.Rank()*Nptcl_slip, true);
+    sctl::Vector<Real> Uslip = total_vslip(X0, ptcl_gridsize, Nptcl_slip, ptcls_Xcs_slip, ptcls_rs_slip);
+    elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_vslip",Uslip,comm);
+}
+
+// Set up, solve, time, and evaluate a particle-only suspension (no bounding surfaces)
+// at any periodicity, with either a slip or a no-slip (pressure-driven) boundary condition.
+template <class Real> void timing_run(
+    const sctl::Long Nelem, 
+    const sctl::Long FourierOrder, 
+    const bool write_ref, 
+    const sctl::Integer peri_mode, 
+    const bool bc_slip, 
+    sctl::Comm comm, 
+    sctl::Long Nptcl, 
+    const Real gmres_tol, 
+    const Real tol) 
+    {
+
+    // Combine single-layer and double-layer kernels in these proportions
+    const Real SL_scal = 1.0;
+    const Real DL_scal = 1.0;
+
+    const Real pressure_drop = -1.0;
+    const Real period_length = 1.;
+
+    const sctl::Long ElemOrder = 10;
+    const sctl::Long geom_mode = 0; // spherical suspensions
+
+    const sctl::Long gmres_max_iter = 200;
+    
+    PeriodicGeom<Real> obj;
+    sctl::Vector<sctl::Long> ptcls;
+    sctl::Vector<Real> ptcls_Xcs, ptcls_rs, NormalOrient;
+    sctl::SlenderElemList<Real> elem_lst0;
+    if (Nptcl == 1) {
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls1(Nelem, ElemOrder, FourierOrder, comm, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+    } else { 
+        std::tuple<sctl::SlenderElemList<Real>,sctl::Vector<Real>> build0 = obj.many_ptcls2(Nelem, ElemOrder, FourierOrder, comm, Nptcl, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        elem_lst0 = std::get<0>(build0);
+        NormalOrient = std::get<1>(build0);
+    }
+    Nptcl = ptcls_rs.Dim(); 
+
+    // Get surface collocation nodes
+    sctl::Vector<Real> X0; 
+    elem_lst0.GetNodeCoord(&X0, nullptr, nullptr);
+    if (write_ref) {
+        elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres",X0,comm);
+    }  
+
+    Real surface_area;
+    sctl::Vector<Real> wts;
+    { // get wts and surface area
+        sctl::Vector<Real> X, Xn, dist_far, surface_area_;
+        sctl::Vector<sctl::Long> element_wise_node_cnt;
+        elem_lst0.GetFarFieldNodes(X, Xn, wts, dist_far, element_wise_node_cnt, 1);
+        SurfaceIntegral(surface_area_, wts*0+1, wts);
+        sctl::Vector<Real> sa_loc(1);
+        sa_loc[0] = surface_area_[0];
+        sctl::Vector<Real> sa_all(1);
+        sa_all[0] = 0;
+        comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
+        surface_area = sa_all[0];
+    }
+
+    // Get block-preconditioner on particle geometry
+    sctl::Matrix<Real> PrecondMat0, PrecondMat1;
+    sctl::Long A11size = precond_ptcl(PrecondMat0, PrecondMat1, Nelem, ElemOrder, FourierOrder, SL_scal, DL_scal, comm);
+    
+    // Apply A11inv to each panel of <vec>, assuming <vec> contains whole particles (i.e. vec.Dim() = A11size * Nptcl)
+    const auto AinvApply = [&PrecondMat0,&PrecondMat1,&A11size, &comm](const sctl::Vector<Real>& vec) {
+        sctl::Long N = vec.Dim();
+        sctl::Long Nptcl = N / A11size; 
+        sctl::Vector<Real> AinvVec(N);
+        for (sctl::Long i=0; i<Nptcl; i++) {
+            // for each particle, apply A11inv.
+            sctl::Matrix<Real> vecMat(A11size,1,(sctl::Iterator<Real>) vec.begin() + i*A11size,true);
+            sctl::Matrix<Real> AinvVecMat = PrecondMat0 * (PrecondMat1 * vecMat);
+            for (sctl::Long j=0; j<A11size; j++) {
+                AinvVec[i*A11size + j] = AinvVecMat(j,0);
+            }
+        }
+        return AinvVec;
+    };
+
+    StokesBIO LayerPotenOp0(SL_scal, DL_scal, comm); 
+    LayerPotenOp0.AddElemList(elem_lst0);
+    LayerPotenOp0.SetTargetCoord(X0);
+    LayerPotenOp0.SetAccuracy(tol);
+    if (peri_mode==1) {
+        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::X, period_length);
+    } else if (peri_mode==2) {
+        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XY, period_length);
+    } else if (peri_mode==3) {
+        LayerPotenOp0.SetPeriodicity(sctl::Periodicity::XYZ, period_length);
+    } else {
+        SCTL_ASSERT(false);
+    }
+
+    // periodized layer potential operator
+    const auto BIO = [&wts,&surface_area,&elem_lst0,&DL_scal,&LayerPotenOp0,&X0,NormalOrient,&comm](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        sctl::Vector<Real> sigma_mean, sigma0;
+        { // compute sigma_mean and sigma0 = sigma - sigma_mean
+            sctl::Vector<Real> sigma_;
+            elem_lst0.GetFarFieldDensity(sigma_, sigma);
+            SurfaceIntegral(sigma_mean, sigma_, wts);
+            //MPI
+            sctl::Vector<Real> sa_loc = sigma_mean;
+            sctl::Vector<Real> sa_all(3);
+            sa_all = 0;
+            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin(), (sctl::Iterator<Real>) sa_all.begin(), 1, sctl::CommOp::SUM);
+            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+1, (sctl::Iterator<Real>) sa_all.begin()+1, 1, sctl::CommOp::SUM);
+            comm.Allreduce((sctl::Iterator<Real>) sa_loc.begin()+2, (sctl::Iterator<Real>) sa_all.begin()+2, 1, sctl::CommOp::SUM);
+            sigma_mean = sa_all;
+            sigma_mean *= (1/surface_area);
+
+            sigma0 = sigma;
+            AddConstVec(sigma0, -sigma_mean);
+        }
+        
+        // Compute the periodic solution using sigma0
+        U->SetZero();
+        LayerPotenOp0.ComputePotential(*U, sigma0);
+        if (DL_scal && U->Dim() == sigma0.Dim()) (*U) -= sigma0*0.5*NormalOrient * DL_scal; // for double-layer
+    
+        // Add back sigma_mean
+        AddConstVec(*U, sigma_mean);
+    };
+
+    // Left preconditioning using block-preconditioner u -> A11inv*u
+    const auto BIO_precond = [&BIO,&AinvApply](sctl::Vector<Real>* U, const sctl::Vector<Real>& sigma) {
+        sctl::Vector<Real> Uloc;
+        BIO(&Uloc,sigma);
+        (*U) = AinvApply(Uloc);
+    };
+
+    // =============== Right hand side: 3-peri background flow =======================================
+    const auto eval_rhs = [&LayerPotenOp0,surface_area,period_length](const Real pressure_drop) { // BIOpSL( -pressure_drop * cross_sectional_area / surface_area )
+        sctl::Vector<Real> force_density(LayerPotenOp0.Dim(0)); force_density = 0;
+        AddConstVec(force_density, sctl::Vector<Real>{-pressure_drop * period_length*period_length / surface_area, 0, 0});
+        sctl::Vector<Real> U0;
+        LayerPotenOp0.ComputeSL(U0, force_density);
+        return U0;
+    };
+
+    // Compute RHS
+    sctl::Vector<Real> RHS;
+    if (bc_slip) {
+        sctl::Long ptcl_gridsize = Nelem * ElemOrder * FourierOrder * 3; 
+        sctl::Long Nptcl_slip = elem_lst0.Size() / Nelem; // Number of particles on current MPI process
+        sctl::Vector<Real> ptcls_Xcs_slip(Nptcl_slip * 3, (sctl::Iterator<Real>)ptcls_Xcs.begin() + comm.Rank()*Nptcl_slip*3, true); // Assumes same number of particles on previous processes
+        sctl::Vector<Real> ptcls_rs_slip(Nptcl_slip,  (sctl::Iterator<Real>)ptcls_rs.begin()+comm.Rank()*Nptcl_slip, true);
+        RHS = total_vslip(X0, ptcl_gridsize, Nptcl_slip, ptcls_Xcs_slip, ptcls_rs_slip); // Compute slip for only particles stored on current MPI process
+        if (write_ref) {
+            elem_lst0.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_vslip", RHS, comm);
+        }  
+    } else {
+        if (peri_mode == 1) {
+            RHS = bg_flow_1peri(X0) * (pressure_drop/period_length);
+        } else if (peri_mode == 2) {
+            RHS = bg_flow_2peri(X0) * (pressure_drop/period_length);
+        } else if (peri_mode == 3) {
+            RHS = eval_rhs(pressure_drop);
+        } else {
+            SCTL_ASSERT(false);
+        }
+    }
+    sctl::Vector<Real> A11invF = AinvApply(RHS);
+
+    // =============== Solve and timing =======================================
+    sctl::GMRES<Real> solver(comm);
+    sctl::KrylovPrecond<Real> krylov_precond;
+    // first gmres to remove timing for matrix loading, and set Krylov preconditioner.
+    sctl::Vector<Real> sigma_setup;
+    solver(&sigma_setup, BIO_precond, A11invF, 1e-2);
+    sctl::Profile::reset();
+
+    LayerPotenOp0.ClearSetup();
+    sctl::Profile::Tic("Setup SurfOP");
+    LayerPotenOp0.Setup();
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm);
+    sctl::Profile::reset();
+
+    sctl::Profile::Tic("Solve without Krylov");
+    sctl::Vector<Real> sigma_nokrylov;
+    solver(&sigma_nokrylov, BIO_precond, A11invF, gmres_tol, gmres_max_iter, false);
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    sctl::Profile::reset();
+    comm.Barrier();
+
+    sctl::Vector<Real> sigma;
+    sctl::Profile::Tic("Solver: KrylovPrecond Setup");
+    solver(&sigma, BIO_precond, A11invF, gmres_tol, gmres_max_iter, false, nullptr, &krylov_precond); 
+    sctl::Profile::Toc();
+    sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+    sctl::Profile::reset();
+    comm.Barrier();
+
+    for (int loop=1; loop<5; loop++) {
+        sctl::Vector<Real> sigma1;
+        std::string solvername = "Solver"+std::to_string(loop);
+        sctl::Profile::Tic(solvername.c_str());
+        solver(&sigma1, BIO_precond, A11invF, gmres_tol, gmres_max_iter, false, nullptr, &krylov_precond);
+        sctl::Profile::Toc();
+        sctl::Profile::print(&comm, {"t_avg", "t_max", "f_avg", "f_max", "m_min", "m_avg", "m_max"});
+        sctl::Profile::reset();
+        comm.Barrier();
+    }
+    
+    if (!comm.Rank()) {
+        std::cout << "------------------- DONE WITH SOLVE ======================" << std::endl;
+    }
+
+    // =============== Visualization =======================================
+    if (write_ref) { 
+        // Evaluate solution at target grid in unit cube
+        PeriodicGeom<Real> trg;    
+        CubeVolumeVisShifted<Real> vol_vis(80, 0.95, comm);
+        // Filter out targets inside particles (not in fluid domain)
+        sctl::Vector<Real> X0_all = vol_vis.GetCoord();
+        sctl::Vector<sctl::Long> filtered_inds(X0_all.Dim()/3);
+        std::tuple<sctl::Vector<Real>,sctl::Vector<sctl::Long>> trg_tuple = trg.filter_target(X0_all, ptcls, ptcls_rs, ptcls_Xcs, geom_mode);
+        X0 = std::get<0>(trg_tuple);
+        filtered_inds = std::get<1>(trg_tuple);
+        // Evaluate periodic solution at new targets
+        LayerPotenOp0.SetTargetCoord(X0);
+        sctl::Vector<Real> U;
+        BIO(&U, sigma);
+        if (!bc_slip) {
+            // Add background flow
+            if (peri_mode == 1) {
+                U -= bg_flow_1peri(X0) * (pressure_drop/period_length);
+            } else if (peri_mode == 2) {
+                U -= bg_flow_2peri(X0) * (pressure_drop/period_length);
+            } else if (peri_mode == 3) {
+                U -= eval_rhs(pressure_drop);
+            }
+        }
+
+        sctl::Vector<Real> U_vis(X0_all.Dim());
+        U_vis = 0.;
+        sctl::Long X1_ptr = 0;
+        for (sctl::Long i=0; i<X0_all.Dim()/3; i++) {
+            if (filtered_inds[i] == 0) {
+                U_vis[i*3] = U[X1_ptr*3];
+                U_vis[i*3+1] = U[X1_ptr*3+1];
+                U_vis[i*3+2] = U[X1_ptr*3+2];
+                X1_ptr += 1;
+            }
+        }
+        if (bc_slip) {
+            vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_vslip_U", U_vis); 
+        } else {
+            vol_vis.WriteVTK("vis/"+std::to_string(Nptcl)+"spheres_U", U_vis); 
+        }
+        
+    } 
+}
+
+int main(int argc, char** argv) {
+
+    sctl::Comm::MPI_Init(&argc, &argv);
+    using Real = double;
+
+    {
+        sctl::Comm comm = sctl::Comm::World();
+        sctl::Profile::Enable(true);
+        long Nelem_ptcl = std::stol(argv[1]); // N_p
+        long FourierOrder = std::stol(argv[2]);  // N_f
+        int write_ref = std::stoi(argv[3]); // Whether to write visualization files
+        int peri_mode = std::stoi(argv[4]); // peri_mode = j for j-periodic.
+        long Nptcl = std::stol(argv[5]); // number of particles in suspension
+        long bc_slip = std::stol(argv[6]); // whether to use slip or no-slip for BC; =1 if slip, =0 if no-slip.
+        double gmres_tol = std::stod(argv[7]);
+        double tol = std::stod(argv[8]); // quadrature accuracy
+
+        timing_run<Real>(Nelem_ptcl, FourierOrder, (write_ref==1), peri_mode, (bc_slip==1), comm, Nptcl, gmres_tol, tol);
+    }
+
+    sctl::Comm::MPI_Finalize();
+    return 0;
+}

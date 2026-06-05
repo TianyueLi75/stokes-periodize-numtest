@@ -1,15 +1,15 @@
 # Example Makefile for building CSBQ projects
 
 PVFMM_DIR ?= ./extern/pvfmm
-include $(PVFMM_DIR)/MakeVariables
+-include $(PVFMM_DIR)/MakeVariables
 
 # Directories for SCTL includes and quadrature tables
-SCTL_INCLUDE_DIR ?= $(PVFMM_DIR)/SCTL/include
+SCTL_INCLUDE_DIR ?= $(PVFMM_DIR)/SCTL/include 
 CSBQ_INCLUDE_DIR ?= ./extern/CSBQ/include
 SCTL_DATA_PATH ?= ./extern/CSBQ/data
 
 # Compiler settings
-CXX = $(CXX_PVFMM) # Requires g++-9 or newer, icpc (with gcc compatibility 7.5 or newer), or clang++ with llvm-10 or newer
+CXX = $(CXX_PVFMM) 
 CXXFLAGS = -std=c++17 -fopenmp # Need C++11 and OpenMP
 
 # Define the path for quadrature tables and enable quadruple precision (for reading quadrature tables)
@@ -35,7 +35,8 @@ endif
 CXXFLAGS += -Wall -Wfloat-conversion
 
 # Enable profiling
-CXXFLAGS += -DSCTL_PROFILE=5 -DSCTL_VERBOSE
+CXXFLAGS += -DSCTL_PROFILE=100 -DSCTL_VERBOSE
+# CXXFLAGS += -DSCTL_PROFILE=5 -DSCTL_VERBOSE
 
 # Enable MPI (CXX must be set to mpicxx)
 CXXFLAGS += -DSCTL_HAVE_MPI
@@ -47,7 +48,7 @@ CXXFLAGS += -DSCTL_HAVE_MPI
 # CXXFLAGS += -mkl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK       # Use MKL BLAS and LAPACK (Intel compiler)
 # CXXFLAGS += -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK # Use MKL BLAS and LAPACK (non-Intel compiler)
 # CXXFLAGS += -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -lpthread -lm -ldl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK
-# CXXFLAGS += -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK
+CXXFLAGS += -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK
 
 # Enable FFTW
 # CXXFLAGS += -lfftw3 -DSCTL_HAVE_FFTW
@@ -81,11 +82,38 @@ INCDIR = ./include
 TESTDIR = ./test
 
 TEST_BIN = \
-    $(BINDIR)/test \
-    $(BINDIR)/test1
+    $(BINDIR)/examples \
+    $(BINDIR)/periodization_time \
+	$(BINDIR)/precompute_time \
+	$(BINDIR)/test_convergence \
+	$(BINDIR)/test_periodicity \
+	$(BINDIR)/test_manufactured_soln \
+	$(BINDIR)/timing \
 
 # Test target: build all test binaries
 test: $(TEST_BIN)
+
+# Example script with visualizations in singly- and doubly-periodicity
+examples: $(BINDIR)/examples
+
+# Timing call for scaling; also includes visualization.
+timing: ${BINDIR}/timing
+
+# Timing call for precomputing periodizing operators
+timing_precomp: ${BINDIR}/precompute_time
+
+# Timing call for checking periodization overhead
+timing_periodization: ${BINDIR}/periodization_time
+
+# Test accuracy of singly-periodic code through manufactured solutions on singly-periodic spherical suspensions
+test_manufactured_soln: $(BINDIR)/test_manufactured_soln
+# Test self convergence of solver in singly, doubly, or triply periodic geometries
+test_selfconv: $(BINDIR)/test_convergence
+
+# Verification: check periodicity at two sides of periodic box.
+test_peri: $(BINDIR)/test_periodicity
+
+
 
 # Rules for building binaries
 $(BINDIR)/%: $(OBJDIR)/%.o
