@@ -4,16 +4,16 @@ PVFMM_DIR ?= ./extern/pvfmm
 -include $(PVFMM_DIR)/MakeVariables
 
 # Directories for SCTL includes and quadrature tables
-SCTL_INCLUDE_DIR ?= $(PVFMM_DIR)/SCTL/include 
+SCTL_INCLUDE_DIR ?= $(PVFMM_DIR)/SCTL/include
 CSBQ_INCLUDE_DIR ?= ./extern/CSBQ/include
-SCTL_DATA_PATH ?= ./extern/CSBQ/data
+CSBQ_DATA_PATH ?= ./extern/CSBQ/data
 
 # Compiler settings
 CXX = $(CXX_PVFMM) 
 CXXFLAGS = -std=c++17 -fopenmp # Need C++11 and OpenMP
 
 # Define the path for quadrature tables and enable quadruple precision (for reading quadrature tables)
-CXXFLAGS += -DSCTL_DATA_PATH=$(SCTL_DATA_PATH)
+CXXFLAGS += -DCSBQ_DATA_PATH=$(CSBQ_DATA_PATH)
 CXXFLAGS += -DSCTL_QUAD_T=__float128
 
 
